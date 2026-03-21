@@ -9,7 +9,8 @@ struct MosaicApp: App {
             ContentView(appDelegate: appDelegate)
         }
         .defaultSize(width: 900, height: 600)
-        .windowStyle(.hiddenTitleBar)
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
 
     }
 }
@@ -52,15 +53,11 @@ struct ContentView: View {
         _sidebarViewModel = StateObject(wrappedValue: svm)
     }
 
-    private let titlebarHeight: CGFloat = 32
-
     var body: some View {
         ZStack {
             HStack(spacing: 0) {
                 if isSidebarVisible {
-                    // Sidebar extends full height — top padding for traffic lights
                     SidebarView(viewModel: sidebarViewModel)
-                        .padding(.top, titlebarHeight)
                         .frame(width: sidebarWidth)
                         .transaction { t in t.animation = nil }
                         .transition(.move(edge: .leading))
@@ -74,58 +71,18 @@ struct ContentView: View {
                 }
 
                 ZStack {
-                    VStack(spacing: 0) {
-                        // Custom titlebar strip
-                        HStack(spacing: 8) {
-                            Button(action: { isCommandPalettePresented = true }) {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "magnifyingglass")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.tertiary)
-                                    Text("Search...")
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            .buttonStyle(.plain)
+                    ForEach(workspaceManager.workspaces) { workspace in
+                        let isSelectedWorkspace = workspace.id == workspaceManager.selectedWorkspaceID
+                        let isWorkspaceMode = sidebarViewModel.selection != .settings
+                        let active = isSelectedWorkspace && isWorkspaceMode
+                        WorkspaceView(workspace: workspace, panelManager: panelManager, isActive: active)
+                            .opacity(active ? 1 : 0)
+                            .allowsHitTesting(active)
+                    }
 
-                            Spacer()
-
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    sidebarViewModel.openSettings()
-                                }
-                            }) {
-                                Image(systemName: "gearshape")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 12)
-                        .frame(height: titlebarHeight)
-
-                        // Separator
-                        Rectangle()
-                            .fill(Color.white.opacity(0.08))
-                            .frame(height: 1)
-
-                        // Content below titlebar
-                        ZStack {
-                            ForEach(workspaceManager.workspaces) { workspace in
-                                let isSelectedWorkspace = workspace.id == workspaceManager.selectedWorkspaceID
-                                let isWorkspaceMode = sidebarViewModel.selection != .settings
-                                let active = isSelectedWorkspace && isWorkspaceMode
-                                WorkspaceView(workspace: workspace, panelManager: panelManager, isActive: active)
-                                    .opacity(active ? 1 : 0)
-                                    .allowsHitTesting(active)
-                            }
-
-                            if sidebarViewModel.selection == .settings {
-                                SettingsView()
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                        }
+                    if sidebarViewModel.selection == .settings {
+                        SettingsView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
                     // Find overlay — floats in top-right corner
@@ -174,6 +131,32 @@ struct ContentView: View {
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .zIndex(100)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Button(action: { isCommandPalettePresented = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text("Search...")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 200)
+                }
+                .buttonStyle(.plain)
+            }
+
+            ToolbarItem(placement: .automatic) {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        sidebarViewModel.openSettings()
+                    }
+                }) {
+                    Label("Settings", systemImage: "gearshape")
+                }
             }
         }
         .onAppear {

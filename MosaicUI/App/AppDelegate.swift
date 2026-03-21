@@ -51,7 +51,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MosaicDebug.log("[Mosaic] GhosttyApp initialized successfully, shared=\(GhosttyApp.shared != nil)")
         ghosttyApp = app
 
-        // 2. Set up menu bar status item
+        // 2. Configure thin titlebar on all windows
+        DispatchQueue.main.async {
+            for window in NSApp.windows {
+                window.titlebarAppearsTransparent = true
+                window.titleVisibility = .hidden
+                window.styleMask.insert(.fullSizeContentView)
+                window.toolbar?.displayMode = .iconOnly
+                // Shrink toolbar height
+                if let toolbar = window.toolbar {
+                    toolbar.displayMode = .iconOnly
+                }
+            }
+        }
+
+        // 3. Set up menu bar status item
         setupStatusItem()
 
         // 3. Force dark appearance by default.
