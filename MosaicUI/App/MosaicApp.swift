@@ -138,11 +138,20 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Button(action: { isCommandPalettePresented = true }) {
-                    Label("Search...", systemImage: "magnifyingglass")
-                        .font(.system(size: 12))
-                        .frame(width: 200)
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text("Search...")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 200)
+                    .padding(.vertical, 4)
+                    .background(.quinary)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
-                .controlSize(.small)
+                .buttonStyle(.plain)
                 .help("Search (⌘K)")
             }
 
