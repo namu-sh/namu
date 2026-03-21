@@ -148,8 +148,6 @@ struct ContentView: View {
                     }
                     .frame(width: 200)
                     .padding(.vertical, 4)
-                    .background(.quinary)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 .help("Search (⌘K)")
