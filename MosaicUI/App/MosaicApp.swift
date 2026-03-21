@@ -9,7 +9,8 @@ struct MosaicApp: App {
             ContentView(appDelegate: appDelegate)
         }
         .defaultSize(width: 900, height: 600)
-        .windowStyle(.hiddenTitleBar)
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
 
     }
 }
@@ -54,45 +55,6 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            VStack(spacing: 0) {
-                // Inline control bar (title bar level)
-                HStack(spacing: 8) {
-                    // Draggable area for traffic lights
-                    Color.clear
-                        .frame(width: isSidebarVisible ? sidebarWidth + 8 : 72, height: 28)
-
-                    // Search bar
-                    Button(action: { isCommandPalettePresented = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
-                            Text("Search...")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.tertiary)
-                            Spacer()
-                            Text("⌘K")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.quaternary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-
-                    // Settings
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            sidebarViewModel.openSettings()
-                        }
-                    }) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-
             HStack(spacing: 0) {
                 if isSidebarVisible {
                     SidebarView(viewModel: sidebarViewModel)
@@ -157,7 +119,6 @@ struct ContentView: View {
                         .transition(.move(edge: .trailing))
                 }
             }
-            } // end VStack (control bar + content)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
             .animation(.easeInOut(duration: 0.18), value: isSidebarVisible)
@@ -174,6 +135,35 @@ struct ContentView: View {
                 .zIndex(100)
             }
         }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Button(action: { isCommandPalettePresented = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text("Search...")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(width: 200)
+                }
+                .buttonStyle(.plain)
+                .help("Search (⌘K)")
+            }
+
+            ToolbarItem(placement: .automatic) {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        sidebarViewModel.openSettings()
+                    }
+                }) {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .help("Settings (⌘,)")
+            }
+        }
+        .toolbarBackground(.ultraThinMaterial, for: .windowToolbar)
         .onAppear {
             // Wire AppDelegate shortcuts to our services
             appDelegate.workspaceManager = workspaceManager
