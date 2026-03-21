@@ -147,7 +147,6 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
                     .frame(width: 200)
-                    .padding(.vertical, 4)
                 }
                 .buttonStyle(.plain)
                 .help("Search (⌘K)")
