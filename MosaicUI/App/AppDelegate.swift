@@ -40,6 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setenv("TERM_PROGRAM", "Mosaic", 1)
         setenv("MOSAIC", "1", 1)
         setenv("MOSAIC_SOCKET", "/tmp/mosaic.sock", 1)
+        // Set NAMU_SOCKET_PATH so Claude Code's existing Namu integration
+        // works with Mosaic's compatible socket API.
+        setenv("NAMU_SOCKET_PATH", "/tmp/mosaic.sock", 1)
 
         // 1. Initialize Ghostty (ghostty_init + config + ghostty_app_new) via GhosttyApp.
         //    GhosttyApp.init() handles ghostty_init, config load, and ghostty_app_new.
