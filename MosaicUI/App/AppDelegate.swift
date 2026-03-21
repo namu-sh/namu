@@ -34,9 +34,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Launch
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 0. Clean inherited env vars so child shells are clean.
+        // 0. Clean inherited env vars and set Mosaic identity for child shells.
         unsetenv("CLAUDECODE")
         unsetenv("CLAUDE_CODE")
+        setenv("TERM_PROGRAM", "Mosaic", 1)
+        setenv("MOSAIC", "1", 1)
+        setenv("MOSAIC_SOCKET", "/tmp/mosaic.sock", 1)
 
         // 1. Initialize Ghostty (ghostty_init + config + ghostty_app_new) via GhosttyApp.
         //    GhosttyApp.init() handles ghostty_init, config load, and ghostty_app_new.
