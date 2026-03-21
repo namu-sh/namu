@@ -10,7 +10,7 @@ struct MosaicApp: App {
         }
         .defaultSize(width: 900, height: 600)
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
 
     }
 }
