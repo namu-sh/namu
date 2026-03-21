@@ -98,6 +98,11 @@ final class PanelManager: ObservableObject {
         panels.removeValue(forKey: id)
 
         workspaceManager.update(workspace)
+
+        // Force SwiftUI to re-render the workspace view so the remaining
+        // pane fills the space left by the closed pane.
+        objectWillChange.send()
+
         applyFocus(in: workspace)
     }
 
