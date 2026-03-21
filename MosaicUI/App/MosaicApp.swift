@@ -136,17 +136,18 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Button(action: { isCommandPalettePresented = true }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
                         Text("Search...")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
                     }
-                    .frame(width: 200)
+                    .frame(width: 160)
                 }
                 .buttonStyle(.plain)
+                .controlSize(.mini)
             }
 
             ToolbarItem(placement: .automatic) {
@@ -155,8 +156,10 @@ struct ContentView: View {
                         sidebarViewModel.openSettings()
                     }
                 }) {
-                    Label("Settings", systemImage: "gearshape")
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 10))
                 }
+                .controlSize(.mini)
             }
         }
         .onAppear {
