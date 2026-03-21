@@ -58,8 +58,9 @@ struct ContentView: View {
         ZStack {
             HStack(spacing: 0) {
                 if isSidebarVisible {
-                    // Sidebar extends full height (behind titlebar)
+                    // Sidebar extends full height — top padding for traffic lights
                     SidebarView(viewModel: sidebarViewModel)
+                        .padding(.top, titlebarHeight)
                         .frame(width: sidebarWidth)
                         .transaction { t in t.animation = nil }
                         .transition(.move(edge: .leading))
@@ -103,6 +104,11 @@ struct ContentView: View {
                         }
                         .padding(.horizontal, 12)
                         .frame(height: titlebarHeight)
+
+                        // Separator
+                        Rectangle()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: 1)
 
                         // Content below titlebar
                         ZStack {
