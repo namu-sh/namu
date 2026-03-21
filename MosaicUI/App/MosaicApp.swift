@@ -9,7 +9,8 @@ struct MosaicApp: App {
             ContentView(appDelegate: appDelegate)
         }
         .defaultSize(width: 900, height: 600)
-        .windowStyle(.hiddenTitleBar)
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
 
     }
 }
@@ -134,43 +135,35 @@ struct ContentView: View {
                 .zIndex(100)
             }
         }
-        .overlay(alignment: .top) {
-            // Floating control bar overlaying content (title bar area)
-            HStack(spacing: 8) {
-                // Draggable area for traffic lights
-                Color.clear
-                    .frame(width: isSidebarVisible ? sidebarWidth : 72)
-                    .allowsHitTesting(false)
-
+        .toolbar {
+            ToolbarItem(placement: .principal) {
                 Button(action: { isCommandPalettePresented = true }) {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                         Text("Search...")
                             .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                     }
+                    .frame(width: 200)
                 }
                 .buttonStyle(.plain)
+                .help("Search (⌘K)")
+            }
 
-                Spacer()
-
+            ToolbarItem(placement: .automatic) {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.18)) {
                         sidebarViewModel.openSettings()
                     }
                 }) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                    Label("Settings", systemImage: "gearshape")
                 }
-                .buttonStyle(.plain)
+                .help("Settings (⌘,)")
             }
-            .padding(.horizontal, 10)
-            .frame(height: 28)
-            .allowsHitTesting(true)
         }
+        .toolbarBackground(.ultraThinMaterial, for: .windowToolbar)
         .onAppear {
             // Wire AppDelegate shortcuts to our services
             appDelegate.workspaceManager = workspaceManager
