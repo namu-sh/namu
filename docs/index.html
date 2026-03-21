@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mosaic -- Terminal multiplexer for the agent era</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="page-wrapper">
+    <aside class="sidebar">
+        <a href="index.html" class="sidebar-logo">Mosaic</a>
+        <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
+        <nav>
+            <ul>
+                <li><a href="index.html" class="active">Home</a></li>
+                <li><a href="getting-started.html">Getting Started</a></li>
+                <li><a href="architecture.html">Architecture</a></li>
+                <li><a href="cli-reference.html">CLI Reference</a></li>
+                <li><a href="socket-api.html">Socket API</a></li>
+                <li><a href="ai-integration.html">AI Integration</a></li>
+            </ul>
+        </nav>
+    </aside>
+
+    <main class="content">
+        <h1>Mosaic</h1>
+        <p>
+            Mosaic is a native macOS terminal multiplexer built on
+            <a href="https://ghostty.org/">Ghostty</a> with GPU-accelerated Metal
+            rendering. It organizes work into workspaces with split panes, exposes
+            full programmatic control via a JSON-RPC socket API, and provides
+            <strong>Mosaic AI</strong> -- a built-in natural language control plane
+            accessible through Telegram.
+        </p>
+
+        <hr>
+
+        <h2>Features</h2>
+
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>GPU-Accelerated Terminal</h3>
+                <p>Ghostty-powered Metal rendering with sub-5ms p99 typing latency. Full color support, Unicode, CJK characters, and image protocols.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Workspaces and Splits</h3>
+                <p>Tabbed workspaces with arbitrary horizontal and vertical split nesting. Drag-and-drop reordering. Keyboard-driven navigation.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Shell Integration</h3>
+                <p>Tracks working directory, git branch, listening ports, and command exit codes. OSC 133 semantic zones for prompt detection.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Session Persistence</h3>
+                <p>Quit and relaunch restores all workspaces, split layouts, and scrollback content. Autosaves every 8 seconds.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Socket API</h3>
+                <p>JSON-RPC 2.0 over Unix domain socket. Full programmatic control of workspaces, panes, surfaces, notifications, and AI.</p>
+            </div>
+            <div class="feature-card">
+                <h3>CLI Tool</h3>
+                <p>The <code>mosaic</code> command-line tool for scripting. Workspace management, pane operations, key injection, screen reading.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Mosaic AI</h3>
+                <p>Natural language control plane. Send "split pane and run npm test" and it happens. Claude or OpenAI as swappable backends.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Command Safety</h3>
+                <p>Three-tier safety classification. Destructive pattern detection. Rate limiting for external sources. Confirmation for dangerous commands.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Telegram Gateway</h3>
+                <p>Receive build failure alerts on your phone. Reply with natural language commands. Pairing-token authentication with HMAC signing.</p>
+            </div>
+        </div>
+
+        <hr>
+
+        <h2>Quick Links</h2>
+        <ul>
+            <li><a href="getting-started.html">Getting Started</a> -- prerequisites, setup, building, and running</li>
+            <li><a href="architecture.html">Architecture</a> -- module overview, data flow, design decisions</li>
+            <li><a href="cli-reference.html">CLI Reference</a> -- all commands by namespace with examples</li>
+            <li><a href="socket-api.html">Socket API</a> -- JSON-RPC 2.0 protocol, commands, events</li>
+            <li><a href="ai-integration.html">AI Integration</a> -- Mosaic AI, safety, alerts, Telegram</li>
+        </ul>
+    </main>
+</div>
+</body>
+</html>
