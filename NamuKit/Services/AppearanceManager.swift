@@ -1,0 +1,264 @@
+import Foundation
+import AppKit
+import Combine
+
+// MARK: - AppearanceTheme
+
+enum AppearanceTheme: String, CaseIterable, Codable {
+    case system = "System"
+    case dark   = "Dark"
+    case light  = "Light"
+    case auto   = "Auto"  // time-based switching
+
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .dark:   return "Dark"
+        case .light:  return "Light"
+        case .auto:   return "Auto (time-based)"
+        }
+    }
+}
+
+// MARK: - SidebarMaterial
+
+enum SidebarMaterial: String, CaseIterable, Codable {
+    case glass  = "Glass"
+    case blur   = "Blur"
+    case solid  = "Solid"
+
+    var displayName: String { rawValue }
+
+    var nsVisualEffect: NSVisualEffectView.Material {
+        switch self {
+        case .glass:  return .hudWindow
+        case .blur:   return .sidebar
+        case .solid:  return .windowBackground
+        }
+    }
+}
+
+// MARK: - WorkspaceAppearanceOverride
+
+struct WorkspaceAppearanceOverride: Codable {
+    var theme: AppearanceTheme?
+    var accentColorHex: String?
+}
+
+// MARK: - AppearanceManager
+
+/// Manages app-wide appearance: theme, accent color, window opacity, sidebar tint/material.
+/// Includes time-based auto-switching and per-workspace appearance overrides.
+@MainActor
+final class AppearanceManager: ObservableObject {
+
+    static let shared = AppearanceManager()
+
+    // MARK: - Published
+
+    @Published var theme: AppearanceTheme {
+        didSet {
+            UserDefaults.standard.set(theme.rawValue, forKey: Keys.theme)
+            applyTheme()
+            rescheduleAutoTimer()
+        }
+    }
+
+    @Published var accentColorHex: String? {
+        didSet {
+            UserDefaults.standard.set(accentColorHex, forKey: Keys.accentColor)
+        }
+    }
+
+    @Published var windowOpacity: Double {
+        didSet {
+            let clamped = windowOpacity.clamped(to: 0.3...1.0)
+            if clamped != windowOpacity { windowOpacity = clamped; return }
+            UserDefaults.standard.set(clamped, forKey: Keys.windowOpacity)
+            applyWindowOpacity()
+        }
+    }
+
+    /// Sidebar tint color stored as hex string.
+    @Published var sidebarTintColorHex: String {
+        didSet {
+            UserDefaults.standard.set(sidebarTintColorHex, forKey: Keys.sidebarTintColor)
+        }
+    }
+
+    /// Sidebar tint opacity (0.0 – 1.0).
+    @Published var sidebarTintOpacity: Double {
+        didSet {
+            let clamped = sidebarTintOpacity.clamped(to: 0.0...1.0)
+            if clamped != sidebarTintOpacity { sidebarTintOpacity = clamped; return }
+            UserDefaults.standard.set(clamped, forKey: Keys.sidebarTintOpacity)
+        }
+    }
+
+    /// Background material used behind the sidebar.
+    @Published var sidebarMaterial: SidebarMaterial {
+        didSet {
+            UserDefaults.standard.set(sidebarMaterial.rawValue, forKey: Keys.sidebarMaterial)
+        }
+    }
+
+    /// Light-mode start hour for auto theme (0–23).
+    @Published var autoLightHour: Int {
+        didSet {
+            UserDefaults.standard.set(autoLightHour, forKey: Keys.autoLightHour)
+            if theme == .auto { applyAutoTheme() }
+        }
+    }
+
+    /// Dark-mode start hour for auto theme (0–23).
+    @Published var autoDarkHour: Int {
+        didSet {
+            UserDefaults.standard.set(autoDarkHour, forKey: Keys.autoDarkHour)
+            if theme == .auto { applyAutoTheme() }
+        }
+    }
+
+    /// Per-workspace overrides keyed by workspace UUID string.
+    @Published var workspaceOverrides: [String: WorkspaceAppearanceOverride] {
+        didSet { persistWorkspaceOverrides() }
+    }
+
+    // MARK: - Private
+
+    private var autoTimer: Timer?
+
+    // MARK: - Init
+
+    private init() {
+        let defaults = UserDefaults.standard
+
+        let rawTheme = defaults.string(forKey: Keys.theme) ?? ""
+        theme = AppearanceTheme(rawValue: rawTheme) ?? .system
+
+        accentColorHex = defaults.string(forKey: Keys.accentColor)
+
+        let savedOpacity = defaults.double(forKey: Keys.windowOpacity)
+        windowOpacity = savedOpacity > 0 ? savedOpacity : 1.0
+
+        sidebarTintColorHex = defaults.string(forKey: Keys.sidebarTintColor) ?? "#101010"
+        let savedTintOpacity = defaults.object(forKey: Keys.sidebarTintOpacity) as? Double ?? 0.54
+        sidebarTintOpacity = savedTintOpacity
+
+        let rawMaterial = defaults.string(forKey: Keys.sidebarMaterial) ?? ""
+        sidebarMaterial = SidebarMaterial(rawValue: rawMaterial) ?? .blur
+
+        autoLightHour = defaults.object(forKey: Keys.autoLightHour) as? Int ?? 7
+        autoDarkHour  = defaults.object(forKey: Keys.autoDarkHour)  as? Int ?? 20
+
+        workspaceOverrides = Self.loadWorkspaceOverrides(from: defaults)
+
+        applyTheme()
+        applyWindowOpacity()
+        rescheduleAutoTimer()
+    }
+
+    deinit {
+        autoTimer?.invalidate()
+    }
+
+    // MARK: - Apply
+
+    func applyTheme() {
+        switch theme {
+        case .system: NSApp.appearance = nil
+        case .dark:   NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .light:  NSApp.appearance = NSAppearance(named: .aqua)
+        case .auto:   applyAutoTheme()
+        }
+    }
+
+    func applyWindowOpacity() {
+        for window in NSApp.windows {
+            window.alphaValue = CGFloat(windowOpacity)
+        }
+    }
+
+    /// Apply theme for a specific workspace, temporarily overriding global theme.
+    func applyWorkspaceOverride(workspaceID: String) {
+        guard let override = workspaceOverrides[workspaceID] else {
+            applyTheme()
+            return
+        }
+        if let overrideTheme = override.theme {
+            switch overrideTheme {
+            case .system: NSApp.appearance = nil
+            case .dark:   NSApp.appearance = NSAppearance(named: .darkAqua)
+            case .light:  NSApp.appearance = NSAppearance(named: .aqua)
+            case .auto:   applyAutoTheme()
+            }
+        }
+    }
+
+    func setWorkspaceOverride(_ override: WorkspaceAppearanceOverride?, forID id: String) {
+        if let override {
+            workspaceOverrides[id] = override
+        } else {
+            workspaceOverrides.removeValue(forKey: id)
+        }
+    }
+
+    // MARK: - Auto theme
+
+    private func applyAutoTheme() {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let isDark: Bool
+        if autoLightHour < autoDarkHour {
+            isDark = hour < autoLightHour || hour >= autoDarkHour
+        } else {
+            isDark = hour >= autoDarkHour && hour < autoLightHour
+        }
+        NSApp.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+    }
+
+    private func rescheduleAutoTimer() {
+        autoTimer?.invalidate()
+        autoTimer = nil
+        guard theme == .auto else { return }
+        // Fire every minute to catch hour boundaries.
+        autoTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in self.applyAutoTheme() }
+        }
+    }
+
+    // MARK: - Workspace override persistence
+
+    private static func loadWorkspaceOverrides(from defaults: UserDefaults) -> [String: WorkspaceAppearanceOverride] {
+        guard let data = defaults.data(forKey: Keys.workspaceOverrides),
+              let decoded = try? JSONDecoder().decode([String: WorkspaceAppearanceOverride].self, from: data)
+        else { return [:] }
+        return decoded
+    }
+
+    private func persistWorkspaceOverrides() {
+        guard let data = try? JSONEncoder().encode(workspaceOverrides) else { return }
+        UserDefaults.standard.set(data, forKey: Keys.workspaceOverrides)
+    }
+
+    // MARK: - Keys
+
+    private enum Keys {
+        static let theme             = "namu.appearance.theme"
+        static let accentColor       = "namu.appearance.accentColor"
+        static let windowOpacity     = "namu.appearance.windowOpacity"
+        static let sidebarTintColor  = "namu.appearance.sidebarTintColor"
+        static let sidebarTintOpacity = "namu.appearance.sidebarTintOpacity"
+        static let sidebarMaterial   = "namu.appearance.sidebarMaterial"
+        static let autoLightHour     = "namu.appearance.autoLightHour"
+        static let autoDarkHour      = "namu.appearance.autoDarkHour"
+        static let workspaceOverrides = "namu.appearance.workspaceOverrides"
+    }
+}
+
+// MARK: - Double+Clamped
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        min(range.upperBound, max(range.lowerBound, self))
+    }
+}

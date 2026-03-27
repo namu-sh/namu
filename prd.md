@@ -1,4 +1,4 @@
-# Mosaic — Product Requirements Document & Implementation Plan
+# Namu — Product Requirements Document & Implementation Plan
 
 > A native macOS/iOS terminal multiplexer that gives any coding agent rich workspace context via MCP, syncs terminals across devices, and alerts you through any messaging app.
 
@@ -6,7 +6,7 @@
 
 ## 1. Vision
 
-Mosaic is a terminal for the agent era. It embeds Ghostty for GPU-accelerated terminal rendering, organizes work into workspaces with split panes and browser panels, and exposes everything — scrollback, ports, git state, shell activity — as structured context that any coding agent can read and act on. Terminals sync to your phone. Alerts reach you on Telegram, WhatsApp, or iMessage. You reply in natural language; your agent executes.
+Namu is a terminal for the agent era. It embeds Ghostty for GPU-accelerated terminal rendering, organizes work into workspaces with split panes and browser panels, and exposes everything — scrollback, ports, git state, shell activity — as structured context that any coding agent can read and act on. Terminals sync to your phone. Alerts reach you on Telegram, WhatsApp, or iMessage. You reply in natural language; your agent executes.
 
 ---
 
@@ -33,7 +33,7 @@ Mosaic is a terminal for the agent era. It embeds Ghostty for GPU-accelerated te
 | **Browser Panel** | A WebKit-based embedded browser. |
 | **Agent** | An external coding tool (Claude Code, Codex, Copilot, Aider, or any CLI) connected via MCP. |
 | **Digest** | A structured, real-time summary of a workspace or panel's state. |
-| **Gateway** | A server process that bridges Mosaic to messaging platforms. |
+| **Gateway** | A server process that bridges Namu to messaging platforms. |
 
 ---
 
@@ -83,7 +83,7 @@ Mosaic is a terminal for the agent era. It embeds Ghostty for GPU-accelerated te
 | ID | Requirement | Priority |
 |---|---|---|
 | S-1 | Unix socket server with JSON-RPC 2.0 protocol | P0 |
-| S-2 | CLI tool (`mosaic`) that communicates via socket | P0 |
+| S-2 | CLI tool (`namu`) that communicates via socket | P0 |
 | S-3 | Access control modes: local-only, password-protected, open | P0 |
 | S-4 | Command namespaces: `workspace.*`, `panel.*`, `pane.*`, `surface.*`, `browser.*`, `notification.*`, `system.*` | P0 |
 | S-5 | Focus policy: non-focus commands must not steal app/window focus | P0 |
@@ -93,14 +93,14 @@ Mosaic is a terminal for the agent era. It embeds Ghostty for GPU-accelerated te
 
 | ID | Requirement | Priority |
 |---|---|---|
-| R-1 | `mosaic ssh user@host` opens a remote workspace with shell integration | P1 |
+| R-1 | `namu ssh user@host` opens a remote workspace with shell integration | P1 |
 | R-2 | Remote daemon (Go binary) for PTY management on remote hosts | P1 |
 | R-3 | CLI relay over SSH reverse TCP forward (works when Unix socket forwarding is disabled) | P1 |
 | R-4 | HMAC-SHA256 authentication for relay connections | P1 |
 | R-5 | Proxy tunneling (SOCKS5/HTTP CONNECT) for browser panels on remote workspaces | P2 |
 | R-6 | Smallest-screen-wins resize coordination for multi-attach sessions | P2 |
 
-### 4.6 Agent Bridge (Mosaic AI)
+### 4.6 Agent Bridge (Namu AI)
 
 | ID | Requirement | Priority |
 |---|---|---|
@@ -158,10 +158,10 @@ PanelDigest {
 | G-2 | `GatewayChannel` protocol with adapters for Telegram, WhatsApp, iMessage | P1 |
 | G-3 | Bidirectional: alerts go out, user replies come back | P1 |
 | G-4 | Inbound messages routed to active `AgentProvider` for natural language understanding | P1 |
-| G-5 | Agent resolves user intent → socket command → Mosaic executes | P1 |
-| G-6 | WebSocket persistent connection between Mosaic desktop and Gateway | P1 |
+| G-5 | Agent resolves user intent → socket command → Namu executes | P1 |
+| G-6 | WebSocket persistent connection between Namu desktop and Gateway | P1 |
 | G-7 | Multi-instance support: multiple Macs connect to one Gateway | P2 |
-| G-8 | User account linking (messaging identity → Mosaic user) | P1 |
+| G-8 | User account linking (messaging identity → Namu user) | P1 |
 | G-9 | Conversation history per channel | P2 |
 
 **Channel priority:**
@@ -219,7 +219,7 @@ Mac captures screen state from Ghostty, diffs, ships over WebSocket. iOS renders
 
 ```
 mosaic/
-├── MosaicKit/                       # Shared framework (macOS + iOS, no UI imports)
+├── NamuKit/                       # Shared framework (macOS + iOS, no UI imports)
 │   ├── Domain/
 │   │   ├── Workspace.swift              # Pure value type: id, title, order, pinned
 │   │   ├── Panel.swift                  # Protocol + TerminalPanel, BrowserPanel, MarkdownPanel
@@ -284,9 +284,9 @@ mosaic/
 │       ├── GatewayChannel.swift         # Protocol: messaging channel adapter
 │       └── MessageModels.swift          # Alert, inbound/outbound message types
 │
-├── MosaicUI/                        # macOS app (SwiftUI + AppKit)
+├── NamuUI/                        # macOS app (SwiftUI + AppKit)
 │   ├── App/
-│   │   ├── MosaicApp.swift              # @main, environment injection
+│   │   ├── NamuApp.swift              # @main, environment injection
 │   │   └── AppDelegate.swift            # Window chrome, menu bar (slim, <500 lines)
 │   │
 │   ├── Sidebar/
@@ -331,9 +331,9 @@ mosaic/
 │       ├── UpdateController.swift
 │       └── UpdatePillView.swift
 │
-├── MosaicIOS/                       # iOS app target
+├── NamuIOS/                       # iOS app target
 │   ├── App/
-│   │   └── MosaicIOSApp.swift
+│   │   └── NamuIOSApp.swift
 │   ├── Terminal/
 │   │   ├── RemoteTerminalView.swift     # Renders TerminalFrame (no Ghostty)
 │   │   └── TouchInputAdapter.swift      # Touch/swipe → terminal input
@@ -345,10 +345,10 @@ mosaic/
 │   └── Widget/
 │       └── WorkspaceStatusWidget.swift
 │
-├── MosaicGateway/                   # Standalone server (deployable)
+├── NamuGateway/                   # Standalone server (deployable)
 │   ├── main.swift
 │   ├── WebhookRouter.swift              # HTTP endpoints for Telegram/WhatsApp webhooks
-│   ├── SessionManager.swift             # Tracks connected Mosaic instances
+│   ├── SessionManager.swift             # Tracks connected Namu instances
 │   ├── PushRelay.swift                  # APNs for iOS push notifications
 │   └── Channels/
 │       ├── TelegramChannel.swift
@@ -374,12 +374,12 @@ mosaic/
 │   └── themes/                          # Bundled Ghostty themes
 │
 ├── Tests/
-│   ├── MosaicKitTests/
+│   ├── NamuKitTests/
 │   │   ├── Domain/
 │   │   ├── IPC/
 │   │   ├── AI/
 │   │   └── Services/
-│   ├── MosaicUITests/
+│   ├── NamuUITests/
 │   ├── GatewayTests/
 │   └── SocketTests/                     # Python integration tests against socket API
 │
@@ -393,7 +393,7 @@ mosaic/
 │   └── bump-version.sh                  # Version management
 │
 ├── Package.swift
-├── Mosaic.xcodeproj/
+├── Namu.xcodeproj/
 ├── CLAUDE.md
 ├── README.md
 └── CHANGELOG.md
@@ -402,17 +402,17 @@ mosaic/
 ### 5.2 Dependency Graph
 
 ```
-MosaicIOS ──→ MosaicKit ←── MosaicUI (macOS)
+NamuIOS ──→ NamuKit ←── NamuUI (macOS)
                   ↑
-           MosaicGateway
+           NamuGateway
 
-MosaicKit imports: Foundation, Combine, Network (no AppKit, no SwiftUI, no UIKit)
-MosaicUI  imports: MosaicKit, SwiftUI, AppKit, WebKit, Sparkle
-MosaicIOS imports: MosaicKit, SwiftUI, UIKit, WidgetKit
-MosaicGateway imports: MosaicKit (Domain + Gateway only), Foundation, Network
+NamuKit imports: Foundation, Combine, Network (no AppKit, no SwiftUI, no UIKit)
+NamuUI  imports: NamuKit, SwiftUI, AppKit, WebKit, Sparkle
+NamuIOS imports: NamuKit, SwiftUI, UIKit, WidgetKit
+NamuGateway imports: NamuKit (Domain + Gateway only), Foundation, Network
 ```
 
-**Enforcement:** `MosaicKit` is a Swift package with no platform UI framework dependencies. If someone accidentally imports AppKit in `MosaicKit`, it won't compile for iOS.
+**Enforcement:** `NamuKit` is a Swift package with no platform UI framework dependencies. If someone accidentally imports AppKit in `NamuKit`, it won't compile for iOS.
 
 ### 5.3 Data Flow
 
@@ -471,13 +471,13 @@ iOS sync
 
 | Step | Deliverable |
 |---|---|
-| 0.1 | Create Xcode project with `MosaicKit` (Swift package) and `MosaicUI` (app target) |
+| 0.1 | Create Xcode project with `NamuKit` (Swift package) and `NamuUI` (app target) |
 | 0.2 | Add Ghostty as git submodule, build GhosttyKit xcframework (`scripts/setup.sh`) |
 | 0.3 | Implement `GhosttyBridge.swift` — thin C FFI wrapper around `ghostty_surface_t` |
 | 0.4 | Implement `TerminalSession.swift` — lifecycle management (create, resize, destroy) |
 | 0.5 | Implement `TerminalRenderer.swift` — display link, IOSurface hosting |
 | 0.6 | Implement `TerminalView.swift` (NSViewRepresentable) and `TerminalPortalView.swift` (AppKit hit-test host) |
-| 0.7 | Create `MosaicApp.swift` (@main) and `AppDelegate.swift` — single window, single terminal |
+| 0.7 | Create `NamuApp.swift` (@main) and `AppDelegate.swift` — single window, single terminal |
 | 0.8 | Verify: keystroke → Ghostty → rendered output. Measure typing latency. |
 
 **Exit criteria:** A macOS window running a fully functional terminal. Typing latency < 5ms.
@@ -529,7 +529,7 @@ iOS sync
 | 3.6 | Implement `NotificationService.swift` + `NotificationCommands.swift` — in-app notifications with badges |
 | 3.7 | Write Python integration test suite against socket API |
 
-**Exit criteria:** `mosaic workspace list`, `mosaic panel send-keys`, `mosaic notify` all work. Test suite passes.
+**Exit criteria:** `namu workspace list`, `namu panel send-keys`, `namu notify` all work. Test suite passes.
 
 ### Phase 4: Browser Panel (Weeks 9-10)
 
@@ -562,7 +562,7 @@ iOS sync
 | 5.9 | Implement agent config: `~/.config/mosaic/agents.json`, per-workspace agent assignment |
 | 5.10 | Implement `AIContextPopover.swift` — click tab to see agent-generated summary |
 
-**Exit criteria:** Claude Code running inside Mosaic can read workspace context via MCP resources and execute commands via MCP tools. Codex CLI works as alternative provider.
+**Exit criteria:** Claude Code running inside Namu can read workspace context via MCP resources and execute commands via MCP tools. Codex CLI works as alternative provider.
 
 ### Phase 6: Alert Engine (Week 14)
 
@@ -584,14 +584,14 @@ iOS sync
 
 | Step | Deliverable |
 |---|---|
-| 7.1 | Implement `MosaicGateway/main.swift` — standalone server with HTTP + WebSocket |
+| 7.1 | Implement `NamuGateway/main.swift` — standalone server with HTTP + WebSocket |
 | 7.2 | Implement `GatewayChannel.swift` protocol |
 | 7.3 | Implement `TelegramChannel.swift` — Telegram Bot API webhook handler |
-| 7.4 | Implement `GatewayClient.swift` in `MosaicKit` — WebSocket connection from desktop app to Gateway |
+| 7.4 | Implement `GatewayClient.swift` in `NamuKit` — WebSocket connection from desktop app to Gateway |
 | 7.5 | Wire `AlertEngine` → `GatewayClient` — alerts pushed to Gateway → Telegram |
 | 7.6 | Implement inbound message handling: Telegram reply → Gateway → `GatewayClient` → active `AgentProvider` for NLU → `CommandRegistry` executes |
-| 7.7 | Implement `SessionManager.swift` — track multiple connected Mosaic instances |
-| 7.8 | Implement `UserLinkService.swift` — link messaging accounts to Mosaic user |
+| 7.7 | Implement `SessionManager.swift` — track multiple connected Namu instances |
+| 7.8 | Implement `UserLinkService.swift` — link messaging accounts to Namu user |
 | 7.9 | Implement `WhatsAppChannel.swift` and `iMessageChannel.swift` |
 | 7.10 | Implement `PushRelay.swift` — APNs integration for iOS push |
 
@@ -603,7 +603,7 @@ iOS sync
 
 | Step | Deliverable |
 |---|---|
-| 8.1 | Create `MosaicIOS` target importing `MosaicKit` |
+| 8.1 | Create `NamuIOS` target importing `NamuKit` |
 | 8.2 | Implement `SyncEngine.swift` + `SyncTransport.swift` — state sync via Gateway WebSocket |
 | 8.3 | Implement `WorkspaceListView.swift` — live workspace list from synced digests |
 | 8.4 | Implement `PanelListView.swift` — panel list per workspace with metadata |
@@ -618,7 +618,7 @@ iOS sync
 
 ### Phase 9: SSH Remote (Weeks 22-24)
 
-**Goal:** `mosaic ssh user@host` for remote terminal workspaces.
+**Goal:** `namu ssh user@host` for remote terminal workspaces.
 
 | Step | Deliverable |
 |---|---|
@@ -626,11 +626,11 @@ iOS sync
 | 9.2 | Implement PTY session management with smallest-screen-wins resize |
 | 9.3 | Implement `SSHSessionController.swift` — SSH connection, daemon deployment, reverse TCP relay |
 | 9.4 | Implement HMAC-SHA256 relay authentication |
-| 9.5 | Implement remote CLI relay — `mosaic` commands work inside SSH sessions |
+| 9.5 | Implement remote CLI relay — `namu` commands work inside SSH sessions |
 | 9.6 | Implement `ProxyBroker.swift` — SOCKS5/HTTP CONNECT for remote browser panels |
 | 9.7 | Implement remote workspace UI indicators (connection status, latency) |
 
-**Exit criteria:** `mosaic ssh user@host` opens a workspace with full shell integration, CLI access, and browser proxying.
+**Exit criteria:** `namu ssh user@host` opens a workspace with full shell integration, CLI access, and browser proxying.
 
 ### Phase 10: Polish & Release (Weeks 25-26)
 
@@ -654,7 +654,7 @@ iOS sync
 | Terminal rendering | Ghostty (Zig/C, Metal GPU) via xcframework |
 | macOS UI | SwiftUI + AppKit (hybrid, portals for perf) |
 | iOS UI | SwiftUI + UIKit (terminal renderer) |
-| Shared logic | Swift package (`MosaicKit`), Foundation + Combine |
+| Shared logic | Swift package (`NamuKit`), Foundation + Combine |
 | Browser | WebKit (WKWebView) |
 | Socket API | Unix domain socket, JSON-RPC 2.0 |
 | Remote daemon | Go 1.22, stdin/stdout RPC |
@@ -870,7 +870,7 @@ Logged if any phase > 1ms
 ### B.1 Workspace
 
 ```swift
-// MosaicKit/Domain/Workspace.swift — pure value type
+// NamuKit/Domain/Workspace.swift — pure value type
 struct Workspace: Identifiable, Codable, Equatable {
     let id: UUID
     var title: String
@@ -1103,8 +1103,8 @@ struct BrowserPanelSnapshot: Codable, Sendable {
 
 ### C.1 Server Setup
 
-- **Path:** `~/.local/share/mosaic/mosaic.sock` (stable default)
-- **Debug:** `/tmp/mosaic-debug.sock` or `/tmp/mosaic-debug-<tag>.sock`
+- **Path:** `~/.local/share/mosaic/namu.sock` (stable default)
+- **Debug:** `/tmp/namu-debug.sock` or `/tmp/namu-debug-<tag>.sock`
 - **Override:** `MOSAIC_SOCKET_PATH` or `MOSAIC_SOCKET` environment variable
 - **Discovery:** Path written to `~/.local/share/mosaic/last-socket-path` for CLI lookup
 - **Backlog:** 128 pending connections
@@ -1122,7 +1122,7 @@ else                   → space-delimited text (V1 legacy)
 | Mode | Permissions | Verification |
 |---|---|---|
 | `off` | 0o600 | Socket disabled entirely |
-| `localOnly` | 0o600 | PID ancestry check: client must be descendant of Mosaic process (via `LOCAL_PEERPID` + `sysctl KERN_PROC_PID` walk, up to 128 levels) |
+| `localOnly` | 0o600 | PID ancestry check: client must be descendant of Namu process (via `LOCAL_PEERPID` + `sysctl KERN_PROC_PID` walk, up to 128 levels) |
 | `automation` | 0o600 | Same UID only (no ancestry validation) |
 | `password` | 0o600 | Requires `auth.login` with password before any command. Password from: (1) `MOSAIC_SOCKET_PASSWORD` env, (2) `~/.local/share/mosaic/socket-control-password` file |
 | `allowAll` | 0o666 | No restrictions (any local process) |
@@ -1411,18 +1411,18 @@ config.userContentController.addUserScript(telemetryBootstrap)
 // Inject address bar focus tracking
 config.userContentController.addUserScript(focusTrackingBootstrap)
 
-let webView = MosaicWebView(frame: .zero, configuration: config)
+let webView = NamuWebView(frame: .zero, configuration: config)
 webView.allowsBackForwardNavigationGestures = true
 webView.isInspectable = true                    // enables DevTools
 webView.customUserAgent = safariUserAgent       // Safari UA for compatibility
 ```
 
-### D.2 First-Responder Hardening (MosaicWebView)
+### D.2 First-Responder Hardening (NamuWebView)
 
 WKWebView aggressively tries to become first responder (via internal JavaScript focus events). Background panes must be prevented from stealing focus:
 
 ```swift
-class MosaicWebView: WKWebView {
+class NamuWebView: WKWebView {
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
 
@@ -1650,18 +1650,18 @@ The daemon also works as a CLI relay, translating local commands to socket JSON-
 
 | CLI Command | Socket Method | Key Flags |
 |---|---|---|
-| `mosaic list-workspaces` | `workspace.list` | — |
-| `mosaic new-workspace` | `workspace.create` | `--command`, `--working-directory`, `--name` |
-| `mosaic select-workspace` | `workspace.select` | `--workspace` |
-| `mosaic list-panels` | `surface.list` | `--workspace` |
-| `mosaic focus-panel` | `surface.focus` | `--panel` |
-| `mosaic new-split` | `surface.split` | `--surface`, `--direction` |
-| `mosaic send` | `surface.send_text` | `--surface`, `--text` |
-| `mosaic send-key` | `surface.send_key` | `--surface`, `--key` |
-| `mosaic notify` | `notification.create` | `--title`, `--body`, `--workspace` |
-| `mosaic browser open` | `browser.open_split` | `--url`, `--workspace` |
-| `mosaic browser navigate` | `browser.navigate` | `--url`, `--surface` |
-| `mosaic rpc <method> [json]` | passthrough | arbitrary JSON-RPC |
+| `namu list-workspaces` | `workspace.list` | — |
+| `namu new-workspace` | `workspace.create` | `--command`, `--working-directory`, `--name` |
+| `namu select-workspace` | `workspace.select` | `--workspace` |
+| `namu list-panels` | `surface.list` | `--workspace` |
+| `namu focus-panel` | `surface.focus` | `--panel` |
+| `namu new-split` | `surface.split` | `--surface`, `--direction` |
+| `namu send` | `surface.send_text` | `--surface`, `--text` |
+| `namu send-key` | `surface.send_key` | `--surface`, `--key` |
+| `namu notify` | `notification.create` | `--title`, `--body`, `--workspace` |
+| `namu browser open` | `browser.open_split` | `--url`, `--workspace` |
+| `namu browser navigate` | `browser.navigate` | `--url`, `--surface` |
+| `namu rpc <method> [json]` | passthrough | arbitrary JSON-RPC |
 
 Flag mappings: `--workspace` → `workspace_id`, `--surface` → `surface_id`, `--panel` → `surface_id`, `--pane` → `pane_id`. Environment fallbacks: `MOSAIC_WORKSPACE_ID`, `MOSAIC_SURFACE_ID`.
 

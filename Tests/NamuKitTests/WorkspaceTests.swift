@@ -1,5 +1,5 @@
 import XCTest
-@testable import Mosaic
+@testable import Namu
 
 final class WorkspaceTests: XCTestCase {
     func testWorkspaceCreation() {

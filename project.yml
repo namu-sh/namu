@@ -1,6 +1,6 @@
-name: Mosaic
+name: Namu
 options:
-  bundleIdPrefix: ai.manaflow.mosaic
+  bundleIdPrefix: xyz.omlabs.namu
   deploymentTarget:
     macOS: "14.0"
   xcodeVersion: "16.0"
@@ -12,24 +12,44 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/Mosaic-Bridging-Header.h"
+    SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/Namu-Bridging-Header.h"
 
 targets:
-  Mosaic:
+  namu-cli:
+    type: tool
+    platform: macOS
+    sources:
+      - path: CLI
+    settings:
+      base:
+        PRODUCT_NAME: namu
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_ALLOWED: NO
+        SWIFT_OBJC_BRIDGING_HEADER: ""
+
+  Namu:
     type: application
     platform: macOS
     sources:
-      - path: MosaicKit
-      - path: MosaicUI
+      - path: NamuKit
+      - path: NamuUI
+      - path: Resources/bin
+        type: folder
+        buildPhase: resources
+      - path: Resources/shell-integration
+        type: folder
+        buildPhase: resources
     dependencies:
       - framework: ghostty/macos/GhosttyKit.xcframework
         embed: false
+      - target: namu-cli
+        embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.manaflow.mosaic
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.omlabs.namu
         INFOPLIST_FILE: Resources/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Mosaic.entitlements
-        PRODUCT_NAME: Mosaic
+        CODE_SIGN_ENTITLEMENTS: Namu.entitlements
+        PRODUCT_NAME: Namu
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         LD_RUNPATH_SEARCH_PATHS:
           - "@executable_path/../Frameworks"
@@ -40,32 +60,40 @@ targets:
           - "-lc++"
           - "-framework"
           - "Carbon"
+    postBuildScripts:
+      - name: Copy CLI to Resources/bin
+        script: |
+          mkdir -p "${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin"
+          cp -f "${BUILT_PRODUCTS_DIR}/namu" "${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/namu"
+          chmod +x "${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/namu"
+        basedOnDependencyAnalysis: false
 
-  MosaicTests:
+  NamuTests:
     type: bundle.unit-test
     platform: macOS
     sources:
       - path: Tests
     dependencies:
-      - target: Mosaic
+      - target: Namu
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.manaflow.mosaic.tests
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.omlabs.namu.tests
         GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Mosaic.app/Contents/MacOS/Mosaic"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Namu.app/Contents/MacOS/Namu"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
 schemes:
-  Mosaic:
+  Namu:
     build:
       targets:
-        Mosaic: all
+        Namu: all
+        namu-cli: all
     run:
       config: Debug
     test:
       config: Debug
       targets:
-        - MosaicTests
+        - NamuTests
     profile:
       config: Release
     analyze:
