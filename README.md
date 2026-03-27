@@ -34,8 +34,8 @@ Namu is a native macOS terminal built on [Ghostty](https://ghostty.org/) that or
 ### Setup
 
 ```bash
-git clone --recursive https://github.com/manaflow-ai/mosaic.git
-cd mosaic
+git clone --recursive https://github.com/omxyz/namu.git
+cd namu
 ./Scripts/setup.sh       # builds GhosttyKit xcframework
 xcodegen generate        # generates Namu.xcodeproj
 open Namu.xcodeproj

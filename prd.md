@@ -110,7 +110,7 @@ Namu is a terminal for the agent era. It embeds Ghostty for GPU-accelerated term
 | A-4 | MCP tools exposing socket commands (send keys, run command, create workspace, split, notify) | P0 |
 | A-5 | `ContextCollector`: real-time aggregation of workspace/panel state into `WorkspaceDigest` and `PanelDigest` | P0 |
 | A-6 | Per-workspace agent assignment (different agent per workspace) | P1 |
-| A-7 | Agent configuration via `~/.config/mosaic/agents.json` | P0 |
+| A-7 | Agent configuration via `~/.config/namu/agents.json` | P0 |
 | A-8 | AI context popover: hover/click a tab to see agent-generated summary | P1 |
 | A-9 | AI sidebar section: live insights from active agents | P2 |
 
@@ -218,7 +218,7 @@ Mac captures screen state from Ghostty, diffs, ships over WebSocket. iOS renders
 ### 5.1 Module Map
 
 ```
-mosaic/
+namu/
 ├── NamuKit/                       # Shared framework (macOS + iOS, no UI imports)
 │   ├── Domain/
 │   │   ├── Workspace.swift              # Pure value type: id, title, order, pinned
@@ -355,8 +355,8 @@ mosaic/
 │       ├── WhatsAppChannel.swift
 │       └── iMessageChannel.swift
 │
-├── mosaic-remote/                   # Go daemon for SSH remote sessions
-│   ├── cmd/mosaic-remote/
+├── namu-remote/                   # Go daemon for SSH remote sessions
+│   ├── cmd/namu-remote/
 │   │   ├── main.go                      # RPC server (stdio), CLI relay
 │   │   ├── session.go                   # PTY management, resize coordinator
 │   │   ├── proxy.go                     # SOCKS5/HTTP CONNECT tunneling
@@ -365,7 +365,7 @@ mosaic/
 │   └── go.sum
 │
 ├── CLI/
-│   └── mosaic.swift                     # CLI tool: parses args → JSON-RPC to socket
+│   └── namu.swift                     # CLI tool: parses args → JSON-RPC to socket
 │
 ├── Resources/
 │   ├── Info.plist
@@ -439,7 +439,7 @@ Socket command arrives
 Agent interaction
   → AgentBridge exposes MCP server (resources + tools)
   → Agent reads Namu://workspace/123 → gets WorkspaceDigest
-  → Agent calls mosaic_send_keys tool → CommandRegistry dispatches
+  → Agent calls namu_send_keys tool → CommandRegistry dispatches
   → Agent sends message → AgentBridge routes to NotificationService or Gateway
 
 iOS sync
@@ -525,7 +525,7 @@ iOS sync
 | 3.2 | Implement `CommandRegistry.swift` + `CommandDispatcher.swift` — handler registration and JSON-RPC routing |
 | 3.3 | Implement `AccessControl.swift` — socket modes (local-only, password, open) |
 | 3.4 | Implement command handlers: `WorkspaceCommands`, `PanelCommands`, `PaneCommands`, `SystemCommands` |
-| 3.5 | Implement `CLI/mosaic.swift` — CLI tool that sends JSON-RPC to socket |
+| 3.5 | Implement `CLI/namu.swift` — CLI tool that sends JSON-RPC to socket |
 | 3.6 | Implement `NotificationService.swift` + `NotificationCommands.swift` — in-app notifications with badges |
 | 3.7 | Write Python integration test suite against socket API |
 
@@ -554,12 +554,12 @@ iOS sync
 | 5.1 | Implement `ContextCollector.swift` — subscribes to all services, builds live digests |
 | 5.2 | Implement `WorkspaceDigest.swift` + `PanelDigest.swift` — structured context models |
 | 5.3 | Implement `AgentProvider.swift` protocol + `AgentBridge.swift` MCP server |
-| 5.4 | Expose digests as MCP resources: `mosaic://workspaces`, `mosaic://workspace/{id}`, `mosaic://panel/{id}` |
-| 5.5 | Expose socket commands as MCP tools: `mosaic_send_keys`, `mosaic_run_command`, `mosaic_create_workspace`, `mosaic_split`, `mosaic_notify`, `mosaic_read_screen` |
+| 5.4 | Expose digests as MCP resources: `namu://workspaces`, `namu://workspace/{id}`, `namu://panel/{id}` |
+| 5.5 | Expose socket commands as MCP tools: `namu_send_keys`, `namu_run_command`, `namu_create_workspace`, `namu_split`, `namu_notify`, `namu_read_screen` |
 | 5.6 | Implement `ClaudeCodeProvider.swift` — connect to Claude Code via MCP |
 | 5.7 | Implement `CodexProvider.swift` — connect to Codex CLI |
 | 5.8 | Implement `CustomCLIProvider.swift` — spawn arbitrary CLI with context piped in |
-| 5.9 | Implement agent config: `~/.config/mosaic/agents.json`, per-workspace agent assignment |
+| 5.9 | Implement agent config: `~/.config/namu/agents.json`, per-workspace agent assignment |
 | 5.10 | Implement `AIContextPopover.swift` — click tab to see agent-generated summary |
 
 **Exit criteria:** Claude Code running inside Namu can read workspace context via MCP resources and execute commands via MCP tools. Codex CLI works as alternative provider.
@@ -622,7 +622,7 @@ iOS sync
 
 | Step | Deliverable |
 |---|---|
-| 9.1 | Implement `mosaic-remote` Go daemon — RPC server over stdio (hello, ping, session.*, proxy.*) |
+| 9.1 | Implement `namu-remote` Go daemon — RPC server over stdio (hello, ping, session.*, proxy.*) |
 | 9.2 | Implement PTY session management with smallest-screen-wins resize |
 | 9.3 | Implement `SSHSessionController.swift` — SSH connection, daemon deployment, reverse TCP relay |
 | 9.4 | Implement HMAC-SHA256 relay authentication |
@@ -878,7 +878,7 @@ struct Workspace: Identifiable, Codable, Equatable {
     var isPinned: Bool = false
     var customColor: String?        // hex e.g. "#C0392B"
     var currentDirectory: String
-    var portOrdinal: Int = 0        // assigned sequentially for MOSAIC_PORT env var
+    var portOrdinal: Int = 0        // assigned sequentially for NAMU_PORT env var
 }
 ```
 
@@ -1095,7 +1095,7 @@ struct BrowserPanelSnapshot: Codable, Sendable {
 - Max scrollback characters per terminal: 400,000
 - Sidebar width range: 180–600 (default 200)
 
-**Scrollback replay:** Captured scrollback is written to a temp file. The restored terminal's shell receives the file path via `MOSAIC_RESTORE_SCROLLBACK_FILE` env var. The shell integration script cats the file to restore visual state.
+**Scrollback replay:** Captured scrollback is written to a temp file. The restored terminal's shell receives the file path via `NAMU_RESTORE_SCROLLBACK_FILE` env var. The shell integration script cats the file to restore visual state.
 
 ---
 
@@ -1103,10 +1103,10 @@ struct BrowserPanelSnapshot: Codable, Sendable {
 
 ### C.1 Server Setup
 
-- **Path:** `~/.local/share/mosaic/namu.sock` (stable default)
+- **Path:** `~/.local/share/namu/namu.sock` (stable default)
 - **Debug:** `/tmp/namu-debug.sock` or `/tmp/namu-debug-<tag>.sock`
-- **Override:** `MOSAIC_SOCKET_PATH` or `MOSAIC_SOCKET` environment variable
-- **Discovery:** Path written to `~/.local/share/mosaic/last-socket-path` for CLI lookup
+- **Override:** `NAMU_SOCKET_PATH` or `NAMU_SOCKET` environment variable
+- **Discovery:** Path written to `~/.local/share/namu/last-socket-path` for CLI lookup
 - **Backlog:** 128 pending connections
 - **Timeouts:** 5s read/write on client sockets; `SO_NOSIGPIPE` on macOS
 
@@ -1124,7 +1124,7 @@ else                   → space-delimited text (V1 legacy)
 | `off` | 0o600 | Socket disabled entirely |
 | `localOnly` | 0o600 | PID ancestry check: client must be descendant of Namu process (via `LOCAL_PEERPID` + `sysctl KERN_PROC_PID` walk, up to 128 levels) |
 | `automation` | 0o600 | Same UID only (no ancestry validation) |
-| `password` | 0o600 | Requires `auth.login` with password before any command. Password from: (1) `MOSAIC_SOCKET_PASSWORD` env, (2) `~/.local/share/mosaic/socket-control-password` file |
+| `password` | 0o600 | Requires `auth.login` with password before any command. Password from: (1) `NAMU_SOCKET_PASSWORD` env, (2) `~/.local/share/namu/socket-control-password` file |
 | `allowAll` | 0o666 | No restrictions (any local process) |
 
 ### C.4 Focus Policy
@@ -1379,7 +1379,7 @@ For SSH reverse-forwarded TCP connections (when Unix socket forwarding unavailab
 
 ```
 1. Server sends challenge:
-   {"protocol": "mosaic-relay-auth", "version": 1, "relay_id": "<id>", "nonce": "<random>"}
+   {"protocol": "namu-relay-auth", "version": 1, "relay_id": "<id>", "nonce": "<random>"}
 
 2. Client computes:
    mac = HMAC-SHA256(token, "relay_id=<id>\nnonce=<nonce>\nversion=1")
@@ -1391,7 +1391,7 @@ For SSH reverse-forwarded TCP connections (when Unix socket forwarding unavailab
    {"ok": true} or {"ok": false}
 ```
 
-Token stored in `~/.mosaic/relay/<port>.auth` (written by SSH session setup).
+Token stored in `~/.namu/relay/<port>.auth` (written by SSH session setup).
 
 ---
 
@@ -1542,7 +1542,7 @@ tagged debug build     → "tag:42" (identifies which build)
 ### E.5 macOS UNUserNotificationCenter Integration
 
 - Authorization requested on first notification attempt
-- Category: `com.mosaic.app.userNotification` with "Show" action
+- Category: `com.namu.app.userNotification` with "Show" action
 - Off-main removal queue to prevent UI freezing when clearing many notifications
 
 ---
@@ -1603,7 +1603,7 @@ This minimizes subprocess spawning while still catching ports that appear shortl
 
 - JSON-RPC over stdin/stdout (newline-delimited)
 - Max frame size: 4MB
-- Entry points: `mosaic-remote serve --stdio` (RPC), `mosaic-remote cli <cmd>` (relay)
+- Entry points: `namu-remote serve --stdio` (RPC), `namu-remote cli <cmd>` (relay)
 
 ### G.2 RPC Methods
 
@@ -1663,7 +1663,7 @@ The daemon also works as a CLI relay, translating local commands to socket JSON-
 | `namu browser navigate` | `browser.navigate` | `--url`, `--surface` |
 | `namu rpc <method> [json]` | passthrough | arbitrary JSON-RPC |
 
-Flag mappings: `--workspace` → `workspace_id`, `--surface` → `surface_id`, `--panel` → `surface_id`, `--pane` → `pane_id`. Environment fallbacks: `MOSAIC_WORKSPACE_ID`, `MOSAIC_SURFACE_ID`.
+Flag mappings: `--workspace` → `workspace_id`, `--surface` → `surface_id`, `--panel` → `surface_id`, `--pane` → `pane_id`. Environment fallbacks: `NAMU_WORKSPACE_ID`, `NAMU_SURFACE_ID`.
 
 ---
 
@@ -1785,8 +1785,8 @@ Config files searched in order (all are optional, later values override earlier)
 ~/.config/ghostty/config.ghostty
 ~/Library/Application Support/com.mitchellh.ghostty/config
 ~/Library/Application Support/com.mitchellh.ghostty/config.ghostty
-~/.config/mosaic/config
-~/.config/mosaic/config.mosaic
+~/.config/namu/config
+~/.config/namu/config.namu
 ```
 
 ### L.2 Supported Keys

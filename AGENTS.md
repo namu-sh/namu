@@ -11,7 +11,7 @@ Key identity: Namu AI is a **NL control plane**, not an agent bridge or MCP wrap
 ## Directory Structure
 
 ```
-mosaic/
+namu/
   NamuKit/              Core logic -- NO UI imports (except AppKit for FFI)
     AI/                   LLM integration, command safety, alert engine
       Providers/          ClaudeProvider, OpenAIProvider
@@ -35,7 +35,7 @@ mosaic/
   NamuGateway/          Standalone gateway server (Hummingbird)
     Auth/                 GatewayAuth, MessageSigning
     Channels/             TelegramChannel
-  CLI/                    namu CLI tool (mosaic.swift)
+  CLI/                    namu CLI tool (namu.swift, main.swift)
   ghostty/                Ghostty submodule (manaflow-ai/ghostty fork)
   ghostty-stubs/          Stub C headers for building without full Ghostty
   Resources/              Info.plist, shell-integration scripts (zsh, bash)
@@ -189,7 +189,7 @@ When onboarding to this codebase, read these files in order:
 7. `NamuKit/IPC/Commands/PaneCommands.swift` -- example command handler
 8. `NamuKit/AI/CommandSafety.swift` -- safety classification system
 9. `NamuKit/AI/NamuAI.swift` -- NL control plane core
-10. `CLI/mosaic.swift` -- CLI tool (self-contained, good overview of the API)
+10. `CLI/namu.swift` -- CLI tool (self-contained, good overview of the API)
 
 ## Access Control Modes
 

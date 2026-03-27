@@ -23,7 +23,7 @@ final class SocketClient {
 
         var st = stat()
         guard stat(path, &st) == 0 else {
-            throw CLIError(message: "Mosaic is not running")
+            throw CLIError(message: "Namu is not running")
         }
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             throw CLIError(message: "Path \(path) is not a Unix socket")
@@ -55,7 +55,7 @@ final class SocketClient {
             Darwin.close(socketFD)
             socketFD = -1
             if connectErrno == ENOENT || connectErrno == ECONNREFUSED {
-                throw CLIError(message: "Mosaic is not running")
+                throw CLIError(message: "Namu is not running")
             }
             throw CLIError(message: "Failed to connect to socket at \(path): \(String(cString: strerror(connectErrno)))")
         }
@@ -163,7 +163,7 @@ struct ParsedArgs {
 func parseArguments(_ args: [String]) throws -> ParsedArgs {
     let remaining = Array(args.dropFirst()) // drop executable name
 
-    var socketPath = "/tmp/mosaic.sock"
+    var socketPath = "/tmp/namu.sock"
     var jsonOutput = false
     var timeout: TimeInterval = 5.0
 
@@ -252,21 +252,21 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
 
 func usageString() -> String {
     return """
-    Usage: mosaic <namespace> <command> [--param value ...]
+    Usage: namu <namespace> <command> [--param value ...]
 
     Namespaces: workspace, pane, surface, notification, browser, system
 
     Examples:
-      mosaic workspace list
-      mosaic workspace create --title "My Workspace"
-      mosaic pane split --direction horizontal
-      mosaic pane send-keys "ls\\n"
-      mosaic pane read-screen --lines 50
-      mosaic system ping
-      mosaic notification create --title "Build done" --body "Success"
+      namu workspace list
+      namu workspace create --title "My Workspace"
+      namu pane split --direction horizontal
+      namu pane send-keys "ls\\n"
+      namu pane read-screen --lines 50
+      namu system ping
+      namu notification create --title "Build done" --body "Success"
 
     Flags:
-      --socket <path>    Custom socket path (default: /tmp/mosaic.sock)
+      --socket <path>    Custom socket path (default: /tmp/namu.sock)
       --json             Output raw JSON response
       --timeout <secs>   Request timeout in seconds (default: 5, 30 for long-running commands)
     """
@@ -326,7 +326,7 @@ func run() throws {
     } catch let error as CLIError {
         // Normalize socket-not-found errors
         if error.message.contains("not running") || error.message.contains("No such file") || error.message.contains("ENOENT") {
-            throw CLIError(message: "Mosaic is not running")
+            throw CLIError(message: "Namu is not running")
         }
         throw error
     }
