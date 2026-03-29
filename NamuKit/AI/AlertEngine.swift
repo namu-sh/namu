@@ -143,7 +143,12 @@ final class AlertEngine: @unchecked Sendable {
 
     /// Optional alert router. When set, fired alerts are forwarded to
     /// configured channels (Slack, Telegram, Discord, etc.).
-    var alertRouter: AlertRouter?
+    /// Access is lock-protected for thread safety.
+    private var _alertRouter: AlertRouter?
+
+    func setAlertRouter(_ router: AlertRouter?) {
+        lock.withLock { _alertRouter = router }
+    }
 
     // MARK: - Init / Deinit
 
@@ -253,7 +258,7 @@ final class AlertEngine: @unchecked Sendable {
     }
 
     private func notifyDelegate(_ alert: FiredAlert) {
-        let router = lock.withLock { alertRouter }
+        let router = lock.withLock { _alertRouter }
         Task { @MainActor in
             self.delegate?.alertEngine(self, didFire: alert)
         }

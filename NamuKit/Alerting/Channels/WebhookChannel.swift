@@ -27,6 +27,7 @@ struct WebhookChannel: AlertChannel, Sendable {
         }
 
         request.httpBody = try JSONEncoder().encode(payload)
+        request.timeoutInterval = 10
 
         let (_, response) = try await URLSession.shared.data(for: request)
 

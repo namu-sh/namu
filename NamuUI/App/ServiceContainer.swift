@@ -82,7 +82,7 @@ final class ServiceContainer {
         channelCredentialStore = ChannelCredentialStore()
         alertRouter = AlertRouter(credentialStore: channelCredentialStore)
         alertEngine = AlertEngine(eventBus: eventBus)
-        alertEngine.alertRouter = alertRouter
+        alertEngine.setAlertRouter(alertRouter)
 
         // AI
         conversationManager = ConversationManager()

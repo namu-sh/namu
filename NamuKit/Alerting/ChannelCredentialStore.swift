@@ -1,5 +1,8 @@
 import Foundation
 import Security
+import os.log
+
+private let logger = Logger(subsystem: "com.namu.app", category: "ChannelCredentialStore")
 
 /// Thread-safe credential storage for alert channels.
 /// Secrets (tokens, webhook URLs) go in Keychain; non-secret config in UserDefaults.
@@ -7,6 +10,13 @@ actor ChannelCredentialStore {
 
     private let defaults = UserDefaults.standard
     private let service = "xyz.omlabs.namu.alerting"
+
+    private static let channelCredentialKeys: [String: [String]] = [
+        "slack": ["webhookURL"],
+        "telegram": ["botToken", "chatID"],
+        "discord": ["webhookURL"],
+        "webhook": ["url", "bearerToken"],
+    ]
 
     // MARK: - Channel enabled state (UserDefaults)
 
@@ -21,7 +31,7 @@ actor ChannelCredentialStore {
     /// All channel IDs that have been configured (have at least one credential).
     func configuredChannelIDs() -> [String] {
         let known = ["slack", "telegram", "discord", "webhook"]
-        return known.filter { credential($0, "configured") != nil || isEnabled($0) }
+        return known.filter { defaults.bool(forKey: key($0, "configured")) || isEnabled($0) }
     }
 
     // MARK: - Secrets (Keychain)
@@ -38,16 +48,19 @@ actor ChannelCredentialStore {
         ]
         SecItemDelete(deleteQuery as CFDictionary)
 
-        // Add new
+        // Add new with proper accessibility
         let addQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
         ]
-        SecItemAdd(addQuery as CFDictionary, nil)
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+        if status != errSecSuccess {
+            logger.error("Keychain write failed for \(account): \(status)")
+        }
 
-        // Mark as configured
         defaults.set(true, forKey: key(channelID, "configured"))
     }
 
@@ -76,12 +89,11 @@ actor ChannelCredentialStore {
         SecItemDelete(query as CFDictionary)
     }
 
+    /// Remove all credentials for a specific channel only.
     func removeAllCredentials(_ channelID: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-        ]
-        SecItemDelete(query as CFDictionary)
+        for name in Self.channelCredentialKeys[channelID] ?? [] {
+            removeCredential(channelID, name)
+        }
         defaults.removeObject(forKey: key(channelID, "configured"))
         defaults.removeObject(forKey: key(channelID, "enabled"))
     }

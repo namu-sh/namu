@@ -5,6 +5,7 @@ struct DiscordChannel: AlertChannel, Sendable {
     let id = "discord"
     let displayName = "Discord"
 
+    private static let isoFormatter = ISO8601DateFormatter()
     private let webhookURL: String
 
     init(webhookURL: String) {
@@ -27,7 +28,7 @@ struct DiscordChannel: AlertChannel, Sendable {
                         ["name": "Event", "value": "`\(payload.event)`", "inline": true],
                         ["name": "Workspace", "value": payload.workspaceTitle, "inline": true]
                     ],
-                    "timestamp": ISO8601DateFormatter().string(from: payload.timestamp)
+                    "timestamp": Self.isoFormatter.string(from: payload.timestamp)
                 ]
             ]
         ]
@@ -36,6 +37,7 @@ struct DiscordChannel: AlertChannel, Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 10
 
         let (_, response) = try await URLSession.shared.data(for: request)
 

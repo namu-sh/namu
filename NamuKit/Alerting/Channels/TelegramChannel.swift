@@ -14,6 +14,9 @@ struct TelegramChannel: AlertChannel, Sendable {
     }
 
     func send(_ payload: AlertPayload) async throws {
+        guard botToken.range(of: #"^\d+:[A-Za-z0-9_-]{35}$"#, options: .regularExpression) != nil else {
+            throw AlertChannelError.notConfigured("Telegram bot token format is invalid")
+        }
         guard let url = URL(string: "https://api.telegram.org/bot\(botToken)/sendMessage") else {
             throw AlertChannelError.notConfigured("Telegram bot token is invalid")
         }
@@ -29,6 +32,7 @@ struct TelegramChannel: AlertChannel, Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
