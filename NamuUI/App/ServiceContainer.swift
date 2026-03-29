@@ -32,6 +32,8 @@ final class ServiceContainer {
 
     let notificationService: NotificationService
     let alertEngine: AlertEngine
+    let channelCredentialStore: ChannelCredentialStore
+    let alertRouter: AlertRouter
 
     // MARK: - AI
 
@@ -76,8 +78,11 @@ final class ServiceContainer {
         // Notifications
         notificationService = NotificationService()
 
-        // Alerts
+        // Alerts + multi-channel routing
+        channelCredentialStore = ChannelCredentialStore()
+        alertRouter = AlertRouter(credentialStore: channelCredentialStore)
         alertEngine = AlertEngine(eventBus: eventBus)
+        alertEngine.alertRouter = alertRouter
 
         // AI
         conversationManager = ConversationManager()
@@ -122,9 +127,10 @@ final class ServiceContainer {
         sessionPersistence.restoreIfAvailable()
         sessionPersistence.startAutosave()
 
-        // Alert engine
+        // Alert engine + channel routing
         alertEngine.loadRules()
         alertEngine.start()
+        Task { await alertRouter.reloadChannels() }
 
         // Request macOS notification permission on first launch.
         // UNUserNotificationCenter only prompts the user once; safe to call every launch.

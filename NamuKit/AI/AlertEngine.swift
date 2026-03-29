@@ -94,6 +94,28 @@ struct FiredAlert: Sendable {
     let event: NamuEvent
     let params: [String: JSONRPCValue]
     let firedAt: Date
+
+    /// Human-readable summary for alert channels.
+    var summary: String {
+        switch rule.trigger {
+        case .processExit(let watchCode):
+            let code = params["exit_code"].flatMap { if case .int(let i) = $0 { return i } else { return nil } }
+            let watching = watchCode.map { "watching: \($0)" } ?? "any exit"
+            return "Process exited with code \(code ?? 0) (\(watching))"
+        case .outputMatch(let pattern, _):
+            return "Output matched pattern: \(pattern)"
+        case .portChange(let ports):
+            return "Port change detected (watching: \(ports.map { "\($0)" }.joined(separator: ",")))"
+        case .shellIdle(let seconds):
+            return "Shell idle for \(Int(seconds))s"
+        }
+    }
+
+    /// Workspace title from params, if available.
+    var workspaceTitle: String? {
+        if case .string(let title) = params["workspace_title"] { return title }
+        return nil
+    }
 }
 
 // MARK: - AlertEngineDelegate
@@ -119,15 +141,14 @@ final class AlertEngine: @unchecked Sendable {
     private var subscriptionID: UUID?
     weak var delegate: (any AlertEngineDelegate)?
 
-    /// Optional gateway client. When set, fired alerts are forwarded to the
-    /// Gateway in addition to being delivered via the local delegate.
-    var gatewayClient: GatewayClient?
+    /// Optional alert router. When set, fired alerts are forwarded to
+    /// configured channels (Slack, Telegram, Discord, etc.).
+    var alertRouter: AlertRouter?
 
     // MARK: - Init / Deinit
 
-    init(eventBus: EventBus, gatewayClient: GatewayClient? = nil) {
+    init(eventBus: EventBus) {
         self.eventBus = eventBus
-        self.gatewayClient = gatewayClient
     }
 
     deinit {
@@ -232,10 +253,21 @@ final class AlertEngine: @unchecked Sendable {
     }
 
     private func notifyDelegate(_ alert: FiredAlert) {
-        let gateway = lock.withLock { gatewayClient }
+        let router = lock.withLock { alertRouter }
         Task { @MainActor in
             self.delegate?.alertEngine(self, didFire: alert)
-            gateway?.send(alert: alert)
+        }
+        if let router {
+            Task {
+                let payload = AlertPayload(
+                    ruleName: alert.rule.name,
+                    event: alert.event.rawValue,
+                    summary: alert.summary,
+                    workspaceTitle: alert.workspaceTitle ?? "",
+                    timestamp: alert.firedAt
+                )
+                await router.route(payload)
+            }
         }
     }
 }
