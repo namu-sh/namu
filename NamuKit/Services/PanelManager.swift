@@ -166,6 +166,7 @@ final class PanelManager: ObservableObject {
     ) -> TerminalPanel {
         let paneID = UUID()
         let wsID = workspaceID ?? workspaceManager.selectedWorkspaceID
+        let workingDirectory = workingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
         let env = namuEnvironment(paneID: paneID, workspaceID: wsID)
         let panel = TerminalPanel(
             id: paneID,
