@@ -2,27 +2,20 @@
 
 Static review findings documented as repo-local issue writeups.
 
-Revalidated against the current codebase on 2026-03-29.
+Last updated: 2026-03-29.
 
 ## Accepted Debt
 
-- `docs/issues/accepted-architectural-debt.md` — architectural compromises currently accepted as trade-offs
+- `accepted-architectural-debt.md` — architectural compromises currently accepted as trade-offs
 
-## Resolved
+## Open Issues
 
-3. `003-workspace-lifecycle-bypasses-panelmanager.md` — **Resolved** (was High)
-5. `005-session-persistence-flattens-layout.md` — **Resolved** (was Medium)
-
-## Needs Correction
-
-1. `001-gateway-websocket-not-implemented.md` — Critical (dormant — NamuGateway not compiled in main target)
-2. `002-telegram-webhook-not-routed.md` — High (dormant — NamuGateway not compiled in main target)
-4. `004-workspace-window-move-breaks-panel-state.md` — High
+1. `001-gateway-websocket-not-implemented.md` — Critical (dormant — NamuGateway not in build target)
+2. `002-telegram-webhook-not-routed.md` — High (dormant — NamuGateway not in build target)
+4. `004-workspace-window-move-breaks-panel-state.md` — High (multi-window only)
 
 ## Notes
 
-- These are based on current code review, not full end-to-end runtime validation.
-- Severity reflects user impact and architectural risk.
-- Suggested fixes are directional, not prescriptive.
-- Some concerns previously raised as architectural problems are now bucketed as accepted debt
-  rather than active correction items.
+- Issues 003 and 005 were resolved and removed (workspace lifecycle centralized, dual layout state eliminated).
+- Issues 001/002 affect NamuGateway which is not compiled in the main target. They remain as documentation for when the gateway module is activated.
+- Issue 004 only affects multi-window workspace drag-out, not single-window usage.
