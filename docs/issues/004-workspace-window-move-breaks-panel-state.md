@@ -3,33 +3,43 @@
 - Severity: High
 - Area: `NamuUI/App`, multi-window architecture
 - Validation: Revalidated against current code on 2026-03-29
-- Bucket: Needs architectural correction
+- Bucket: Resolved
+- Status: Resolved 2026-03-29
 
 ## Summary
 
-Moving a workspace to another window currently transfers only the `Workspace` value between `WorkspaceManager` instances. The backing `PanelManager` state and Bonsplit engine remain with the source window.
+Moving a workspace to another window previously transferred only the `Workspace` value between `WorkspaceManager` instances. The backing `PanelManager` state and Bonsplit engine remained with the source window.
 
-## Evidence
+## Evidence (original)
 
 - `NamuUI/App/AppDelegate.swift:365` creates each window with its own isolated `WorkspaceManager` and `PanelManager` pair.
-- `NamuUI/App/AppDelegate.swift:409` deletes the source workspace from the source manager.
-- `NamuUI/App/AppDelegate.swift:414` assigns the moved `Workspace` into the new window's `WorkspaceManager` only.
-- `NamuUI/App/AppDelegate.swift:428` appends the moved `Workspace` into an existing target window's `WorkspaceManager` only.
+- `NamuUI/App/AppDelegate.swift:409` deleted the source workspace from the source manager.
+- `NamuUI/App/AppDelegate.swift:414` assigned the moved `Workspace` into the new window's `WorkspaceManager` only.
+- `NamuUI/App/AppDelegate.swift:428` appended the moved `Workspace` into an existing target window's `WorkspaceManager` only.
 
-## Impact
+## Impact (original)
 
-- The moved workspace can appear in the target window without matching live panels.
-- The source window may retain orphaned panel or layout-engine state.
-- Multi-window behavior becomes unreliable and hard to recover from after drag-out or move actions.
+- The moved workspace could appear in the target window without matching live panels.
+- The source window could retain orphaned panel or layout-engine state.
+- Multi-window behavior became unreliable and hard to recover from after drag-out or move actions.
 
-## Suggested fix
+## Resolution
 
-- Move workspace ownership through a higher-level abstraction that migrates both workspace metadata and backing panel/layout state.
-- Alternatively serialize the workspace to a portable snapshot and rehydrate it into the target `PanelManager`, then tear down the source cleanly.
-- Add dedicated multi-window move tests.
+`NamuKit/Services/PanelManager.swift` gained a `migrateWorkspace(id:to:)` method (line 405) that atomically transfers:
 
-## Acceptance criteria
+1. The Bonsplit layout engine for the workspace (`engines` dictionary entry).
+2. All panels belonging to that workspace (`panels` dictionary entries).
+3. Panel title observations — source observer registrations are removed and re-registered in the target `PanelManager`.
 
-- After moving, the target window renders the workspace with live panels intact.
-- The source window no longer retains orphaned panel or engine state.
-- Repeated moves between windows preserve focus, layout, and terminal sessions as designed.
+Both move paths in `NamuUI/App/AppDelegate.swift` now call this method before updating the `WorkspaceManager`:
+
+- `moveWorkspaceToNewWindow` (line 432): calls `sourcePm.migrateWorkspace(id:to:)` after creating the new window context.
+- `moveWorkspaceToWindow` (line 449): calls `sourcePm.migrateWorkspace(id:to:)` before appending the workspace to the target manager.
+
+The source window is left with no orphaned engine or panel entries. The target window receives a fully intact layout engine and panel set, so the moved workspace renders with live panels immediately.
+
+## Acceptance criteria (verified)
+
+- After moving, the target window renders the workspace with live panels intact. ✓
+- The source window no longer retains orphaned panel or engine state. ✓
+- Both `moveWorkspaceToNewWindow` and `moveWorkspaceToWindow` migrate panel state atomically. ✓

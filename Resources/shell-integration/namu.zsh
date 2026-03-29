@@ -178,7 +178,8 @@ _namu_report_activity() {
         _namu_prop "cmd_text" "$cmd"
         if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
             {
-                _namu_send "report_shell_state running --workspace=$NAMU_WORKSPACE_ID --surface=$NAMU_SURFACE_ID"
+                local _escaped_cmd="${cmd//\"/\\\"}"
+                _namu_send "{\"jsonrpc\":\"2.0\",\"method\":\"report_shell_state\",\"params\":{\"state\":\"running\",\"command\":\"${_escaped_cmd}\",\"surface_id\":\"$NAMU_SURFACE_ID\",\"workspace_id\":\"$NAMU_WORKSPACE_ID\"}}"
             } >/dev/null 2>&1 &!
         fi
     else
@@ -187,7 +188,7 @@ _namu_report_activity() {
         _namu_prop "cmd_end" "$ts"
         if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
             {
-                _namu_send "report_shell_state prompt --workspace=$NAMU_WORKSPACE_ID --surface=$NAMU_SURFACE_ID"
+                _namu_send "{\"jsonrpc\":\"2.0\",\"method\":\"report_shell_state\",\"params\":{\"state\":\"prompt\",\"surface_id\":\"$NAMU_SURFACE_ID\",\"workspace_id\":\"$NAMU_WORKSPACE_ID\"}}"
             } >/dev/null 2>&1 &!
         fi
     fi

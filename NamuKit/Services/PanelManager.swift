@@ -383,10 +383,13 @@ final class PanelManager: ObservableObject {
         return result
     }
 
-    /// Returns true if the panel has a running shell process.
+    /// Returns true if the panel has a running foreground process, as reported by shell integration.
+    /// Uses `shellState` from OSC 133 integration when available (`.running(command:)` → true).
+    /// Falls back to false for `.unknown`, `.prompt`, `.idle`, and `.commandInput` states,
+    /// which avoids false-positive close confirmations when the shell is idle.
     func isProcessRunning(id: UUID) -> Bool {
         guard let panel = panels[id] else { return false }
-        if case .running = panel.session.state { return true }
+        if case .running = panel.shellState { return true }
         return false
     }
 
@@ -396,6 +399,36 @@ final class PanelManager: ObservableObject {
             if eng.tabID(for: panelID) != nil { return wsID }
         }
         return nil
+    }
+
+    // MARK: - Workspace migration
+
+    /// Move a workspace's engine and all its panels from this PanelManager to a target PanelManager.
+    /// Called when a workspace is moved to a different window.
+    func migrateWorkspace(id workspaceID: UUID, to target: PanelManager) {
+        // Transfer the layout engine
+        guard let eng = engines.removeValue(forKey: workspaceID) else { return }
+        target.engines[workspaceID] = eng
+
+        // Collect panel IDs belonging to this workspace, then transfer them
+        var panelIDsToMove: [UUID] = []
+        for paneID in eng.allPaneIDs {
+            for tab in eng.controller.tabs(inPane: paneID) {
+                if let panelID = eng.panelID(for: tab.id) {
+                    panelIDsToMove.append(panelID)
+                }
+            }
+        }
+
+        for panelID in panelIDsToMove {
+            if let panel = panels.removeValue(forKey: panelID) {
+                target.panels[panelID] = panel
+                // Remove from source observer set so target can re-observe with its cancellables
+                observedPanelIDs.remove(panelID)
+                // Register title observation in the target context
+                target.observePanelTitle(panel, workspaceID: workspaceID)
+            }
+        }
     }
 
     // MARK: - Workspace lifecycle

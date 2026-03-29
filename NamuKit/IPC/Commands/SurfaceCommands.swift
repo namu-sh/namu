@@ -31,6 +31,8 @@ final class SurfaceCommands {
             handler: { [weak self] req in try await self?.current(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "surface.read_text", execution: .background, safety: .safe,
             handler: { [weak self] req in try await self?.readText(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "report_shell_state", execution: .mainActor, safety: .safe,
+            handler: { [weak self] req in try await self?.reportShellState(req) ?? .notAvailable(req) }))
     }
 
     // MARK: - Helpers
@@ -255,6 +257,63 @@ final class SurfaceCommands {
             "surface_id":   .string(panelID.uuidString),
             "workspace_id": .string(workspaceID.uuidString),
             "text":         .string(text)
+        ]))
+    }
+
+    // MARK: - report_shell_state
+
+    /// Update the shell integration state for a panel.
+    /// Called by namu.zsh when a command starts (`running`) or the prompt appears (`prompt`).
+    /// Params:
+    ///   state       (string, required) — "running", "prompt", "idle", or "unknown"
+    ///   surface_id  (string, optional) — panel UUID; defaults to focused panel
+    ///   command     (string, optional) — command text (for "running" state)
+    private func reportShellState(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        guard let stateValue = params["state"], case .string(let stateStr) = stateValue else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: state")
+        }
+
+        let (panelID, workspaceID) = try resolveTarget(params: params)
+
+        guard let panel = panelManager.panel(for: panelID) else {
+            throw JSONRPCError(code: -32001, message: "Surface not available")
+        }
+
+        let command: String
+        if let cmdValue = params["command"], case .string(let cmd) = cmdValue {
+            command = cmd
+        } else {
+            command = ""
+        }
+
+        let newState: ShellState
+        switch stateStr {
+        case "running":
+            newState = .running(command: command)
+        case "prompt":
+            newState = .prompt
+        case "commandInput":
+            newState = .commandInput
+        case "idle":
+            let exitCode: Int?
+            if let codeValue = params["exit_code"], case .int(let code) = codeValue {
+                exitCode = code
+            } else {
+                exitCode = nil
+            }
+            newState = .idle(exitCode: exitCode)
+        default:
+            newState = .unknown
+        }
+
+        panel.updateShellState(newState)
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(panelID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "state":        .string(stateStr)
         ]))
     }
 }

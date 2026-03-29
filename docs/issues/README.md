@@ -12,10 +12,12 @@ Last updated: 2026-03-29.
 
 1. `001-gateway-websocket-not-implemented.md` — Critical (dormant — NamuGateway not in build target)
 2. `002-telegram-webhook-not-routed.md` — High (dormant — NamuGateway not in build target)
-4. `004-workspace-window-move-breaks-panel-state.md` — High (multi-window only)
+
+## Resolved Issues
+
+- Issues 003 and 005 were resolved and removed (workspace lifecycle centralized, dual layout state eliminated).
+- `004-workspace-window-move-breaks-panel-state.md` — Resolved 2026-03-29. `PanelManager.migrateWorkspace(id:to:)` now atomically transfers the layout engine and all panels when a workspace is moved between windows.
 
 ## Notes
 
-- Issues 003 and 005 were resolved and removed (workspace lifecycle centralized, dual layout state eliminated).
 - Issues 001/002 affect NamuGateway which is not compiled in the main target. They remain as documentation for when the gateway module is activated.
-- Issue 004 only affects multi-window workspace drag-out, not single-window usage.

@@ -86,6 +86,18 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Most recent scrollbar state reported by Ghostty.
     @Published var scrollbarState: ScrollbarState = .init()
 
+    // MARK: - Shell integration state
+
+    /// Most recent shell state reported by OSC 133 shell integration.
+    /// Updated via `report_shell_state` IPC command from namu.zsh.
+    /// Starts as `.unknown` — transitions to `.running` / `.prompt` / `.idle` as integration fires.
+    @Published private(set) var shellState: ShellState = .unknown
+
+    /// Update the shell state from IPC (called by SurfaceCommands.reportShellState).
+    func updateShellState(_ state: ShellState) {
+        shellState = state
+    }
+
     // MARK: - Session
 
     let session: TerminalSession

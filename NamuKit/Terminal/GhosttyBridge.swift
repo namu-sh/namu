@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 // MARK: - Notifications
 
@@ -385,13 +386,57 @@ final class GhosttyApp {
             let resizeDir = action.action.resize_split.direction
             let amount = action.action.resize_split.amount
             DispatchQueue.main.async {
-                // Resize is handled by Bonsplit's divider drag.
-                // Ghostty keybinding resize is not yet wired to Bonsplit's API.
+                guard let pm = AppDelegate.shared?.panelManager,
+                      let wsID = AppDelegate.shared?.workspaceManager?.selectedWorkspaceID else { return }
+                let eng = pm.engine(for: wsID)
+                guard let focusedPane = eng.focusedPaneID else { return }
+                let focusedPaneStr = focusedPane.description
+                let tree = eng.treeSnapshot()
+                // Determine which split orientation to look for based on direction.
+                // LEFT/RIGHT resize the horizontal divider; UP/DOWN resize the vertical divider.
+                let targetOrientation: String
+                let delta: CGFloat
+                switch resizeDir {
+                case GHOSTTY_RESIZE_SPLIT_LEFT:
+                    targetOrientation = "horizontal"
+                    delta = -CGFloat(amount) / 200.0
+                case GHOSTTY_RESIZE_SPLIT_RIGHT:
+                    targetOrientation = "horizontal"
+                    delta = CGFloat(amount) / 200.0
+                case GHOSTTY_RESIZE_SPLIT_UP:
+                    targetOrientation = "vertical"
+                    delta = -CGFloat(amount) / 200.0
+                case GHOSTTY_RESIZE_SPLIT_DOWN:
+                    targetOrientation = "vertical"
+                    delta = CGFloat(amount) / 200.0
+                default:
+                    return
+                }
+                // Walk the tree to find the nearest ancestor split of the target
+                // orientation that contains the focused pane.
+                if let (splitID, currentRatio) = nearestSplit(
+                    in: tree,
+                    containingPane: focusedPaneStr,
+                    orientation: targetOrientation
+                ), let splitUUID = UUID(uuidString: splitID) {
+                    let newRatio = min(0.95, max(0.05, currentRatio + Double(delta)))
+                    pm.resizeSplit(in: wsID, splitID: splitUUID, ratio: newRatio)
+                }
             }
             return true
 
         case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-            // Equalize is not yet exposed by Bonsplit's public API.
+            DispatchQueue.main.async {
+                guard let pm = AppDelegate.shared?.panelManager,
+                      let wsID = AppDelegate.shared?.workspaceManager?.selectedWorkspaceID else { return }
+                let eng = pm.engine(for: wsID)
+                let tree = eng.treeSnapshot()
+                for (splitIDStr, _) in allSplits(in: tree) {
+                    if let splitUUID = UUID(uuidString: splitIDStr) {
+                        pm.resizeSplit(in: wsID, splitID: splitUUID, ratio: 0.5)
+                    }
+                }
+            }
             return true
 
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
@@ -647,6 +692,62 @@ private func navigationDirection(from ghosttyDir: ghostty_action_goto_split_e) -
     case GHOSTTY_GOTO_SPLIT_UP:       return .up
     case GHOSTTY_GOTO_SPLIT_DOWN:     return .down
     default: return nil
+    }
+}
+
+/// Walk the ExternalTreeNode tree and return the (id, dividerPosition) of the
+/// nearest ancestor split node that has `orientation` and contains the pane
+/// identified by `paneIDStr`. Returns nil if no such split exists.
+private func nearestSplit(
+    in node: ExternalTreeNode,
+    containingPane paneIDStr: String,
+    orientation: String
+) -> (id: String, dividerPosition: Double)? {
+    guard case .split(let split) = node else { return nil }
+
+    let firstContains = containsPane(split.first, paneID: paneIDStr)
+    let secondContains = containsPane(split.second, paneID: paneIDStr)
+
+    // Neither child contains the pane — not on this branch.
+    guard firstContains || secondContains else { return nil }
+
+    // Try to find a deeper match first (prefer the tightest enclosing split).
+    let childResult: (id: String, dividerPosition: Double)?
+    if firstContains {
+        childResult = nearestSplit(in: split.first, containingPane: paneIDStr, orientation: orientation)
+    } else {
+        childResult = nearestSplit(in: split.second, containingPane: paneIDStr, orientation: orientation)
+    }
+
+    if let deeper = childResult { return deeper }
+
+    // No deeper match — check if this split itself matches the orientation.
+    if split.orientation == orientation {
+        return (split.id, split.dividerPosition)
+    }
+    return nil
+}
+
+/// Return true if the given tree node contains a pane with the given ID.
+private func containsPane(_ node: ExternalTreeNode, paneID: String) -> Bool {
+    switch node {
+    case .pane(let p):
+        return p.id == paneID
+    case .split(let s):
+        return containsPane(s.first, paneID: paneID) || containsPane(s.second, paneID: paneID)
+    }
+}
+
+/// Collect all (id, dividerPosition) pairs for every split node in the tree.
+private func allSplits(in node: ExternalTreeNode) -> [(id: String, dividerPosition: Double)] {
+    switch node {
+    case .pane:
+        return []
+    case .split(let s):
+        var result = [(id: s.id, dividerPosition: s.dividerPosition)]
+        result.append(contentsOf: allSplits(in: s.first))
+        result.append(contentsOf: allSplits(in: s.second))
+        return result
     }
 }
 

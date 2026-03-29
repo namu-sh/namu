@@ -403,9 +403,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return nil
     }
 
+    /// Find the PanelManager paired with the WorkspaceManager that owns a workspace ID.
+    @MainActor private func findSourcePanelManager(for workspaceId: UUID) -> PanelManager? {
+        if let wm = workspaceManager, wm.workspaces.contains(where: { $0.id == workspaceId }) {
+            return panelManager
+        }
+        for ctx in windowContexts.values {
+            if ctx.workspaceManager.workspaces.contains(where: { $0.id == workspaceId }) {
+                return ctx.panelManager
+            }
+        }
+        return nil
+    }
+
     /// Move a workspace by ID into a new window.
     @MainActor func moveWorkspaceToNewWindow(workspaceId: UUID) {
         guard let sourceWm = findSourceManager(for: workspaceId),
+              let sourcePm = findSourcePanelManager(for: workspaceId),
               let idx = sourceWm.workspaces.firstIndex(where: { $0.id == workspaceId }),
               sourceWm.workspaces.count > 1 else { return }
 
@@ -415,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let window = createMainWindow()
         // Find the context we just created and add the workspace
         if let ctx = windowContexts.values.first(where: { $0.workspaceManager.workspaces.count == 1 && $0.workspaceManager !== sourceWm }) {
+            sourcePm.migrateWorkspace(id: workspaceId, to: ctx.panelManager)
             ctx.workspaceManager.workspaces = [workspace]
             ctx.workspaceManager.selectedWorkspaceID = workspace.id
         }
@@ -424,12 +439,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Move a workspace by ID to an existing window.
     @MainActor func moveWorkspaceToWindow(workspaceId: UUID, targetWindowId: UUID) {
         guard let sourceWm = findSourceManager(for: workspaceId),
+              let sourcePm = findSourcePanelManager(for: workspaceId),
               let idx = sourceWm.workspaces.firstIndex(where: { $0.id == workspaceId }),
               sourceWm.workspaces.count > 1,
               let targetCtx = windowContexts[targetWindowId] else { return }
 
         let workspace = sourceWm.workspaces[idx]
         sourceWm.deleteWorkspace(id: workspaceId)
+        sourcePm.migrateWorkspace(id: workspaceId, to: targetCtx.panelManager)
         targetCtx.workspaceManager.workspaces.append(workspace)
         targetCtx.workspaceManager.selectedWorkspaceID = workspace.id
     }

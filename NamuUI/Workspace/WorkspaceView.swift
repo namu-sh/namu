@@ -14,19 +14,27 @@ struct WorkspaceView: View {
 
         BonsplitView(controller: controller) { tab, paneId in
             // Content for each tab
-            if let panelID = engine.panelID(for: tab.id),
-               let panel = panelManager.panel(for: panelID) {
-                let isFocused = isActive && panelManager.focusedPanelID(in: workspaceID) == panelID
-                TerminalView(
-                    panel: panel,
-                    onActivate: {
-                        panelManager.activatePanel(id: panelID)
-                    },
-                    isActive: isActive,
-                    isKeyPane: isFocused
-                )
-                .onTapGesture {
-                    controller.focusPane(paneId)
+            if let panelID = engine.panelID(for: tab.id) {
+                if tab.kind == "browser" {
+                    BrowserPanelView(paneID: panelID)
+                        .onTapGesture {
+                            controller.focusPane(paneId)
+                        }
+                } else if let panel = panelManager.panel(for: panelID) {
+                    let isFocused = isActive && panelManager.focusedPanelID(in: workspaceID) == panelID
+                    TerminalView(
+                        panel: panel,
+                        onActivate: {
+                            panelManager.activatePanel(id: panelID)
+                        },
+                        isActive: isActive,
+                        isKeyPane: isFocused
+                    )
+                    .onTapGesture {
+                        controller.focusPane(paneId)
+                    }
+                } else {
+                    Color.black
                 }
             } else {
                 Color.black
