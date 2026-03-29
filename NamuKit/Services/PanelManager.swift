@@ -45,6 +45,13 @@ final class PanelManager: ObservableObject {
     func engine(for workspaceID: UUID) -> BonsplitLayoutEngine {
         if let existing = engines[workspaceID] { return existing }
         let engine = BonsplitLayoutEngine(workspaceID: workspaceID)
+        engine.onNewTabRequested = { [weak self] kind, paneID in
+            guard let self else { return }
+            let panel = self.createTerminalPanel(workspaceID: workspaceID)
+            if let tabID = engine.createTab(title: "Terminal", kind: kind, inPane: paneID) {
+                engine.registerMapping(tabID: tabID, panelID: panel.id)
+            }
+        }
         engines[workspaceID] = engine
         return engine
     }

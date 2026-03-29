@@ -194,8 +194,12 @@ final class BonsplitLayoutEngine: LayoutEngine, BonsplitDelegate {
         }
     }
 
+    /// Callback for new tab requests from the tab bar's + button.
+    /// Set by PanelManager to create a terminal panel in the requesting pane.
+    var onNewTabRequested: ((_ kind: String, _ pane: Bonsplit.PaneID) -> Void)?
+
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: Bonsplit.PaneID) {
-        // PanelManager handles new tab creation via its own API
+        onNewTabRequested?(kind, pane)
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: Bonsplit.LayoutSnapshot) {
