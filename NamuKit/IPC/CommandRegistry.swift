@@ -6,6 +6,7 @@ final class CommandRegistry: @unchecked Sendable {
 
     private let lock = NSLock()
     private var handlers: [String: Handler] = [:]
+    private var registrations: [String: HandlerRegistration] = [:]
 
     // MARK: - Registration
 
@@ -23,23 +24,28 @@ final class CommandRegistry: @unchecked Sendable {
         }
     }
 
+    /// Register a handler using metadata-aware registration.
+    /// Stores the handler and its metadata for middleware pipeline decisions.
+    func register(_ registration: HandlerRegistration) {
+        lock.withLock {
+            handlers[registration.method] = registration.handler
+            registrations[registration.method] = registration
+        }
+    }
+
     // MARK: - Lookup
 
     func handler(for method: String) -> Handler? {
         lock.withLock { handlers[method] }
     }
 
+    /// Retrieve the full registration metadata for a method.
+    func registration(for method: String) -> HandlerRegistration? {
+        lock.withLock { registrations[method] }
+    }
+
     /// All registered method names — used for capabilities reporting.
     var registeredMethods: [String] {
         lock.withLock { Array(handlers.keys).sorted() }
-    }
-}
-
-private extension NSLock {
-    @discardableResult
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
     }
 }

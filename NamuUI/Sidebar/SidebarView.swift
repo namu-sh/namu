@@ -146,7 +146,8 @@ struct SidebarView: View {
                 .padding(.bottom, 8)
         }
         .background(SidebarBackgroundView())
-        .accessibilityIdentifier("Sidebar")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("namu-sidebar-list")
     }
 
     // MARK: - Subviews
@@ -165,6 +166,8 @@ struct SidebarView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("namu-new-workspace-button")
     }
 
     @ViewBuilder

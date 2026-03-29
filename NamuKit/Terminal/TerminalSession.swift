@@ -4,16 +4,19 @@ import Combine
 
 /// Manages the lifecycle of a single terminal session backed by a Ghostty surface.
 ///
-/// Concrete terminal session class.
+/// Concrete terminal session class conforming to TerminalBackend.
 ///
 /// Display link defense: display ID is set at surface creation AND re-asserted
 /// on every focus gain to prevent frozen-surface regressions.
-final class TerminalSession: ObservableObject {
+final class TerminalSession: ObservableObject, TerminalBackend {
 
     // MARK: - Published state
 
-    @Published private(set) var isAlive: Bool = false
+    @Published private(set) var state: SessionState = .created
     @Published private(set) var title: String = ""
+
+    /// Backward-compatible alive check delegating to state machine.
+    var isAlive: Bool { state.isAlive }
 
     // MARK: - Identity
 
@@ -69,6 +72,8 @@ final class TerminalSession: ObservableObject {
             return
         }
 
+        try? state.handle(.start)
+
         self.hostView = hostView
         self.currentDisplayID = displayID
 
@@ -101,7 +106,7 @@ final class TerminalSession: ObservableObject {
         }
 
         surface = s
-        isAlive = true
+        try? state.handle(.surfaceReady)
 
         // Frozen-surface defense: set display ID immediately after creation.
         ghostty_surface_set_display_id(s, displayID)
@@ -134,7 +139,7 @@ final class TerminalSession: ObservableObject {
         guard let s = surface else { return }
         GhosttyBridge.Surface.free(s)
         surface = nil
-        isAlive = false
+        try? state.handle(.destroy)
     }
 
     // MARK: - App-level environment

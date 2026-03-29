@@ -69,13 +69,15 @@ final class CommandSafety: @unchecked Sendable {
         switch command {
         // Read-only queries
         case "list", "status", "read_screen", "ping", "version",
-             "capabilities", "get_url", "get_title":
+             "capabilities", "get_url", "get_title",
+             "identify", "current", "read_text", "claude_hook":
             return .safe
 
         // Structural mutations
         case "create", "delete", "select", "rename", "split", "close",
              "focus", "resize", "back", "forward", "reload", "navigate",
-             "clear", "subscribe", "unsubscribe":
+             "clear", "subscribe", "unsubscribe",
+             "next", "previous", "last":
             return .normal
 
         // Input injection / process execution

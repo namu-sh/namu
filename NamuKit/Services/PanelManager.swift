@@ -107,10 +107,20 @@ final class PanelManager: ObservableObject {
     /// via the NAMU_RESTORE_SCROLLBACK_FILE environment variable by shell integration.
     ///
     @discardableResult
-    func restoreTerminalPanel(id: UUID, workingDirectory: String?, scrollbackFile: String?) -> TerminalPanel {
+    func restoreTerminalPanel(
+        id: UUID,
+        workingDirectory: String?,
+        scrollbackFile: String?,
+        gitBranch: String? = nil,
+        customTitle: String? = nil
+    ) -> TerminalPanel {
         let session = TerminalSession(id: id, workingDirectory: workingDirectory)
         let panel = TerminalPanel(id: id, workingDirectory: workingDirectory, session: session)
         panel.scrollbackRestoreFile = scrollbackFile
+        panel.customTitle = customTitle
+        if let branch = gitBranch {
+            panel.restoreGitBranch(branch)
+        }
         panels[id] = panel
         return panel
     }
@@ -202,6 +212,10 @@ final class PanelManager: ObservableObject {
     func activatePanel(id: UUID) {
         guard var workspace = workspaceManager.selectedWorkspace else { return }
         guard workspace.paneTree.findPane(id: id) != nil else { return }
+        // Track previous focus for pane.last
+        if let current = workspace.activePanelID, current != id {
+            previousFocusedPanelID = current
+        }
         workspace.activePanelID = id
         // Clear attention state when the user activates this pane.
         workspace.attentionPanelIDs.remove(id)
@@ -321,6 +335,25 @@ final class PanelManager: ObservableObject {
             zoomPanel(id: id)
         }
     }
+
+    // MARK: - Process state queries
+
+    /// Returns true if the panel with `id` has a running shell process.
+    func isProcessRunning(id: UUID) -> Bool {
+        guard let panel = panels[id] else { return false }
+        if case .running = panel.session.state { return true }
+        return false
+    }
+
+    /// Returns true if any panel in the given workspace has a running process.
+    func hasRunningProcess(in workspace: Workspace) -> Bool {
+        workspace.allPanels.contains { isProcessRunning(id: $0.id) }
+    }
+
+    // MARK: - Previous focus tracking
+
+    /// The previously focused panel ID (for pane.last IPC command).
+    private(set) var previousFocusedPanelID: UUID?
 
     // MARK: - Lookup
 

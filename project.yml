@@ -13,6 +13,14 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/Namu-Bridging-Header.h"
+    SWIFT_ENABLE_EXPLICIT_MODULES: NO
+  configs:
+    Debug:
+      ENABLE_TESTABILITY: YES
+
+packages:
+  Bonsplit:
+    path: vendor/bonsplit
 
 targets:
   namu-cli:
@@ -20,9 +28,12 @@ targets:
     platform: macOS
     sources:
       - path: CLI
+        excludes:
+          - "namu.swift"
     settings:
       base:
         PRODUCT_NAME: namu
+        PRODUCT_MODULE_NAME: NamuCLI
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_ALLOWED: NO
         SWIFT_OBJC_BRIDGING_HEADER: ""
@@ -44,6 +55,7 @@ targets:
         embed: false
       - target: namu-cli
         embed: false
+      - package: Bonsplit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.omlabs.namu
@@ -72,28 +84,47 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: Tests
+      - path: Tests/NamuKitTests
     dependencies:
       - target: Namu
+      - framework: ghostty/macos/GhosttyKit.xcframework
+        embed: false
+      - package: Bonsplit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.omlabs.namu.tests
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Namu.app/Contents/MacOS/Namu"
         BUNDLE_LOADER: "$(TEST_HOST)"
+        SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/Tests/NamuKitTests-Bridging-Header.h"
+
+  NamuUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: Tests/NamuUITests
+    dependencies:
+      - target: Namu
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.omlabs.namu.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Namu
 
 schemes:
   Namu:
     build:
       targets:
-        Namu: all
+        Namu: [run, test, profile, analyze, archive]
         namu-cli: all
+        NamuTests: testing
     run:
       config: Debug
     test:
       config: Debug
       targets:
         - NamuTests
+        - NamuUITests
     profile:
       config: Release
     analyze:

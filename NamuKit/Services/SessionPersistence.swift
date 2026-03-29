@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CoreGraphics
 import os.log
 
 private let logger = Logger(subsystem: "com.namu.app", category: "SessionPersistence")
@@ -66,6 +67,19 @@ final class SessionPersistence: ObservableObject {
     /// Additional window contexts to include in the snapshot. Each entry maps windowID → context.
     /// The primary workspaceManager/panelManager always maps to windows[0].
     var additionalWindowContexts: [WindowContext] = []
+
+    // MARK: - Primary window frame (set by AppDelegate before save, read after restore)
+
+    /// Window frame for the primary window. Set by AppDelegate just before save so that
+    /// SessionPersistence does not need an AppKit import.
+    var primaryWindowFrame: CGRect?
+    var primarySidebarCollapsed: Bool = false
+    var primarySidebarWidth: Double = 220
+
+    /// Restored window frame for the primary window. Read by AppDelegate after `restoreIfAvailable`.
+    private(set) var restoredWindowFrame: CGRect?
+    private(set) var restoredSidebarCollapsed: Bool = false
+    private(set) var restoredSidebarWidth: Double = 220
 
     // MARK: - Init
 
@@ -150,7 +164,10 @@ final class SessionPersistence: ObservableObject {
         let primaryWindowSnap = buildWindowSnapshot(
             windowID: UUID(),
             workspaceManager: workspaceManager,
-            panelManager: panelManager
+            panelManager: panelManager,
+            windowFrame: primaryWindowFrame,
+            sidebarCollapsed: primarySidebarCollapsed,
+            sidebarWidth: primarySidebarWidth
         )
         windows.append(primaryWindowSnap)
 
@@ -158,7 +175,10 @@ final class SessionPersistence: ObservableObject {
             let winSnap = buildWindowSnapshot(
                 windowID: ctx.windowID,
                 workspaceManager: ctx.workspaceManager,
-                panelManager: ctx.panelManager
+                panelManager: ctx.panelManager,
+                windowFrame: ctx.windowFrame,
+                sidebarCollapsed: ctx.sidebarCollapsed,
+                sidebarWidth: ctx.sidebarWidth
             )
             windows.append(winSnap)
         }
@@ -169,7 +189,10 @@ final class SessionPersistence: ObservableObject {
     private func buildWindowSnapshot(
         windowID: UUID,
         workspaceManager: WorkspaceManager,
-        panelManager: PanelManager
+        panelManager: PanelManager,
+        windowFrame: CGRect? = nil,
+        sidebarCollapsed: Bool = false,
+        sidebarWidth: Double = 220
     ) -> WindowSnapshot {
         let workspaceSnapshots = workspaceManager.workspaces.map { workspace in
             WorkspaceSnapshot(
@@ -183,10 +206,14 @@ final class SessionPersistence: ObservableObject {
                 activePanelID: workspace.activePanelID
             )
         }
+        let frameArray: [Double]? = windowFrame.map { [Double($0.origin.x), Double($0.origin.y), Double($0.size.width), Double($0.size.height)] }
         return WindowSnapshot(
             windowID: windowID,
             workspaces: workspaceSnapshots,
-            selectedWorkspaceID: workspaceManager.selectedWorkspaceID
+            selectedWorkspaceID: workspaceManager.selectedWorkspaceID,
+            windowFrame: frameArray,
+            sidebarCollapsed: sidebarCollapsed,
+            sidebarWidth: sidebarWidth
         )
     }
 
@@ -198,7 +225,9 @@ final class SessionPersistence: ObservableObject {
                 id: leaf.id,
                 panelType: leaf.panelType,
                 workingDirectory: panel?.workingDirectory,
-                scrollbackFile: nil  // Scrollback written by shell integration, not readable here
+                scrollbackFile: nil,  // Scrollback written by shell integration, not readable here
+                gitBranch: panel?.gitBranch,
+                customTitle: panel?.customTitle
             )
             return .pane(pane)
 
@@ -222,6 +251,13 @@ final class SessionPersistence: ObservableObject {
         // bring back the primary window; additional windows are recreated lazily by AppDelegate.
         let primaryWindowSnap = snapshot.windows[0]
         applyWindowSnapshot(primaryWindowSnap, workspaceManager: workspaceManager, panelManager: panelManager)
+
+        // Expose restored frame so AppDelegate can reposition the window.
+        if let f = primaryWindowSnap.windowFrame, f.count == 4 {
+            restoredWindowFrame = CGRect(x: f[0], y: f[1], width: f[2], height: f[3])
+        }
+        restoredSidebarCollapsed = primaryWindowSnap.sidebarCollapsed ?? false
+        restoredSidebarWidth = primaryWindowSnap.sidebarWidth ?? 220
     }
 
     private func applyWindowSnapshot(
@@ -289,7 +325,9 @@ final class SessionPersistence: ObservableObject {
             panelManager.restoreTerminalPanel(
                 id: snap.id,
                 workingDirectory: snap.workingDirectory,
-                scrollbackFile: snap.scrollbackFile
+                scrollbackFile: snap.scrollbackFile,
+                gitBranch: snap.gitBranch,
+                customTitle: snap.customTitle
             )
         case .split(let snap):
             createPanels(from: snap.first, panelManager: panelManager)

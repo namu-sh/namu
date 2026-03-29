@@ -7,6 +7,9 @@ final class WorkspaceCommands {
 
     private let workspaceManager: WorkspaceManager
 
+    /// Tracks the previously selected workspace for workspace.last navigation.
+    private var previousSelectedWorkspaceID: UUID?
+
     init(workspaceManager: WorkspaceManager) {
         self.workspaceManager = workspaceManager
     }
@@ -14,13 +17,18 @@ final class WorkspaceCommands {
     // MARK: - Registration
 
     func register(in registry: CommandRegistry) {
-        registry.register("workspace.list")   { [weak self] req in try await self?.list(req) ?? .notAvailable(req) }
-        registry.register("workspace.create") { [weak self] req in try await self?.create(req) ?? .notAvailable(req) }
-        registry.register("workspace.delete") { [weak self] req in try await self?.delete(req) ?? .notAvailable(req) }
-        registry.register("workspace.select") { [weak self] req in try await self?.select(req) ?? .notAvailable(req) }
-        registry.register("workspace.rename") { [weak self] req in try await self?.rename(req) ?? .notAvailable(req) }
-        registry.register("workspace.pin")    { [weak self] req in try await self?.pin(req) ?? .notAvailable(req) }
-        registry.register("workspace.color")  { [weak self] req in try await self?.color(req) ?? .notAvailable(req) }
+        registry.register("workspace.list")     { [weak self] req in try await self?.list(req) ?? .notAvailable(req) }
+        registry.register("workspace.create")   { [weak self] req in try await self?.create(req) ?? .notAvailable(req) }
+        registry.register("workspace.delete")   { [weak self] req in try await self?.delete(req) ?? .notAvailable(req) }
+        registry.register("workspace.select")   { [weak self] req in try await self?.select(req) ?? .notAvailable(req) }
+        registry.register("workspace.rename")   { [weak self] req in try await self?.rename(req) ?? .notAvailable(req) }
+        registry.register("workspace.pin")      { [weak self] req in try await self?.pin(req) ?? .notAvailable(req) }
+        registry.register("workspace.color")    { [weak self] req in try await self?.color(req) ?? .notAvailable(req) }
+        registry.register("workspace.current")  { [weak self] req in try await self?.current(req) ?? .notAvailable(req) }
+        registry.register("workspace.close")    { [weak self] req in try await self?.closeWorkspace(req) ?? .notAvailable(req) }
+        registry.register("workspace.next")     { [weak self] req in try await self?.next(req) ?? .notAvailable(req) }
+        registry.register("workspace.previous") { [weak self] req in try await self?.previous(req) ?? .notAvailable(req) }
+        registry.register("workspace.last")     { [weak self] req in try await self?.last(req) ?? .notAvailable(req) }
     }
 
     // MARK: - workspace.list
@@ -96,6 +104,7 @@ final class WorkspaceCommands {
             throw JSONRPCError(code: -32001, message: "Workspace not found")
         }
 
+        trackPreviousWorkspace()
         NotificationCenter.default.post(
             name: .selectWorkspace,
             object: nil,
@@ -145,11 +154,112 @@ final class WorkspaceCommands {
             throw JSONRPCError(code: -32001, message: "Workspace not found")
         }
         workspaceManager.pinWorkspace(id: id)
-        let newPinned = !ws.isPinned  // toggled
+        let newPinned = workspaceManager.workspaces.first(where: { $0.id == id })?.isPinned ?? !ws.isPinned
         return .success(id: req.id, result: .object([
             "id":     .string(idStr),
             "pinned": .bool(newPinned)
         ]))
+    }
+
+    // MARK: - workspace.current
+
+    private func current(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        guard let workspace = workspaceManager.selectedWorkspace else {
+            throw JSONRPCError(code: -32001, message: "No active workspace")
+        }
+
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(workspace.id.uuidString),
+            "title":        .string(workspace.title),
+            "order":        .int(workspace.order),
+            "pane_count":   .int(workspace.panelCount)
+        ]))
+    }
+
+    // MARK: - workspace.close
+
+    private func closeWorkspace(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        let workspaceID: UUID
+        if let wsValue = params["workspace_id"], case .string(let wsStr) = wsValue,
+           let wsID = UUID(uuidString: wsStr) {
+            workspaceID = wsID
+        } else if let selected = workspaceManager.selectedWorkspaceID {
+            workspaceID = selected
+        } else {
+            throw JSONRPCError(code: -32001, message: "No workspace specified")
+        }
+
+        guard workspaceManager.workspaces.contains(where: { $0.id == workspaceID }) else {
+            throw JSONRPCError(code: -32001, message: "Workspace not found")
+        }
+        guard workspaceManager.workspaces.count > 1 else {
+            throw JSONRPCError(code: -32001, message: "Cannot close the last workspace")
+        }
+
+        workspaceManager.deleteWorkspace(id: workspaceID)
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(workspaceID.uuidString)
+        ]))
+    }
+
+    // MARK: - workspace.next
+
+    private func next(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let workspaces = workspaceManager.workspaces
+        guard let selectedID = workspaceManager.selectedWorkspaceID,
+              let currentIdx = workspaces.firstIndex(where: { $0.id == selectedID }) else {
+            throw JSONRPCError(code: -32001, message: "No active workspace")
+        }
+        let nextIdx = (currentIdx + 1) % workspaces.count
+        let nextWorkspace = workspaces[nextIdx]
+        trackPreviousWorkspace()
+        workspaceManager.selectWorkspace(id: nextWorkspace.id)
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(nextWorkspace.id.uuidString),
+            "title":        .string(nextWorkspace.title)
+        ]))
+    }
+
+    // MARK: - workspace.previous
+
+    private func previous(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let workspaces = workspaceManager.workspaces
+        guard let selectedID = workspaceManager.selectedWorkspaceID,
+              let currentIdx = workspaces.firstIndex(where: { $0.id == selectedID }) else {
+            throw JSONRPCError(code: -32001, message: "No active workspace")
+        }
+        let prevIdx = currentIdx == 0 ? workspaces.count - 1 : currentIdx - 1
+        let prevWorkspace = workspaces[prevIdx]
+        trackPreviousWorkspace()
+        workspaceManager.selectWorkspace(id: prevWorkspace.id)
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(prevWorkspace.id.uuidString),
+            "title":        .string(prevWorkspace.title)
+        ]))
+    }
+
+    // MARK: - workspace.last
+
+    private func last(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        guard let previousID = previousSelectedWorkspaceID,
+              workspaceManager.workspaces.contains(where: { $0.id == previousID }) else {
+            throw JSONRPCError(code: -32001, message: "No previous workspace")
+        }
+        trackPreviousWorkspace()
+        workspaceManager.selectWorkspace(id: previousID)
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(previousID.uuidString)
+        ]))
+    }
+
+    // MARK: - Private helpers
+
+    private func trackPreviousWorkspace() {
+        if let current = workspaceManager.selectedWorkspaceID {
+            previousSelectedWorkspaceID = current
+        }
     }
 
     // MARK: - workspace.color

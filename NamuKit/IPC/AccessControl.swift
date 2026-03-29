@@ -112,12 +112,3 @@ final class AccessController: @unchecked Sendable {
         return info.kp_eproc.e_ppid
     }
 }
-
-private extension NSLock {
-    @discardableResult
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
-    }
-}

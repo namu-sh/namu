@@ -34,10 +34,26 @@ _namu_prop() {
 
 # ── Socket communication ──────────────────────────────────────────────────────
 
-# Send a raw payload to the Namu socket using ncat/socat/nc fallback chain.
+# Load zsh/net/socket for zsocket IPC (no subprocess spawn — much faster than ncat/socat).
+zmodload zsh/net/socket 2>/dev/null && _NAMU_HAS_ZSOCKET=1 || _NAMU_HAS_ZSOCKET=0
+
+# Send a raw payload to the Namu socket.
+# Fast path: zsocket (pure zsh, zero subprocess).
+# Fallback chain: ncat → socat → nc.
 _namu_send() {
     local payload="$1"
     [[ -S "${NAMU_SOCKET:-}" ]] || return 0
+
+    if (( _NAMU_HAS_ZSOCKET )); then
+        local fd
+        if zsocket fd "$NAMU_SOCKET" 2>/dev/null; then
+            print -r -u "$fd" -- "$payload" 2>/dev/null || true
+            exec {fd}>&- 2>/dev/null || true
+            return 0
+        fi
+        # zsocket connect failed (e.g. socket busy); fall through to subprocess methods.
+    fi
+
     if command -v ncat >/dev/null 2>&1; then
         print -r -- "$payload" | ncat -w 1 -U "$NAMU_SOCKET" --send-only >/dev/null 2>&1
     elif command -v socat >/dev/null 2>&1; then

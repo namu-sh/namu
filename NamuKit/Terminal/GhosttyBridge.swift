@@ -12,6 +12,16 @@ extension Notification.Name {
     static let namuNotificationCreated = Notification.Name("xyz.omlabs.namu.notificationCreated")
     static let namuTerminalNotification = Notification.Name("xyz.omlabs.namu.terminalNotification")
     static let namuPaneAttentionRequested = Notification.Name("xyz.omlabs.namu.paneAttentionRequested")
+    // Search/find overlay
+    static let namuSearchStarted = Notification.Name("xyz.omlabs.namu.searchStarted")
+    static let namuSearchEnded = Notification.Name("xyz.omlabs.namu.searchEnded")
+    static let namuSearchTotalUpdated = Notification.Name("xyz.omlabs.namu.searchTotalUpdated")
+    static let namuSearchSelectedUpdated = Notification.Name("xyz.omlabs.namu.searchSelectedUpdated")
+    // Cell size / scrollbar / key UI
+    static let namuCellSizeUpdated = Notification.Name("xyz.omlabs.namu.cellSizeUpdated")
+    static let namuScrollbarUpdated = Notification.Name("xyz.omlabs.namu.scrollbarUpdated")
+    static let namuKeySequenceUpdated = Notification.Name("xyz.omlabs.namu.keySequenceUpdated")
+    static let namuKeyTableUpdated = Notification.Name("xyz.omlabs.namu.keyTableUpdated")
 }
 
 // MARK: - GhosttyColorScheme
@@ -34,6 +44,10 @@ final class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+
+    // Task 4.7: Retain NSSound until playback completes so custom bell audio is
+    // not cut short when the local variable in ringBell() goes out of scope.
+    private var bellAudioSound: NSSound?
 
     // MARK: - Init
 
@@ -180,12 +194,17 @@ final class GhosttyApp {
             NSSound.beep()
         }
 
-        // bit 1: custom audio file
+        // bit 1: custom audio file — retain sound as a property so playback is not
+        // cut short when the local variable goes out of scope before audio finishes.
         if (features & (1 << 1)) != 0,
            let path = cfg.bellAudioPath,
            let sound = NSSound(contentsOfFile: path, byReference: false) {
             sound.volume = cfg.bellAudioVolume
+            bellAudioSound = sound
             sound.play()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                self?.bellAudioSound = nil
+            }
         }
 
         // bit 2: dock bounce
@@ -336,6 +355,238 @@ final class GhosttyApp {
             DispatchQueue.main.async { NSApp.terminate(nil) }
             return true
 
+        // MARK: - Task 2.1: Split action handlers
+
+        case GHOSTTY_ACTION_NEW_SPLIT:
+            let direction = splitDirection(from: action.action.new_split)
+            DispatchQueue.main.async {
+                AppDelegate.shared?.panelManager?.splitActivePanel(direction: direction)
+            }
+            return true
+
+        case GHOSTTY_ACTION_GOTO_SPLIT:
+            let gotoDir = action.action.goto_split
+            DispatchQueue.main.async {
+                let pm = AppDelegate.shared?.panelManager
+                switch gotoDir {
+                case GHOSTTY_GOTO_SPLIT_PREVIOUS:
+                    pm?.activatePrevious()
+                case GHOSTTY_GOTO_SPLIT_NEXT:
+                    pm?.activateNext()
+                default:
+                    if let direction = navigationDirection(from: gotoDir) {
+                        pm?.activateDirection(direction)
+                    }
+                }
+            }
+            return true
+
+        case GHOSTTY_ACTION_RESIZE_SPLIT:
+            let resizeDir = action.action.resize_split.direction
+            let amount = action.action.resize_split.amount
+            DispatchQueue.main.async {
+                guard let pm = AppDelegate.shared?.panelManager,
+                      let wm = AppDelegate.shared?.workspaceManager,
+                      var workspace = wm.selectedWorkspace,
+                      let activeID = workspace.activePanelID else { return }
+                // Find the split containing the active pane and adjust its ratio.
+                let delta = Double(amount) / 100.0
+                let adjusted = workspace.paneTree.adjustSplitRatio(
+                    containing: activeID,
+                    direction: resizeDir,
+                    delta: delta
+                )
+                if let (splitID, newRatio) = adjusted {
+                    pm.resizeSplit(splitID: splitID, ratio: newRatio)
+                }
+            }
+            return true
+
+        case GHOSTTY_ACTION_EQUALIZE_SPLITS:
+            DispatchQueue.main.async {
+                guard let wm = AppDelegate.shared?.workspaceManager,
+                      var workspace = wm.selectedWorkspace else { return }
+                workspace.paneTree = workspace.paneTree.equalized()
+                wm.update(workspace)
+            }
+            return true
+
+        case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
+            DispatchQueue.main.async {
+                guard let pm = AppDelegate.shared?.panelManager,
+                      let activeID = AppDelegate.shared?.workspaceManager?.selectedWorkspace?.activePanelID else { return }
+                pm.toggleZoom(id: activeID)
+            }
+            return true
+
+        // MARK: - Task 2.2: Find/search action handlers
+
+        case GHOSTTY_ACTION_START_SEARCH:
+            let needle = action.action.start_search.needle.flatMap { String(cString: $0) } ?? ""
+            let surfaceUD: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                let panel = surfaceUD.flatMap { GhosttyApp.panel(fromUserdata: $0) }
+                if let panel {
+                    if panel.searchState != nil {
+                        if !needle.isEmpty { panel.searchState?.needle = needle }
+                    } else {
+                        panel.searchState = SearchState(needle: needle)
+                    }
+                }
+                NotificationCenter.default.post(
+                    name: .namuSearchStarted,
+                    object: nil,
+                    userInfo: surfaceUD.map { ["userdata": $0] }
+                )
+            }
+            return true
+
+        case GHOSTTY_ACTION_END_SEARCH:
+            let surfaceUDEnd: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                let panel = surfaceUDEnd.flatMap { GhosttyApp.panel(fromUserdata: $0) }
+                panel?.searchState = nil
+                NotificationCenter.default.post(
+                    name: .namuSearchEnded,
+                    object: nil,
+                    userInfo: surfaceUDEnd.map { ["userdata": $0] }
+                )
+            }
+            return true
+
+        case GHOSTTY_ACTION_SEARCH_TOTAL:
+            let rawTotal = action.action.search_total.total
+            let total: UInt? = rawTotal >= 0 ? UInt(rawTotal) : nil
+            let surfaceUDTotal: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                let panel = surfaceUDTotal.flatMap { GhosttyApp.panel(fromUserdata: $0) }
+                panel?.searchState?.total = total
+                NotificationCenter.default.post(
+                    name: .namuSearchTotalUpdated,
+                    object: nil,
+                    userInfo: surfaceUDTotal.map { ["userdata": $0] }
+                )
+            }
+            return true
+
+        case GHOSTTY_ACTION_SEARCH_SELECTED:
+            let rawSelected = action.action.search_selected.selected
+            let selected: UInt? = rawSelected >= 0 ? UInt(rawSelected) : nil
+            let surfaceUDSel: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                let panel = surfaceUDSel.flatMap { GhosttyApp.panel(fromUserdata: $0) }
+                panel?.searchState?.selected = selected
+                NotificationCenter.default.post(
+                    name: .namuSearchSelectedUpdated,
+                    object: nil,
+                    userInfo: surfaceUDSel.map { ["userdata": $0] }
+                )
+            }
+            return true
+
+        // MARK: - Task 2.3: Utility action handlers
+
+        case GHOSTTY_ACTION_CELL_SIZE:
+            let cellW = CGFloat(action.action.cell_size.width)
+            let cellH = CGFloat(action.action.cell_size.height)
+            let surfaceUDCell: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                let panel = surfaceUDCell.flatMap { GhosttyApp.panel(fromUserdata: $0) }
+                panel?.cellSize = CGSize(width: cellW, height: cellH)
+                NotificationCenter.default.post(
+                    name: .namuCellSizeUpdated,
+                    object: nil,
+                    userInfo: surfaceUDCell.map { ["userdata": $0] }
+                )
+            }
+            return true
+
+        case GHOSTTY_ACTION_SCROLLBAR:
+            let sbTotal = action.action.scrollbar.total
+            let sbOffset = action.action.scrollbar.offset
+            let sbLen = action.action.scrollbar.len
+            let surfaceUDSB: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                let panel = surfaceUDSB.flatMap { GhosttyApp.panel(fromUserdata: $0) }
+                panel?.scrollbarState = ScrollbarState(total: sbTotal, offset: sbOffset, length: sbLen)
+                NotificationCenter.default.post(
+                    name: .namuScrollbarUpdated,
+                    object: nil,
+                    userInfo: surfaceUDSB.map { ["userdata": $0] }
+                )
+            }
+            return true
+
+        case GHOSTTY_ACTION_KEY_SEQUENCE:
+            let isActive = action.action.key_sequence.active
+            let surfaceUDKS: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .namuKeySequenceUpdated,
+                    object: nil,
+                    userInfo: (surfaceUDKS.map { ["userdata": $0, "active": isActive] })
+                        ?? ["active": isActive]
+                )
+            }
+            return true
+
+        case GHOSTTY_ACTION_KEY_TABLE:
+            let ktTag = action.action.key_table.tag
+            var ktName: String? = nil
+            if ktTag == GHOSTTY_KEY_TABLE_ACTIVATE,
+               let namePtr = action.action.key_table.value.activate.name {
+                ktName = String(cString: namePtr)
+            }
+            let surfaceUDKT: UnsafeMutableRawPointer? = target.tag == GHOSTTY_TARGET_SURFACE
+                ? ghostty_surface_userdata(target.target.surface)
+                : nil
+            DispatchQueue.main.async {
+                var info: [String: Any] = ["tag": Int(ktTag.rawValue)]
+                if let surfaceUD = surfaceUDKT { info["userdata"] = surfaceUD }
+                if let name = ktName { info["name"] = name }
+                NotificationCenter.default.post(name: .namuKeyTableUpdated, object: nil, userInfo: info)
+            }
+            return true
+
+        case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
+            // The child shell exited. Close the pane immediately rather than
+            // letting Ghostty print "Process exited. Press any key..." prompt.
+            // Recover the TerminalSession via surface userdata and reuse the
+            // existing ghosttySurfaceDidClose path that ServiceContainer handles.
+            let surfacePtr: ghostty_surface_t? = {
+                if target.tag == GHOSTTY_TARGET_SURFACE {
+                    return target.target.surface
+                }
+                return nil
+            }()
+            if let surface = surfacePtr,
+               let userdata = ghostty_surface_userdata(surface) {
+                // Keep close async to avoid re-entrant surface free during the action callback.
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttySurfaceDidClose,
+                        object: nil,
+                        userInfo: ["userdata": userdata]
+                    )
+                }
+            }
+            // Always return true so Ghostty does not print the fallback prompt.
+            return true
+
         default:
             // Actions handled by the surface view (NEW_SPLIT, GOTO_SPLIT, etc.)
             // return false so Ghostty uses its built-in fallback.
@@ -344,6 +595,32 @@ final class GhosttyApp {
     }
 
     // MARK: - Private helpers
+
+    /// Recover the TerminalPanel for a surface userdata pointer.
+    /// Searches all window contexts registered on AppDelegate.
+    @MainActor
+    static func panel(fromUserdata userdata: UnsafeMutableRawPointer) -> TerminalPanel? {
+        let session = Unmanaged<TerminalSession>.fromOpaque(userdata).takeUnretainedValue()
+        guard let delegate = AppDelegate.shared else { return nil }
+        // Build list of (workspaceManager, panelManager) pairs to search.
+        var pairs: [(WorkspaceManager, PanelManager)] = []
+        if let wm = delegate.workspaceManager, let pm = delegate.panelManager {
+            pairs.append((wm, pm))
+        }
+        for ctx in delegate.windowContexts.values {
+            pairs.append((ctx.workspaceManager, ctx.panelManager))
+        }
+        for (wm, pm) in pairs {
+            for workspace in wm.workspaces {
+                for leaf in workspace.allPanels {
+                    if let panel = pm.panel(for: leaf.id), panel.session.id == session.id {
+                        return panel
+                    }
+                }
+            }
+        }
+        return nil
+    }
 
     private func reloadConfig() {
         guard let oldConfig = config else { return }
@@ -363,6 +640,31 @@ final class GhosttyApp {
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
     }
 
+}
+
+// MARK: - Action direction helpers
+
+/// Map Ghostty split direction to Namu's SplitDirection.
+/// Note: Namu always places the new split after the active pane regardless of
+/// left-vs-right or up-vs-down intent. Left/Right both map to .horizontal and
+/// Up/Down both map to .vertical. A future enhancement could pass the
+/// directional placement hint through to `splitActivePanel` so the new pane
+/// appears on the requested side.
+private func splitDirection(from ghosttyDir: ghostty_action_split_direction_e) -> SplitDirection {
+    switch ghosttyDir {
+    case GHOSTTY_SPLIT_DIRECTION_LEFT, GHOSTTY_SPLIT_DIRECTION_RIGHT: return .horizontal
+    default: return .vertical
+    }
+}
+
+private func navigationDirection(from ghosttyDir: ghostty_action_goto_split_e) -> NavigationDirection? {
+    switch ghosttyDir {
+    case GHOSTTY_GOTO_SPLIT_LEFT:     return .left
+    case GHOSTTY_GOTO_SPLIT_RIGHT:    return .right
+    case GHOSTTY_GOTO_SPLIT_UP:       return .up
+    case GHOSTTY_GOTO_SPLIT_DOWN:     return .down
+    default: return nil
+    }
 }
 
 // MARK: - GhosttyConfigReader

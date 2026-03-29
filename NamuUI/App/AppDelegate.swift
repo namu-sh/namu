@@ -110,6 +110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Termination
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Capture window frame before the final session save.
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "namu-primary" }) ?? NSApp.windows.first(where: { $0.isKeyWindow }),
+           let sc = serviceContainer {
+            sc.sessionPersistence.primaryWindowFrame = window.frame
+        }
+
         // Stop all services (final session save, socket teardown, alert engine).
         serviceContainer?.stop()
 
@@ -172,9 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
 
-        // Cmd+T → New workspace
+        // Cmd+T → New workspace (create AND select so the shell starts)
         if cmd && event.keyCode == 17 {
-            workspaceManager?.createWorkspace()
+            if let ws = workspaceManager?.createWorkspace() {
+                workspaceManager?.selectWorkspace(id: ws.id)
+            }
             return nil
         }
 
@@ -195,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let ws = workspaceManager?.selectedWorkspace, ws.panelCount <= 1 {
                 return event
             }
-            panelManager?.closeActivePanel()
+            closePanelWithConfirmation()
             return nil
         }
 
@@ -256,6 +264,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return event
+    }
+
+    // MARK: - Close with confirmation
+
+    /// Close the active panel, showing a confirmation alert if a process is running
+    /// or the workspace is pinned.
+    @MainActor func closePanelWithConfirmation() {
+        guard let pm = panelManager, let wm = workspaceManager else { return }
+        guard let ws = wm.selectedWorkspace else { return }
+        guard let activeID = ws.activePanelID else { return }
+
+        let needsConfirmation = ws.isPinned || pm.isProcessRunning(id: activeID)
+        guard needsConfirmation else {
+            pm.closeActivePanel()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "close.confirmation.title",
+            defaultValue: "Process is running"
+        )
+        alert.informativeText = String(
+            localized: "close.confirmation.body",
+            defaultValue: "A process is running in this pane. Close anyway?"
+        )
+        alert.addButton(withTitle: String(
+            localized: "close.confirmation.close",
+            defaultValue: "Close"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "close.confirmation.cancel",
+            defaultValue: "Cancel"
+        ))
+        alert.alertStyle = .warning
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            pm.closeActivePanel()
+        }
     }
 
     // MARK: - Workspace navigation helpers
@@ -404,7 +452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.title == "Namu" || $0.isKeyWindow }) {
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "namu-primary" }) ?? NSApp.windows.first(where: { $0.isKeyWindow }) {
             window.makeKeyAndOrderFront(nil)
         } else {
             // If no window exists, open the main window

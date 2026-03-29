@@ -1,3 +1,6 @@
 [submodule "ghostty"]
 	path = ghostty
 	url = https://github.com/manaflow-ai/ghostty.git
+[submodule "vendor/bonsplit"]
+	path = vendor/bonsplit
+	url = https://github.com/manaflow-ai/bonsplit.git

@@ -126,6 +126,10 @@ final class ServiceContainer {
         alertEngine.loadRules()
         alertEngine.start()
 
+        // Request macOS notification permission on first launch.
+        // UNUserNotificationCenter only prompts the user once; safe to call every launch.
+        notificationService.requestAuthorization()
+
         // Listen for shell exit → close the panel/workspace
         NotificationCenter.default.addObserver(
             forName: .ghosttySurfaceDidClose,
@@ -236,7 +240,7 @@ final class ServiceContainer {
         bc.register(in: commandRegistry)
         browserCommands = bc
 
-        let sys = SystemCommands()
+        let sys = SystemCommands(workspaceManager: workspaceManager, panelManager: panelManager)
         sys.register(in: commandRegistry)
         systemCommands = sys
 

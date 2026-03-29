@@ -70,6 +70,8 @@ struct FindOverlayView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 2)
         .padding(8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("namu-find-overlay")
         .onAppear { isFieldFocused = true }
         .onKeyPress(.escape) {
             isVisible = false

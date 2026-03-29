@@ -109,7 +109,11 @@ final class NotificationService: ObservableObject {
 
     // MARK: - Create
 
+    /// Suppress window for duplicate notifications (same title+body within this interval).
+    static let deduplicationInterval: TimeInterval = 2.0
+
     /// Add a notification to the ring. Drops the oldest entry if at capacity.
+    /// Suppresses exact duplicates (same title+body) within `deduplicationInterval` seconds.
     @discardableResult
     func create(
         title: String,
@@ -117,6 +121,13 @@ final class NotificationService: ObservableObject {
         workspaceID: UUID? = nil,
         panelID: UUID? = nil
     ) -> InAppNotification {
+        // Suppress duplicate notifications within the deduplication window.
+        let now = Date()
+        if let recent = allNotifications.last(where: { $0.title == title && $0.body == body }),
+           now.timeIntervalSince(recent.createdAt) < Self.deduplicationInterval {
+            return recent
+        }
+
         let notification = InAppNotification(
             title: title,
             body: body,
@@ -129,6 +140,7 @@ final class NotificationService: ObservableObject {
         }
         allNotifications.append(notification)
         playSound()
+        updateDockBadge()
 
         // Notify the pane to show attention ring.
         NotificationCenter.default.post(
@@ -169,6 +181,18 @@ final class NotificationService: ObservableObject {
         return notification
     }
 
+    // MARK: - Authorization
+
+    /// Request macOS notification permission. Safe to call multiple times — UNUserNotificationCenter
+    /// only prompts the user once; subsequent calls return the existing authorization status.
+    func requestAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error {
+                print("[NotificationService] Authorization error: \(error)")
+            }
+        }
+    }
+
     // MARK: - Desktop notification
 
     func postDesktopNotification(title: String, body: String) {
@@ -181,6 +205,13 @@ final class NotificationService: ObservableObject {
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+    }
+
+    // MARK: - Dock badge
+
+    private func updateDockBadge() {
+        let count = unreadCount
+        NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
     }
 
     // MARK: - Audio
@@ -200,18 +231,21 @@ final class NotificationService: ObservableObject {
     func markRead(id: UUID) {
         guard let idx = allNotifications.firstIndex(where: { $0.id == id }) else { return }
         allNotifications[idx].isRead = true
+        updateDockBadge()
     }
 
     func markAllRead() {
         for idx in allNotifications.indices {
             allNotifications[idx].isRead = true
         }
+        updateDockBadge()
     }
 
     func markAllRead(workspaceID: UUID) {
         for idx in allNotifications.indices where allNotifications[idx].workspaceID == workspaceID {
             allNotifications[idx].isRead = true
         }
+        updateDockBadge()
     }
 
     // MARK: - Remove

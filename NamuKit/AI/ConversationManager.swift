@@ -113,14 +113,3 @@ final class ConversationManager: @unchecked Sendable {
         }
     }
 }
-
-// MARK: - NSLock helper
-
-private extension NSLock {
-    @discardableResult
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
-    }
-}

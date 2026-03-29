@@ -31,6 +31,8 @@ struct BrowserPanelView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color.black)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("namu-browser-panel")
 
             // Find-in-page overlay
             if showSearch, let wv = viewModel.namuWebView {

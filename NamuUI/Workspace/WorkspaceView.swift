@@ -2,8 +2,13 @@ import SwiftUI
 
 // MARK: - WorkspaceView
 
-/// Renders the full pane tree for a single workspace.
-/// Takes the live workspace value and the PanelManager that owns focus/resize mutations.
+/// Renders the full pane tree for a single workspace using PaneTreeView.
+///
+/// NOTE: BonsplitView integration requires removing PaneTree entirely and making
+/// BonsplitController the sole source of truth (like Namu does). The current
+/// dual-model approach (PaneTree for data + BonsplitController for rendering)
+/// has fundamental sync issues. The LayoutEngine protocol and BonsplitLayoutEngine
+/// are in place for when this migration is done properly.
 struct WorkspaceView: View {
     let workspace: Workspace
     let panelManager: PanelManager
@@ -23,5 +28,7 @@ struct WorkspaceView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(Color.black)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("namu-workspace-view")
     }
 }

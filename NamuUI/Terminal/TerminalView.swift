@@ -46,6 +46,12 @@ struct TerminalView: NSViewRepresentable {
                 }
                 session.refresh()
                 NamuDebug.log("[Namu] updateNSView: started session displayID=\(displayID)")
+            } else if surfaceView.window == nil {
+                // View not yet in window hierarchy (BonsplitView may still be inserting it).
+                // Retry on next runloop iteration when the view should be attached.
+                DispatchQueue.main.async { [weak surfaceView] in
+                    surfaceView?.needsDisplay = true
+                }
             }
         }
 

@@ -111,6 +111,97 @@ final class PaneTreeTests: XCTestCase {
         XCTAssertTrue(ids.contains(c.id))
     }
 
+    // MARK: - equalized()
+
+    func testEqualizedSinglePane() {
+        let leaf = PaneLeaf(id: UUID(), panelType: .terminal)
+        let tree = PaneTree.pane(leaf)
+        let result = tree.equalized()
+        // Single pane — tree is unchanged, still a .pane case
+        XCTAssertEqual(result.paneCount, 1)
+        XCTAssertNotNil(result.findPane(id: leaf.id))
+    }
+
+    func testEqualizedSplitSetsRatioToHalf() {
+        let left = PaneLeaf(id: UUID())
+        let right = PaneLeaf(id: UUID())
+        let split = PaneSplit(direction: .horizontal, ratio: 0.7, first: .pane(left), second: .pane(right))
+        let tree = PaneTree.split(split)
+        let result = tree.equalized()
+        // Verify ratio reset to 0.5
+        guard case .split(let s) = result else { return XCTFail("Expected split") }
+        XCTAssertEqual(s.ratio, 0.5)
+    }
+
+    func testEqualizedNestedSplits() {
+        let a = PaneLeaf(id: UUID())
+        let b = PaneLeaf(id: UUID())
+        let c = PaneLeaf(id: UUID())
+        // Build: split(split(a, b, ratio:0.8), c, ratio:0.3)
+        let inner = PaneSplit(direction: .horizontal, ratio: 0.8, first: .pane(a), second: .pane(b))
+        let outer = PaneSplit(direction: .vertical, ratio: 0.3, first: .split(inner), second: .pane(c))
+        let tree = PaneTree.split(outer)
+        let result = tree.equalized()
+        guard case .split(let outerS) = result else { return XCTFail("Expected outer split") }
+        XCTAssertEqual(outerS.ratio, 0.5, "outer ratio should be 0.5")
+        guard case .split(let innerS) = outerS.first else { return XCTFail("Expected inner split") }
+        XCTAssertEqual(innerS.ratio, 0.5, "inner ratio should be 0.5")
+    }
+
+    // MARK: - adjustSplitRatio()
+
+    func testAdjustSplitRatioHorizontal() {
+        let left = PaneLeaf(id: UUID())
+        let right = PaneLeaf(id: UUID())
+        let split = PaneSplit(id: UUID(), direction: .horizontal, ratio: 0.5, first: .pane(left), second: .pane(right))
+        let tree = PaneTree.split(split)
+        // Grow left pane rightward — ratio should increase
+        let result = tree.adjustSplitRatio(containing: left.id, direction: GHOSTTY_RESIZE_SPLIT_RIGHT, delta: 0.1)
+        XCTAssertNotNil(result)
+        if let (splitID, newRatio) = result {
+            XCTAssertEqual(splitID, split.id)
+            XCTAssertGreaterThan(newRatio, 0.5)
+        }
+    }
+
+    func testAdjustSplitRatioVertical() {
+        let top = PaneLeaf(id: UUID())
+        let bottom = PaneLeaf(id: UUID())
+        let split = PaneSplit(id: UUID(), direction: .vertical, ratio: 0.5, first: .pane(top), second: .pane(bottom))
+        let tree = PaneTree.split(split)
+        // Grow top pane downward — ratio should increase
+        let result = tree.adjustSplitRatio(containing: top.id, direction: GHOSTTY_RESIZE_SPLIT_DOWN, delta: 0.1)
+        XCTAssertNotNil(result)
+        if let (splitID, newRatio) = result {
+            XCTAssertEqual(splitID, split.id)
+            XCTAssertGreaterThan(newRatio, 0.5)
+        }
+    }
+
+    func testAdjustSplitRatioClamps() {
+        let left = PaneLeaf(id: UUID())
+        let right = PaneLeaf(id: UUID())
+        let split = PaneSplit(id: UUID(), direction: .horizontal, ratio: 0.92, first: .pane(left), second: .pane(right))
+        let tree = PaneTree.split(split)
+        // Delta that would push ratio beyond 1.0 — must be clamped to 0.95
+        let result = tree.adjustSplitRatio(containing: left.id, direction: GHOSTTY_RESIZE_SPLIT_RIGHT, delta: 0.1)
+        XCTAssertNotNil(result)
+        if let (_, newRatio) = result {
+            XCTAssertLessThanOrEqual(newRatio, 0.95)
+            XCTAssertGreaterThanOrEqual(newRatio, 0.05)
+        }
+    }
+
+    func testAdjustSplitRatioWrongAxis() {
+        let left = PaneLeaf(id: UUID())
+        let right = PaneLeaf(id: UUID())
+        // Horizontal split — vertical direction should not match
+        let split = PaneSplit(id: UUID(), direction: .horizontal, ratio: 0.5, first: .pane(left), second: .pane(right))
+        let tree = PaneTree.split(split)
+        let result = tree.adjustSplitRatio(containing: left.id, direction: GHOSTTY_RESIZE_SPLIT_DOWN, delta: 0.1)
+        XCTAssertNil(result, "Vertical direction on a horizontal split should return nil")
+    }
+
     // MARK: - Codable round-trip
 
     func testCodableRoundTrip() throws {

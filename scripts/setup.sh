@@ -17,7 +17,7 @@ if ! command -v zig &> /dev/null; then
 fi
 
 GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
-CACHE_ROOT="${MOSAIC_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/mosaic/ghosttykit}"
+CACHE_ROOT="${NAMU_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/namu/ghosttykit}"
 CACHE_DIR="$CACHE_ROOT/$GHOSTTY_SHA"
 CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
 LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/zig-out/GhosttyKit.xcframework"
@@ -85,4 +85,4 @@ ln -sfn "$CACHE_XCFRAMEWORK" "$PROJECT_DIR/ghostty/zig-out/GhosttyKit.xcframewor
 echo "==> Setup complete!"
 echo ""
 echo "You can now open the project:"
-echo "  xcodegen generate && open Mosaic.xcodeproj"
+echo "  xcodegen generate && open Namu.xcodeproj"

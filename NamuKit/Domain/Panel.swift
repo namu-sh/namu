@@ -9,6 +9,32 @@ enum FocusIntent {
     case resign     // Panel is losing focus
 }
 
+// MARK: - SearchState
+
+/// Active find/search state for a terminal panel.
+struct SearchState {
+    var needle: String
+    var total: UInt?
+    var selected: UInt?
+}
+
+// MARK: - ScrollbarState
+
+/// Scrollbar position reported by Ghostty for a terminal surface.
+struct ScrollbarState {
+    var total: UInt64 = 0
+    var offset: UInt64 = 0
+    var length: UInt64 = 0
+
+    var isVisible: Bool { total > 0 && length < total }
+    var position: Double {
+        guard total > 0 else { return 0 }
+        return Double(offset) / Double(total)
+    }
+}
+
+// MARK: - Panel protocol
+
 /// Protocol for all panel types in the pane tree.
 protocol Panel: AnyObject, Identifiable where ID == UUID {
     var id: UUID { get }
@@ -44,9 +70,22 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Current git branch reported by shell integration.
     @Published private(set) var gitBranch: String?
 
+    /// User-supplied custom title for this pane (overrides process title in sidebar).
+    @Published var customTitle: String?
+
     /// Path to a scrollback replay file set during session restore.
     /// Shell integration reads NAMU_RESTORE_SCROLLBACK_FILE on startup to replay it.
     var scrollbackRestoreFile: String?
+
+    /// Active find/search state. Non-nil when a search is in progress.
+    @Published var searchState: SearchState?
+
+    /// Most recent cell size (character cell width/height in points) reported by Ghostty.
+    /// Used by Phase 3 geometry variables for tmux compat.
+    @Published var cellSize: CGSize = .zero
+
+    /// Most recent scrollbar state reported by Ghostty.
+    @Published var scrollbarState: ScrollbarState = .init()
 
     // MARK: - Session
 
@@ -88,6 +127,13 @@ final class TerminalPanel: Panel, ObservableObject {
             .map { $0.isEmpty ? "Terminal" : $0 }
             .receive(on: DispatchQueue.main)
             .assign(to: &$title)
+    }
+
+    // MARK: - Restore helpers
+
+    /// Seed the git branch from a persisted snapshot (avoids waiting for shell integration to report).
+    func restoreGitBranch(_ branch: String) {
+        gitBranch = branch
     }
 
     // MARK: - Focus

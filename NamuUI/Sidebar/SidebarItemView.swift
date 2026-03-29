@@ -148,6 +148,8 @@ struct SidebarItemView: View, Equatable {
                         .foregroundColor(isSelected ? .white : .primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .accessibilityIdentifier("namu-workspace-title")
+                        .accessibilityLabel(title)
 
                     Spacer()
 

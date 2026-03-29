@@ -711,7 +711,7 @@ private func resolvePath(_ path: String) -> String {
 
 // MARK: Tmux argument parsing
 
-private struct TmuxParsedArguments {
+struct TmuxParsedArguments {
     var flags: Set<String> = []
     var options: [String: [String]] = [:]
     var positional: [String] = []
@@ -725,7 +725,7 @@ private struct TmuxParsedArguments {
     }
 }
 
-private func parseTmuxArguments(
+func parseTmuxArguments(
     _ args: [String],
     valueFlags: Set<String>,
     boolFlags: Set<String>
@@ -844,7 +844,7 @@ private func tmuxPaneSelector(from raw: String?) -> String? {
     return nil
 }
 
-private func tmuxCallerWorkspaceHandle() -> String? {
+func tmuxCallerWorkspaceHandle() -> String? {
     normalizedTmuxTarget(ProcessInfo.processInfo.environment["NAMU_WORKSPACE_ID"])
 }
 
@@ -856,7 +856,7 @@ private func tmuxCallerPaneHandle() -> String? {
     return pane.hasPrefix("%") ? String(pane.dropFirst()) : pane
 }
 
-private func tmuxCallerSurfaceHandle() -> String? {
+func tmuxCallerSurfaceHandle() -> String? {
     normalizedTmuxTarget(ProcessInfo.processInfo.environment["NAMU_SURFACE_ID"])
 }
 
@@ -949,7 +949,7 @@ private func tmuxSelectedSurfaceId(workspaceId: String, paneId: String, client: 
     throw CLIError(message: "Pane has no surface to target")
 }
 
-private func tmuxResolveWorkspaceTarget(_ raw: String?, client: SocketClient) throws -> String {
+func tmuxResolveWorkspaceTarget(_ raw: String?, client: SocketClient) throws -> String {
     guard var token = normalizedTmuxTarget(raw) else {
         if let callerWorkspace = tmuxCallerWorkspaceHandle() {
             return try resolveWorkspaceId(callerWorkspace, client: client)
@@ -989,7 +989,7 @@ private func tmuxResolveWorkspaceTarget(_ raw: String?, client: SocketClient) th
     throw CLIError(message: "Workspace target not found: \(token)")
 }
 
-private func tmuxResolvePaneTarget(_ raw: String?, client: SocketClient) throws -> (workspaceId: String, paneId: String) {
+func tmuxResolvePaneTarget(_ raw: String?, client: SocketClient) throws -> (workspaceId: String, paneId: String) {
     let paneSelector = tmuxPaneSelector(from: raw)
     let workspaceSelector = tmuxWindowSelector(from: raw)
     let workspaceId: String = {
@@ -1018,7 +1018,7 @@ private func tmuxResolvePaneTarget(_ raw: String?, client: SocketClient) throws 
     return (workspaceId, paneId)
 }
 
-private func tmuxResolveSurfaceTarget(
+func tmuxResolveSurfaceTarget(
     _ raw: String?,
     client: SocketClient
 ) throws -> (workspaceId: String, paneId: String?, surfaceId: String) {
@@ -1045,7 +1045,7 @@ private func tmuxResolveSurfaceTarget(
 
 // MARK: Tmux format rendering
 
-private func tmuxRenderFormat(_ format: String?, context: [String: String], fallback: String) -> String {
+func tmuxRenderFormat(_ format: String?, context: [String: String], fallback: String) -> String {
     guard let format, !format.isEmpty else { return fallback }
     var rendered = format
     for (key, value) in context {
@@ -1060,7 +1060,7 @@ private func tmuxRenderFormat(_ format: String?, context: [String: String], fall
     return trimmed.isEmpty ? fallback : trimmed
 }
 
-private func tmuxFormatContext(
+func tmuxFormatContext(
     workspaceId: String,
     paneId: String? = nil,
     surfaceId: String? = nil,
@@ -1143,7 +1143,7 @@ private func tmuxShellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
 }
 
-private func tmuxShellCommandText(commandTokens: [String], cwd: String?) -> String? {
+func tmuxShellCommandText(commandTokens: [String], cwd: String?) -> String? {
     let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
     let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     guard (trimmedCwd?.isEmpty == false) || !commandText.isEmpty else { return nil }
@@ -1215,8 +1215,24 @@ private func tmuxSendKeysText(from tokens: [String], literal: Bool) -> String {
 
 // MARK: Tmux compat store (buffer system)
 
-private struct TmuxCompatStore: Codable {
+struct MainVerticalState: Codable {
+    var mainSurfaceId: String
+    var lastColumnSurfaceId: String?
+}
+
+struct TmuxCompatStore: Codable {
     var buffers: [String: String] = [:]
+    var mainVerticalLayouts: [String: MainVerticalState] = [:]
+    var lastSplitSurface: [String: String] = [:]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        buffers = try container.decodeIfPresent([String: String].self, forKey: .buffers) ?? [:]
+        mainVerticalLayouts = try container.decodeIfPresent([String: MainVerticalState].self, forKey: .mainVerticalLayouts) ?? [:]
+        lastSplitSurface = try container.decodeIfPresent([String: String].self, forKey: .lastSplitSurface) ?? [:]
+    }
 }
 
 private func tmuxCompatStoreURL() -> URL {
@@ -1224,7 +1240,7 @@ private func tmuxCompatStoreURL() -> URL {
     return URL(fileURLWithPath: root).appendingPathComponent("tmux-compat-store.json")
 }
 
-private func loadTmuxCompatStore() -> TmuxCompatStore {
+func loadTmuxCompatStore() -> TmuxCompatStore {
     let url = tmuxCompatStoreURL()
     guard let data = try? Data(contentsOf: url),
           let decoded = try? JSONDecoder().decode(TmuxCompatStore.self, from: data) else {
@@ -1233,7 +1249,7 @@ private func loadTmuxCompatStore() -> TmuxCompatStore {
     return decoded
 }
 
-private func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
+func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
     let url = tmuxCompatStoreURL()
     let parent = url.deletingLastPathComponent()
     try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
@@ -1397,6 +1413,13 @@ func handleTmuxCompat(_ args: [String]) throws {
 
     let (command, rawArgs) = try splitTmuxCommand(commandArgs)
 
+    // Plugin dispatch: resolve from registry before falling through to switch
+    if let commandType = tmuxCommandRegistry.resolve(command) {
+        let cmd = try commandType.init(client: client, args: rawArgs)
+        try cmd.run()
+        return
+    }
+
     switch command {
     case "new-session", "new":
         let parsed = try parseTmuxArguments(
@@ -1465,59 +1488,10 @@ func handleTmuxCompat(_ args: [String]) throws {
             print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: "@\(workspaceId)"))
         }
 
-    case "split-window", "splitw":
-        let parsed = try parseTmuxArguments(
-            rawArgs,
-            valueFlags: ["-c", "-F", "-l", "-t"],
-            boolFlags: ["-P", "-b", "-d", "-h", "-v"]
-        )
-        let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
-        let direction: String
-        if parsed.hasFlag("-h") {
-            direction = parsed.hasFlag("-b") ? "left" : "right"
-        } else {
-            direction = parsed.hasFlag("-b") ? "up" : "down"
-        }
-        let created = try client.sendV2(method: "surface.split", params: [
-            "workspace_id": target.workspaceId,
-            "surface_id": target.surfaceId,
-            "direction": direction
-        ])
-        guard let surfaceId = created["surface_id"] as? String else {
-            throw CLIError(message: "surface.split did not return surface_id")
-        }
-        let paneId = created["pane_id"] as? String
-        if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
-            _ = try client.sendV2(method: "surface.send_text", params: [
-                "workspace_id": target.workspaceId,
-                "surface_id": surfaceId,
-                "text": text
-            ])
-        }
-        if parsed.hasFlag("-P") {
-            let context = try tmuxFormatContext(
-                workspaceId: target.workspaceId,
-                paneId: paneId,
-                surfaceId: surfaceId,
-                client: client
-            )
-            let fallback = context["pane_id"] ?? surfaceId
-            print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
-        }
-
     case "select-window", "selectw":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
         let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
         _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": workspaceId])
-
-    case "select-pane", "selectp":
-        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-P", "-T", "-t"], boolFlags: [])
-        if parsed.value("-P") != nil || parsed.value("-T") != nil { return }
-        let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
-        _ = try client.sendV2(method: "pane.focus", params: [
-            "workspace_id": target.workspaceId,
-            "pane_id": target.paneId
-        ])
 
     case "kill-window", "killw":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
@@ -1542,31 +1516,6 @@ func handleTmuxCompat(_ args: [String]) throws {
                 "surface_id": target.surfaceId,
                 "text": text
             ])
-        }
-
-    case "capture-pane", "capturep":
-        let parsed = try parseTmuxArguments(
-            rawArgs,
-            valueFlags: ["-E", "-S", "-t"],
-            boolFlags: ["-J", "-N", "-p"]
-        )
-        let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
-        var params: [String: Any] = [
-            "workspace_id": target.workspaceId,
-            "surface_id": target.surfaceId,
-            "scrollback": true
-        ]
-        if let start = parsed.value("-S"), let lines = Int(start), lines < 0 {
-            params["lines"] = abs(lines)
-        }
-        let payload = try client.sendV2(method: "surface.read_text", params: params)
-        let text = (payload["text"] as? String) ?? ""
-        if parsed.hasFlag("-p") {
-            print(text)
-        } else {
-            var store = loadTmuxCompatStore()
-            store.buffers["default"] = text
-            try saveTmuxCompatStore(store)
         }
 
     case "display-message", "display", "displayp":
@@ -1594,18 +1543,6 @@ func handleTmuxCompat(_ args: [String]) throws {
                 context["window_index"] ?? "?",
                 context["window_name"] ?? workspaceId
             ].joined(separator: " ")
-            print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
-        }
-
-    case "list-panes", "lsp":
-        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-F", "-t"], boolFlags: [])
-        let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-        let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
-        let panes = payload["panes"] as? [[String: Any]] ?? []
-        for pane in panes {
-            guard let paneId = pane["id"] as? String else { continue }
-            let context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client)
-            let fallback = context["pane_id"] ?? paneId
             print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
         }
 
@@ -1742,7 +1679,38 @@ func handleTmuxCompat(_ args: [String]) throws {
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
         _ = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
 
-    case "select-layout", "set-option", "set", "set-window-option", "setw",
+    case "select-layout":
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
+        let layoutName = parsed.positional.first ?? ""
+        let workspaceId: String = {
+            if let target = parsed.value("-t") {
+                return (try? tmuxResolveWorkspaceTarget(target, client: client)) ?? ""
+            }
+            return (try? tmuxResolveWorkspaceTarget(nil, client: client)) ?? ""
+        }()
+        guard !workspaceId.isEmpty else { fputs("Error: could not resolve workspace\n", stderr); return }
+
+        if layoutName == "main-vertical" {
+            if let callerSurface = tmuxCallerSurfaceHandle() {
+                var store = loadTmuxCompatStore()
+                let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
+                store.mainVerticalLayouts[workspaceId] = MainVerticalState(
+                    mainSurfaceId: callerSurface,
+                    lastColumnSurfaceId: seedColumn
+                )
+                try saveTmuxCompatStore(store)
+            }
+        } else if !layoutName.isEmpty {
+            var store = loadTmuxCompatStore()
+            let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
+            let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
+            if removedLayout || removedSplit {
+                try saveTmuxCompatStore(store)
+            }
+        }
+
+    case "set-option", "set", "set-window-option", "setw",
          "source-file", "refresh-client", "attach-session", "detach-client", "set-hook":
         return
 

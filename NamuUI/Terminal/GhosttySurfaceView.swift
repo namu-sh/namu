@@ -85,6 +85,11 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     private var isCopyModeActive: Bool = false
     private var copyModeState = CopyModeInputState()
 
+    // Task 4.5: Find-escape suppression flag.
+    // Armed when find overlay closes via Escape; next bare Escape is consumed and
+    // not forwarded to the terminal, then the flag is cleared.
+    private var isFindEscapeSuppressionArmed: Bool = false
+
     // MARK: - Private helpers
 
     private func unshiftedCodepoint(from event: NSEvent) -> UInt32 {
@@ -93,6 +98,19 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
                           ?? event.characters,
               let scalar = chars.unicodeScalars.first else { return 0 }
         return scalar.value
+    }
+
+    // MARK: - CAMetalLayer backing
+
+    override func makeBackingLayer() -> CALayer {
+        let metalLayer = CAMetalLayer()
+        metalLayer.pixelFormat = .bgra8Unorm
+        metalLayer.isOpaque = false
+        // framebufferOnly=false lets the macOS compositor read the drawable
+        // when blending translucent or blurred window layers. Required for
+        // background-opacity and background-blur to render correctly.
+        metalLayer.framebufferOnly = false
+        return metalLayer
     }
 
     // MARK: - Init
@@ -282,10 +300,61 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         }
     }
 
+    // MARK: - Task 4.5: Find-escape suppression
+
+    /// Call this when the find overlay is dismissed via Escape so the next bare
+    /// Escape keyDown/keyUp cycle is swallowed and not forwarded to the terminal.
+    func beginFindEscapeSuppression() {
+        isFindEscapeSuppressionArmed = true
+    }
+
+    private func endFindEscapeSuppression() {
+        isFindEscapeSuppressionArmed = false
+    }
+
+    /// Returns true if the event is a bare Escape that should be suppressed.
+    private func shouldConsumeSuppressedFindEscape(_ event: NSEvent) -> Bool {
+        guard event.keyCode == 53 else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isEmpty else { return false }
+        return isFindEscapeSuppressionArmed
+    }
+
+    // MARK: - Task 4.3: Focus-follows-mouse
+
+    /// If focus-follows-mouse is enabled in Ghostty config, request first responder
+    /// when the mouse enters or moves over this pane (with no buttons pressed,
+    /// app active, window key, and not already first responder).
+    private func maybeRequestFirstResponderForMouseFocus() {
+        guard let window else { return }
+        guard window.firstResponder !== self else { return }
+        guard NSEvent.pressedMouseButtons == 0 else { return }
+        guard NSApp.isActive, window.isKeyWindow else { return }
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        guard !isHiddenOrHasHiddenAncestor else { return }
+
+        // Read focus-follows-mouse from the app-level config handle.
+        guard let appConfig = GhosttyApp.shared?.config else { return }
+        var enabled = false
+        let key = "focus-follows-mouse"
+        let found = ghostty_config_get(appConfig, &enabled, key, UInt(key.utf8.count))
+        guard found && enabled else { return }
+
+        window.makeFirstResponder(self)
+        onActivate?()
+    }
+
     // MARK: - Keyboard: Phase 1 — performKeyEquivalent
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard let surface else { return false }
+
+        // Task 4.1: IME guard — when composition is active and the key has no Cmd
+        // modifier, don't intercept. Let it flow to keyDown so the input method can
+        // process it. Cmd-based shortcuts still work since Cmd is never part of IME.
+        if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            return false
+        }
 
         // In copy mode, let Cmd+key shortcuts bypass so window management still works.
         if isCopyModeActive {
@@ -353,6 +422,14 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
 
     override func keyDown(with event: NSEvent) {
         NamuDebug.log("[Namu] keyDown: keyCode=\(event.keyCode), surface=\(surface != nil), isFirstResponder=\(window?.firstResponder === self)")
+
+        // Task 4.5: disarm suppression on any non-Escape key; consume suppressed Escape.
+        if event.keyCode != 53 {
+            endFindEscapeSuppression()
+        }
+        if shouldConsumeSuppressedFindEscape(event) {
+            return
+        }
 
         // In copy mode, intercept all key input (non-Cmd keys not caught by performKeyEquivalent).
         if isCopyModeActive {
@@ -442,6 +519,14 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
 
     override func keyUp(with event: NSEvent) {
+        // Task 4.5: disarm suppression on non-Escape keyUp; consume suppressed Escape keyUp.
+        if event.keyCode != 53 {
+            endFindEscapeSuppression()
+        }
+        if shouldConsumeSuppressedFindEscape(event) {
+            endFindEscapeSuppression()
+            return
+        }
         guard let surface else { return }
         let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
         let keyEvent = GhosttyKeyboard.makeKeyInput(
@@ -573,6 +658,12 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         let _ = window?.makeFirstResponder(self)
         guard let surface else { return }
         let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
+        // Task 4.6: Only send mouse position on first click. Double-click should
+        // select a word without moving the cursor first.
+        if event.clickCount == 1 {
+            let point = convert(event.locationInWindow, from: nil)
+            GhosttyKeyboard.sendMousePos(to: surface, x: point.x, y: bounds.height - point.y, mods: mods)
+        }
         GhosttyKeyboard.sendMouseButton(
             to: surface,
             state: GHOSTTY_MOUSE_PRESS,
@@ -613,7 +704,123 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         )
     }
 
+    // Task 4.4: Right-click context menu (non-captured mode).
+    // When mouse is NOT captured, NSView.rightMouseDown calls menu(for:) which
+    // we override below. The super call in rightMouseDown above triggers this.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let surface else { return nil }
+        if ghostty_surface_mouse_captured(surface) { return nil }
+
+        let _ = window?.makeFirstResponder(self)
+        let point = convert(event.locationInWindow, from: nil)
+        GhosttyKeyboard.sendMousePos(to: surface, x: point.x, y: bounds.height - point.y, mods: GhosttyKeyboard.translateMods(event.modifierFlags))
+        _ = GhosttyKeyboard.sendMouseButton(to: surface, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_RIGHT, mods: GhosttyKeyboard.translateMods(event.modifierFlags))
+
+        let menu = NSMenu()
+
+        if session?.hasSelection() == true {
+            let copyItem = menu.addItem(
+                withTitle: String(localized: "context-menu.copy", defaultValue: "Copy"),
+                action: #selector(copy(_:)),
+                keyEquivalent: ""
+            )
+            copyItem.target = self
+        }
+
+        let pasteItem = menu.addItem(
+            withTitle: String(localized: "context-menu.paste", defaultValue: "Paste"),
+            action: #selector(paste(_:)),
+            keyEquivalent: ""
+        )
+        pasteItem.target = self
+
+        let selectAllItem = menu.addItem(
+            withTitle: String(localized: "context-menu.select-all", defaultValue: "Select All"),
+            action: #selector(selectAll(_:)),
+            keyEquivalent: ""
+        )
+        selectAllItem.target = self
+
+        menu.addItem(.separator())
+
+        let splitHItem = menu.addItem(
+            withTitle: String(localized: "context-menu.split-horizontally", defaultValue: "Split Horizontally"),
+            action: #selector(splitHorizontally(_:)),
+            keyEquivalent: ""
+        )
+        splitHItem.target = self
+        splitHItem.image = NSImage(systemSymbolName: "rectangle.bottomhalf.inset.filled", accessibilityDescription: nil)
+
+        let splitVItem = menu.addItem(
+            withTitle: String(localized: "context-menu.split-vertically", defaultValue: "Split Vertically"),
+            action: #selector(splitVertically(_:)),
+            keyEquivalent: ""
+        )
+        splitVItem.target = self
+        splitVItem.image = NSImage(systemSymbolName: "rectangle.righthalf.inset.filled", accessibilityDescription: nil)
+
+        return menu
+    }
+
+    @objc private func splitHorizontally(_ sender: Any?) {
+        guard let surface else { return }
+        let action = "new_split:down"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    @objc private func splitVertically(_ sender: Any?) {
+        guard let surface else { return }
+        let action = "new_split:right"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    @objc override func selectAll(_ sender: Any?) {
+        guard let surface else { return }
+        let action = "select_all"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    @objc func copy(_ sender: Any?) {
+        guard let surface else { return }
+        let action = "copy_to_clipboard"
+        ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    // Task 4.2: Middle mouse button support.
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        let _ = window?.makeFirstResponder(self)
+        guard let surface else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        GhosttyKeyboard.sendMousePos(to: surface, x: point.x, y: bounds.height - point.y, mods: GhosttyKeyboard.translateMods(event.modifierFlags))
+        _ = GhosttyKeyboard.sendMouseButton(to: surface, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_MIDDLE, mods: GhosttyKeyboard.translateMods(event.modifierFlags))
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        guard let surface else { return }
+        _ = GhosttyKeyboard.sendMouseButton(to: surface, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_MIDDLE, mods: GhosttyKeyboard.translateMods(event.modifierFlags))
+    }
+
     override func mouseMoved(with event: NSEvent) {
+        // Task 4.3: focus-follows-mouse on cursor movement over this pane.
+        maybeRequestFirstResponderForMouseFocus()
+        guard let surface else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
+        GhosttyKeyboard.sendMousePos(to: surface, x: point.x, y: bounds.height - point.y, mods: mods)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        // Task 4.3: focus-follows-mouse on cursor entering this pane.
+        maybeRequestFirstResponderForMouseFocus()
         guard let surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         let mods = GhosttyKeyboard.translateMods(event.modifierFlags)

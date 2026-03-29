@@ -159,14 +159,19 @@ final class PanelManagerTests: XCTestCase {
 
     // MARK: - breakOutPanel
 
-    func testBreakOutPanelWithSinglePaneReturnsNil() {
+    func testBreakOutPanelWithSinglePaneMoves() {
         let (wm, pm) = makeStack()
         guard let workspace = wm.selectedWorkspace,
               let firstLeaf = workspace.paneTree.allPanels.first else {
             return XCTFail()
         }
-        // breakOutPanel on the only pane should return nil (nothing to break out of)
+        let originalID = workspace.id
+        // breakOutPanel on the only pane moves it to a new workspace and deletes the source
         let result = pm.breakOutPanel(id: firstLeaf.id)
-        XCTAssertNil(result)
+        XCTAssertNotNil(result, "breakOutPanel should succeed by moving pane to new workspace")
+        // Source workspace should be deleted (replaced by the new one)
+        XCTAssertNil(wm.workspaces.first(where: { $0.id == originalID }),
+                     "Source workspace should be deleted after break-out")
+        XCTAssertEqual(wm.workspaces.count, 1, "Should have exactly one workspace after break-out")
     }
 }

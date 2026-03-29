@@ -2,24 +2,35 @@ import Foundation
 
 /// Handlers for the system.* command namespace.
 /// These are all read-only, stateless commands — no focus mutations.
+@MainActor
 final class SystemCommands {
 
     private let appVersion: String
+    private let workspaceManager: WorkspaceManager?
+    private let panelManager: PanelManager?
 
-    init(appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0") {
+    init(
+        appVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0",
+        workspaceManager: WorkspaceManager? = nil,
+        panelManager: PanelManager? = nil
+    ) {
         self.appVersion = appVersion
+        self.workspaceManager = workspaceManager
+        self.panelManager = panelManager
     }
 
     // MARK: - Registration
 
     func register(in registry: CommandRegistry) {
-        registry.register("system.ping")         { [weak self] req in self?.ping(req) ?? .notAvailable(req) }
-        registry.register("system.version")      { [weak self] req in self?.version(req) ?? .notAvailable(req) }
-        registry.register("system.status")       { [weak self] req in self?.status(req) ?? .notAvailable(req) }
+        registry.register("system.ping")         { [weak self] req in try await self?.ping(req) ?? .notAvailable(req) }
+        registry.register("system.version")      { [weak self] req in try await self?.version(req) ?? .notAvailable(req) }
+        registry.register("system.status")       { [weak self] req in try await self?.status(req) ?? .notAvailable(req) }
+        registry.register("system.identify")     { [weak self] req in try await self?.identify(req) ?? .notAvailable(req) }
+        // system.claude_hook is registered in ServiceContainer with full workspace state access
         // capabilities uses the registry reference to list all registered methods
         registry.register("system.capabilities") { [weak self, weak registry] req in
             guard let self, let registry else { return .notAvailable(req) }
-            return self.capabilities(req, registry: registry)
+            return await self.capabilities(req, registry: registry)
         }
     }
 
@@ -46,6 +57,33 @@ final class SystemCommands {
             "status":  .string("ok"),
             "version": .string(appVersion),
             "pid":     .int(Int(ProcessInfo.processInfo.processIdentifier))
+        ]))
+    }
+
+    // MARK: - system.identify
+
+    private func identify(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        guard let workspaceManager else {
+            throw JSONRPCError.internalError("WorkspaceManager not available")
+        }
+
+        guard let workspace = workspaceManager.selectedWorkspace else {
+            throw JSONRPCError(code: -32001, message: "No active workspace")
+        }
+
+        var focused: [String: JSONRPCValue] = [
+            "workspace_id": .string(workspace.id.uuidString)
+        ]
+
+        if let activePanelID = workspace.activePanelID {
+            focused["pane_id"] = .string(activePanelID.uuidString)
+            focused["surface_id"] = .string(activePanelID.uuidString)
+            // pane_ref uses %<id> format for tmux compat
+            focused["pane_ref"] = .string("%\(activePanelID.uuidString)")
+        }
+
+        return .success(id: req.id, result: .object([
+            "focused": .object(focused)
         ]))
     }
 

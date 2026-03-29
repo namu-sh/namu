@@ -65,6 +65,7 @@ struct ContentView: View {
                         .frame(width: sidebarWidth)
                         .transaction { t in t.animation = nil }
                         .transition(.move(edge: .leading))
+                        .accessibilityIdentifier("namu-sidebar")
 
                     // Draggable sidebar edge
                     SidebarResizeHandle(
@@ -87,6 +88,8 @@ struct ContentView: View {
                     if sidebarViewModel.selection == .settings {
                         SettingsView()
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("namu-settings")
                     }
 
                     // Find overlay — floats in top-right corner
@@ -109,6 +112,8 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
                 }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("namu-workspace-content")
                 // AI Chat panel (slides in from the right)
                 if isAIChatVisible, let vm = aiChatViewModel {
                     // 1pt separator
@@ -185,6 +190,9 @@ struct ContentView: View {
                 }
             } else {
                 // Primary window: wire AppDelegate shortcuts and start services.
+                if let window = NSApp.windows.first(where: { $0.title == "Namu" || $0.isKeyWindow }) {
+                    window.identifier = NSUserInterfaceItemIdentifier("namu-primary")
+                }
                 appDelegate.workspaceManager = workspaceManager
                 appDelegate.panelManager = panelManager
                 appDelegate.toggleCommandPalette = {
@@ -209,6 +217,13 @@ struct ContentView: View {
                     appDelegate.serviceContainer = container
                     aiChatViewModel = AIChatViewModel(namuAI: container.namuAI)
                     servicesStarted = true
+
+                    // Restore window frame from session (best-effort: window must exist).
+                    if let frame = container.sessionPersistence.restoredWindowFrame,
+                       frame.width > 200, frame.height > 100,
+                       let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "namu-primary" }) {
+                        window.setFrame(frame, display: false)
+                    }
 
                     // Sync sidebar selection after session restore — the initial workspace
                     // from WorkspaceManager.init() may have been replaced by restored workspaces.

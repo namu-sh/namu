@@ -5,11 +5,20 @@ struct WindowSnapshot: Codable {
     let windowID: UUID
     var workspaces: [WorkspaceSnapshot]
     var selectedWorkspaceID: UUID?
+    /// Window frame as [x, y, width, height] in screen coordinates.
+    var windowFrame: [Double]?
+    /// Whether the sidebar was collapsed when the snapshot was taken.
+    var sidebarCollapsed: Bool?
+    /// Sidebar width in points when visible.
+    var sidebarWidth: Double?
 
     enum CodingKeys: String, CodingKey {
         case windowID = "windowId"
         case workspaces
         case selectedWorkspaceID = "selectedWorkspaceId"
+        case windowFrame
+        case sidebarCollapsed
+        case sidebarWidth
     }
 }
 
@@ -19,7 +28,7 @@ struct WindowSnapshot: Codable {
 /// v1: single flat workspaces array (single-window era)
 /// v2: windows array of WindowSnapshot; v1 snapshots auto-migrated to one-window array
 struct SessionSnapshot: Codable {
-    static let currentVersion: UInt = 2
+    static let currentVersion: UInt = 3
 
     let version: UInt
     let timestamp: Date
@@ -72,6 +81,7 @@ struct SessionSnapshot: Codable {
     func migrated() -> SessionSnapshot? {
         guard version <= Self.currentVersion else { return nil }
         // v1→v2 migration is handled in init(from:) above.
+        // v2→v3 migration: panelIds defaults to [id] when nil (handled by PaneSnapshot decode).
         return self
     }
 }
@@ -142,18 +152,34 @@ indirect enum WorkspaceLayoutSnapshot: Codable {
 }
 
 /// Snapshot of a leaf pane — holds the panel type and optional restore data.
+/// v3 adds panelIds (tab support) and selectedPanelId.
 struct PaneSnapshot: Codable {
     let id: UUID
     var panelType: PanelType
     var workingDirectory: String?
     /// Path to a temp file containing scrollback content for replay on restore.
     var scrollbackFile: String?
+    /// Git branch active in this pane at snapshot time.
+    var gitBranch: String?
+    /// User-supplied custom title for this pane (overrides process title).
+    var customTitle: String?
+    /// URL string for browser panels.
+    var browserURL: String?
+    /// v3: All panel UUIDs in this pane (for tab support). Single panel → [id].
+    var panelIds: [UUID]?
+    /// v3: The selected/active panel UUID within this pane.
+    var selectedPanelId: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id
         case panelType
         case workingDirectory
         case scrollbackFile
+        case gitBranch
+        case customTitle
+        case browserURL
+        case panelIds
+        case selectedPanelId
     }
 }
 

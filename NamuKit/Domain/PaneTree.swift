@@ -182,6 +182,63 @@ indirect enum PaneTree: Identifiable, Equatable, Codable {
         return .split(split)
     }
 
+    /// Return a new tree with all split ratios set to 0.5 (equalized).
+    func equalized() -> PaneTree {
+        switch self {
+        case .pane: return self
+        case .split(var split):
+            split.ratio = 0.5
+            split.first = split.first.equalized()
+            split.second = split.second.equalized()
+            return .split(split)
+        }
+    }
+
+    /// Find the nearest ancestor split that divides along `direction`'s axis and
+    /// contains `paneID`. Adjusts its ratio by `delta` (positive = grow first child).
+    /// Returns (splitID, newRatio) or nil if not found.
+    func adjustSplitRatio(
+        containing paneID: UUID,
+        direction: ghostty_action_resize_split_direction_e,
+        delta: Double
+    ) -> (UUID, Double)? {
+        adjustSplitRatioHelper(paneID: paneID, direction: direction, delta: delta, path: [])
+    }
+
+    private func adjustSplitRatioHelper(
+        paneID: UUID,
+        direction: ghostty_action_resize_split_direction_e,
+        delta: Double,
+        path: [(PaneSplit, inFirst: Bool)]
+    ) -> (UUID, Double)? {
+        switch self {
+        case .pane(let leaf):
+            guard leaf.id == paneID else { return nil }
+            let targetAxis: SplitDirection = (direction == GHOSTTY_RESIZE_SPLIT_LEFT || direction == GHOSTTY_RESIZE_SPLIT_RIGHT)
+                ? .horizontal : .vertical
+            let grow = (direction == GHOSTTY_RESIZE_SPLIT_RIGHT || direction == GHOSTTY_RESIZE_SPLIT_DOWN)
+            for (split, inFirst) in path.reversed() {
+                guard split.direction == targetAxis else { continue }
+                let currentRatio = split.ratio
+                // If in first child: right/down grows our share (ratio increases).
+                // If in second child: right/down shrinks first share (ratio decreases for us).
+                let adjustment = inFirst ? (grow ? delta : -delta) : (grow ? -delta : delta)
+                let newRatio = (currentRatio + adjustment).clamped(to: 0.05...0.95)
+                return (split.id, newRatio)
+            }
+            return nil
+        case .split(let split):
+            if let result = split.first.adjustSplitRatioHelper(
+                paneID: paneID, direction: direction, delta: delta,
+                path: path + [(split, true)]
+            ) { return result }
+            return split.second.adjustSplitRatioHelper(
+                paneID: paneID, direction: direction, delta: delta,
+                path: path + [(split, false)]
+            )
+        }
+    }
+
     // MARK: - Focus navigation
 
     /// Return the panel ID after `currentID` in document order, wrapping around.

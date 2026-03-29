@@ -82,12 +82,3 @@ final class EventBus: @unchecked Sendable {
         lock.withLock { subscriptions.count }
     }
 }
-
-private extension NSLock {
-    @discardableResult
-    func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
-    }
-}

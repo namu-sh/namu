@@ -145,6 +145,7 @@ struct CommandPaletteView: View {
                             .font(.system(size: 14))
                             .focused($fieldFocused)
                             .onSubmit { executeSelected() }
+                            .accessibilityIdentifier("namu-command-palette-search")
                     }
                 }
                 .padding(.horizontal, 14)
@@ -181,6 +182,8 @@ struct CommandPaletteView: View {
             )
             .shadow(color: .black.opacity(0.5), radius: 24, x: 0, y: 8)
             .frame(width: 480)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("namu-command-palette")
         }
         .onAppear {
             fieldFocused = true
