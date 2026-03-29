@@ -231,13 +231,14 @@ final class ServiceContainer {
 
         let nc = NotificationCommands(
             workspaceManager: workspaceManager,
+            panelManager: panelManager,
             notificationService: notificationService,
             eventBus: eventBus
         )
         nc.register(in: commandRegistry)
         notificationCommands = nc
 
-        let bc = BrowserCommands(workspaceManager: workspaceManager)
+        let bc = BrowserCommands(workspaceManager: workspaceManager, panelManager: panelManager)
         bc.register(in: commandRegistry)
         browserCommands = bc
 

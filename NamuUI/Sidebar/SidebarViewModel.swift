@@ -266,7 +266,7 @@ final class SidebarViewModel: ObservableObject {
                 isSelected: isSelected,
                 isPinned: workspace.isPinned,
                 customColor: workspace.customColor,
-                panelCount: workspace.panelCount,
+                panelCount: panelManager?.allPanelIDs(in: workspace.id).count ?? 0,
                 gitBranch: meta?.gitBranch,
                 gitDirty: meta?.gitDirty ?? false,
                 workingDirectory: meta?.workingDirectory,

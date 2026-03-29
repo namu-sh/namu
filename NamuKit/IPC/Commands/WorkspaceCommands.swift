@@ -46,7 +46,7 @@ final class WorkspaceCommands {
                 "order":    .int(ws.order),
                 "selected": .bool(ws.id == selectedID),
                 "pinned":   .bool(ws.isPinned),
-                "pane_count": .int(ws.panelCount)
+                "pane_count": .int(panelManager.allPanelIDs(in: ws.id).count)
             ])
         }
 
@@ -174,7 +174,7 @@ final class WorkspaceCommands {
             "workspace_id": .string(workspace.id.uuidString),
             "title":        .string(workspace.title),
             "order":        .int(workspace.order),
-            "pane_count":   .int(workspace.panelCount)
+            "pane_count":   .int(panelManager.allPanelIDs(in: workspace.id).count)
         ]))
     }
 

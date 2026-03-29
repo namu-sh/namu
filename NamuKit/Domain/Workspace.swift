@@ -22,28 +22,10 @@ struct Workspace: Identifiable, Codable, Equatable {
     /// Used to suppress duplicate OSC notifications when Claude hooks handle them.
     var claudeSessionPID: String?
 
-    /// The layout tree for this workspace's panes.
-    var paneTree: PaneTree
-
-    /// The panel currently receiving keyboard input.
-    var activePanelID: UUID?
-
     // MARK: - Codable
 
     enum CodingKeys: String, CodingKey {
-        case id, title, order, isPinned, createdAt, customColor, customTitle, paneTree, activePanelID
-    }
-
-    // MARK: - Computed properties
-
-    /// Total number of panels in the workspace.
-    var panelCount: Int {
-        paneTree.paneCount
-    }
-
-    /// Flat list of all panel leaves in the workspace.
-    var allPanels: [PaneLeaf] {
-        paneTree.allPanels
+        case id, title, order, isPinned, createdAt, customColor, customTitle
     }
 
     // MARK: - Title management
@@ -99,9 +81,7 @@ struct Workspace: Identifiable, Codable, Equatable {
         order: Int = 0,
         isPinned: Bool = false,
         createdAt: Date = Date(),
-        customColor: String? = nil,
-        paneTree: PaneTree? = nil,
-        activePanelID: UUID? = nil
+        customColor: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -109,13 +89,5 @@ struct Workspace: Identifiable, Codable, Equatable {
         self.isPinned = isPinned
         self.createdAt = createdAt
         self.customColor = customColor
-        let initialLeaf = PaneLeaf()
-        let tree = paneTree ?? .pane(initialLeaf)
-        self.paneTree = tree
-        self.activePanelID = activePanelID ?? {
-            // Default active panel to the first panel in the provided (or new) tree
-            if case .pane(let leaf) = tree { return leaf.id }
-            return tree.allPanels.first?.id
-        }()
     }
 }

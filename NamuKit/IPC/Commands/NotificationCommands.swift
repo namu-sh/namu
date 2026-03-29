@@ -7,11 +7,13 @@ import Foundation
 final class NotificationCommands {
 
     private let workspaceManager: WorkspaceManager
+    private let panelManager: PanelManager
     private let notificationService: NotificationService
     private let eventBus: EventBus
 
-    init(workspaceManager: WorkspaceManager, notificationService: NotificationService, eventBus: EventBus) {
+    init(workspaceManager: WorkspaceManager, panelManager: PanelManager, notificationService: NotificationService, eventBus: EventBus) {
         self.workspaceManager = workspaceManager
+        self.panelManager = panelManager
         self.notificationService = notificationService
         self.eventBus = eventBus
     }
@@ -54,7 +56,7 @@ final class NotificationCommands {
             panelID = UUID(uuidString: pidStr)
         } else {
             panelID = workspaceID.flatMap { wsID in
-                workspaceManager.workspaces.first(where: { $0.id == wsID })?.activePanelID
+                panelManager.focusedPanelID(in: wsID)
             }
         }
 

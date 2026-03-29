@@ -385,32 +385,13 @@ final class GhosttyApp {
             let resizeDir = action.action.resize_split.direction
             let amount = action.action.resize_split.amount
             DispatchQueue.main.async {
-                guard let pm = AppDelegate.shared?.panelManager,
-                      let wm = AppDelegate.shared?.workspaceManager,
-                      let wsID = wm.selectedWorkspaceID,
-                      let activeID = pm.focusedPanelID(in: wsID) else { return }
-                // Find the split containing the active pane and adjust its ratio.
-                let delta = Double(amount) / 100.0
-                if let workspace = wm.selectedWorkspace {
-                    let adjusted = workspace.paneTree.adjustSplitRatio(
-                        containing: activeID,
-                        direction: resizeDir,
-                        delta: delta
-                    )
-                    if let (splitID, newRatio) = adjusted {
-                        pm.resizeSplit(in: wsID, splitID: splitID, ratio: CGFloat(newRatio))
-                    }
-                }
+                // Resize is handled by Bonsplit's divider drag.
+                // Ghostty keybinding resize is not yet wired to Bonsplit's API.
             }
             return true
 
         case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-            DispatchQueue.main.async {
-                guard let wm = AppDelegate.shared?.workspaceManager,
-                      var workspace = wm.selectedWorkspace else { return }
-                workspace.paneTree = workspace.paneTree.equalized()
-                wm.update(workspace)
-            }
+            // Equalize is not yet exposed by Bonsplit's public API.
             return true
 
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
@@ -614,8 +595,8 @@ final class GhosttyApp {
         }
         for (wm, pm) in pairs {
             for workspace in wm.workspaces {
-                for leaf in workspace.allPanels {
-                    if let panel = pm.panel(for: leaf.id), panel.session.id == session.id {
+                for panelID in pm.allPanelIDs(in: workspace.id) {
+                    if let panel = pm.panel(for: panelID), panel.session.id == session.id {
                         return panel
                     }
                 }

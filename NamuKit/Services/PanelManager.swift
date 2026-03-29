@@ -96,15 +96,19 @@ final class PanelManager: ObservableObject {
 
     /// Bootstrap a restored workspace — maps existing panels (already in self.panels)
     /// to Bonsplit tabs. Called by SessionPersistence after restoring panels.
-    func bootstrapRestoredWorkspace(_ workspace: Workspace) {
+    /// - Parameters:
+    ///   - workspace: The workspace metadata (id, title, etc.)
+    ///   - panelIDs: Panel IDs to create tabs for (from the persisted layout)
+    ///   - activePanelID: The panel that should be focused after restore
+    func bootstrapRestoredWorkspace(_ workspace: Workspace, panelIDs: [UUID], activePanelID: UUID?) {
         let eng = engine(for: workspace.id)
         let welcomeTabIds = eng.controller.allTabIds
 
-        for leaf in workspace.allPanels {
-            if let panel = panels[leaf.id] {
+        for panelID in panelIDs {
+            if let panel = panels[panelID] {
                 let title = panel.title.isEmpty ? "Terminal" : panel.title
-                if let tabID = eng.createTab(title: title, kind: leaf.panelType.rawValue, inPane: nil) {
-                    eng.registerMapping(tabID: tabID, panelID: leaf.id)
+                if let tabID = eng.createTab(title: title, kind: "terminal", inPane: nil) {
+                    eng.registerMapping(tabID: tabID, panelID: panelID)
                 }
                 observePanelTitle(panel, workspaceID: workspace.id)
             }
@@ -116,8 +120,8 @@ final class PanelManager: ObservableObject {
         }
 
         // Focus the active panel
-        let activeID = workspace.activePanelID ?? workspace.allPanels.first?.id
-        if let activeID, let tabID = eng.tabID(for: activeID) {
+        let focusID = activePanelID ?? panelIDs.first
+        if let focusID, let tabID = eng.tabID(for: focusID) {
             if let paneID = eng.allPaneIDs.first {
                 eng.focusPane(paneID)
             }
@@ -134,7 +138,7 @@ final class PanelManager: ObservableObject {
     func createWorkspace(title: String = String(localized: "workspace.default.title", defaultValue: "New Workspace")) -> Workspace {
         let ws = workspaceManager.createWorkspace(title: title)
         bootstrapWorkspace(ws)
-        syncWorkspaceFromEngine(ws.id)
+
         workspaceManager.selectWorkspace(id: ws.id)
         return ws
     }
@@ -211,7 +215,6 @@ final class PanelManager: ObservableObject {
 
         // Focus the new pane
         eng.focusPane(newPaneID)
-        syncWorkspaceFromEngine(workspaceID)
         objectWillChange.send()
     }
 
@@ -238,7 +241,6 @@ final class PanelManager: ObservableObject {
         panels[id]?.close()
         panels.removeValue(forKey: id)
         observedPanelIDs.remove(id)
-        syncWorkspaceFromEngine(wsID)
         objectWillChange.send()
     }
 
@@ -276,7 +278,6 @@ final class PanelManager: ObservableObject {
         }
 
         applyFocusState(in: wsID)
-        syncWorkspaceFromEngine(wsID)
         objectWillChange.send()
     }
 
@@ -295,7 +296,6 @@ final class PanelManager: ObservableObject {
 
         eng.navigateFocus(bonsplitDir)
         applyFocusState(in: wsID)
-        syncWorkspaceFromEngine(wsID)
         objectWillChange.send()
     }
 
@@ -305,7 +305,6 @@ final class PanelManager: ObservableObject {
         let eng = engine(for: wsID)
         eng.navigateFocus(.right)
         applyFocusState(in: wsID)
-        syncWorkspaceFromEngine(wsID)
         objectWillChange.send()
     }
 
@@ -315,7 +314,6 @@ final class PanelManager: ObservableObject {
         let eng = engine(for: wsID)
         eng.navigateFocus(.left)
         applyFocusState(in: wsID)
-        syncWorkspaceFromEngine(wsID)
         objectWillChange.send()
     }
 
@@ -406,63 +404,6 @@ final class PanelManager: ObservableObject {
     }
 
     // MARK: - Private
-
-    /// Sync Workspace.paneTree and activePanelID from BonsplitController state.
-    /// Walks the BonsplitController's tree snapshot to rebuild PaneTree with
-    /// correct orientations, ratios, and nesting — no lossy flattening.
-    func syncWorkspaceFromEngine(_ workspaceID: UUID) {
-        guard let eng = engines[workspaceID],
-              let idx = workspaceManager.workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
-
-        // Sync activePanelID
-        workspaceManager.workspaces[idx].activePanelID = focusedPanelID(in: workspaceID)
-
-        // Rebuild PaneTree from BonsplitController's ExternalTreeNode
-        let snapshot = eng.treeSnapshot()
-        if let tree = paneTreeFromExternalNode(snapshot, engine: eng) {
-            workspaceManager.workspaces[idx].paneTree = tree
-        }
-    }
-
-    /// Convert a Bonsplit ExternalTreeNode to a Namu PaneTree, preserving
-    /// split orientation, ratio, and nesting structure.
-    private func paneTreeFromExternalNode(_ node: ExternalTreeNode, engine eng: BonsplitLayoutEngine) -> PaneTree? {
-        switch node {
-        case .pane(let paneNode):
-            // Find the first mapped panel in this pane's tabs
-            for tab in paneNode.tabs {
-                if let tabUUID = UUID(uuidString: tab.id),
-                   let panelID = eng.panelID(for: Bonsplit.TabID(uuid: tabUUID)) {
-                    return .pane(PaneLeaf(id: panelID))
-                }
-            }
-            // Pane with no mapped tabs — use pane ID as fallback
-            if let paneUUID = UUID(uuidString: paneNode.id) {
-                return .pane(PaneLeaf(id: paneUUID))
-            }
-            return nil
-
-        case .split(let splitNode):
-            guard let first = paneTreeFromExternalNode(splitNode.first, engine: eng),
-                  let second = paneTreeFromExternalNode(splitNode.second, engine: eng) else {
-                // If one side is empty, return the other
-                let firstResult = paneTreeFromExternalNode(splitNode.first, engine: eng)
-                let secondResult = paneTreeFromExternalNode(splitNode.second, engine: eng)
-                return firstResult ?? secondResult
-            }
-
-            let direction: SplitDirection = splitNode.orientation == "vertical" ? .vertical : .horizontal
-            let splitID = UUID(uuidString: splitNode.id) ?? UUID()
-
-            return .split(PaneSplit(
-                id: splitID,
-                direction: direction,
-                ratio: splitNode.dividerPosition,
-                first: first,
-                second: second
-            ))
-        }
-    }
 
     private func namuEnvironment(paneID: UUID, workspaceID: UUID?) -> [String: String] {
         var env: [String: String] = [

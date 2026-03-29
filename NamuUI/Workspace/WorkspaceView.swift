@@ -40,7 +40,7 @@ struct WorkspaceView: View {
                     if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: paneId) {
                         eng.registerMapping(tabID: tabID, panelID: panel.id)
                     }
-                    panelManager.syncWorkspaceFromEngine(workspaceID)
+
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

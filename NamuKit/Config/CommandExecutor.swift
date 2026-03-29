@@ -87,8 +87,8 @@ final class NamuCommandTarget: CommandExecuting {
     }
 
     func sendToFocusedTerminal(_ text: String) {
-        guard let ws = workspaceManager.selectedWorkspace,
-              let focusedID = ws.activePanelID,
+        guard let wsID = workspaceManager.selectedWorkspaceID,
+              let focusedID = panelManager.focusedPanelID(in: wsID),
               let panel = panelManager.panel(for: focusedID) else { return }
         panel.session.sendText(text)
     }

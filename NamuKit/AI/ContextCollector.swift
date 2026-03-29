@@ -85,15 +85,15 @@ final class ContextCollector: ObservableObject {
         let selectedID = workspaceManager.selectedWorkspaceID
 
         let wsContexts: [WorkspaceContext] = workspaces.map { ws in
-            let panels = ws.allPanels
-            let paneContexts: [PaneContext] = panels.map { leaf in
-                let panel = panelManager.panel(for: leaf.id)
-                let isKeyPane = ws.activePanelID == leaf.id
+            let panelIDs = panelManager.allPanelIDs(in: ws.id)
+            let focusedID = panelManager.focusedPanelID(in: ws.id)
+            let paneContexts: [PaneContext] = panelIDs.map { panelID in
+                let panel = panelManager.panel(for: panelID)
                 return PaneContext(
-                    id: leaf.id.uuidString,
+                    id: panelID.uuidString,
                     workingDirectory: panel?.workingDirectory,
                     gitBranch: panel?.gitBranch,
-                    isKeyPane: isKeyPane
+                    isKeyPane: panelID == focusedID
                 )
             }
             return WorkspaceContext(

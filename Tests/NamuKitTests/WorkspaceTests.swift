@@ -182,8 +182,7 @@ final class WorkspaceManagerIntegrationTests: XCTestCase {
     func testWorkspacePaneTreeStaysInSync() {
         guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
         pm.splitPane(in: wsID, direction: .vertical)
-        guard let ws = wm.workspaces.first(where: { $0.id == wsID }) else { return XCTFail() }
-        XCTAssertEqual(ws.paneTree.paneCount, 2)
-        XCTAssertNotNil(ws.activePanelID)
+        XCTAssertEqual(pm.allPanelIDs(in: wsID).count, 2)
+        XCTAssertNotNil(pm.focusedPanelID(in: wsID))
     }
 }

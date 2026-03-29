@@ -97,11 +97,10 @@ final class PanelManagerTests: XCTestCase {
 
     func testBootstrapRestoredWorkspaceMapsExistingPanels() {
         let panelID = UUID()
-        let leaf = PaneLeaf(id: panelID, panelType: .terminal)
-        let ws = Workspace(id: UUID(), title: "Restored", paneTree: .pane(leaf))
+        let ws = Workspace(id: UUID(), title: "Restored")
 
         pm.restoreTerminalPanel(id: panelID, workingDirectory: nil, scrollbackFile: nil)
-        pm.bootstrapRestoredWorkspace(ws)
+        pm.bootstrapRestoredWorkspace(ws, panelIDs: [panelID], activePanelID: panelID)
 
         let eng = pm.engine(for: ws.id)
         let allTabs = eng.allPaneIDs.flatMap { eng.controller.tabs(inPane: $0) }
@@ -113,18 +112,11 @@ final class PanelManagerTests: XCTestCase {
 
     func testBootstrapRestoredMultiplePanels() {
         let id1 = UUID(), id2 = UUID()
-        let leaf1 = PaneLeaf(id: id1, panelType: .terminal)
-        let leaf2 = PaneLeaf(id: id2, panelType: .terminal)
-        let tree = PaneTree.split(PaneSplit(
-            direction: .horizontal,
-            first: .pane(leaf1),
-            second: .pane(leaf2)
-        ))
-        let ws = Workspace(id: UUID(), title: "Multi", paneTree: tree, activePanelID: id1)
+        let ws = Workspace(id: UUID(), title: "Multi")
 
         pm.restoreTerminalPanel(id: id1, workingDirectory: nil, scrollbackFile: nil)
         pm.restoreTerminalPanel(id: id2, workingDirectory: nil, scrollbackFile: nil)
-        pm.bootstrapRestoredWorkspace(ws)
+        pm.bootstrapRestoredWorkspace(ws, panelIDs: [id1, id2], activePanelID: id1)
 
         let panelIDs = pm.allPanelIDs(in: ws.id)
         XCTAssertTrue(panelIDs.contains(id1))
@@ -141,7 +133,7 @@ final class PanelManagerTests: XCTestCase {
     func testSplitPaneSyncsWorkspacePaneTree() {
         pm.splitPane(in: initialWSID, direction: .vertical)
         guard let ws = wm.selectedWorkspace else { return XCTFail() }
-        XCTAssertEqual(ws.paneTree.paneCount, 2, "Workspace paneTree should reflect the split")
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID).count, 2, "Workspace paneTree should reflect the split")
     }
 
     func testSplitPaneFocusesNewPanel() {
@@ -172,7 +164,7 @@ final class PanelManagerTests: XCTestCase {
         pm.closePanel(id: panels[1])
 
         guard let ws = wm.selectedWorkspace else { return XCTFail() }
-        XCTAssertEqual(ws.paneTree.paneCount, 1, "paneTree should sync after close")
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID).count, 1, "paneTree should sync after close")
     }
 
     // MARK: - Focus / activation
@@ -203,7 +195,7 @@ final class PanelManagerTests: XCTestCase {
         pm.activatePanel(id: panels[0])
 
         guard let ws = wm.selectedWorkspace else { return XCTFail() }
-        XCTAssertEqual(ws.activePanelID, panels[0])
+        XCTAssertEqual(pm.focusedPanelID(in: initialWSID), panels[0])
     }
 
     // MARK: - Workspace deletion

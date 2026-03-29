@@ -268,20 +268,17 @@ final class ReviewFixTests: XCTestCase {
         let wm = WorkspaceManager()
         let pm = PanelManager(workspaceManager: wm)
 
-        guard let workspace = wm.selectedWorkspace else {
+        guard let wsID = wm.selectedWorkspaceID else {
             return XCTFail("Expected an initial workspace")
         }
-        let initialCount = workspace.paneTree.paneCount
+        let initialCount = pm.allPanelIDs(in: wsID).count
         XCTAssertEqual(initialCount, 1, "Should start with exactly one pane")
 
         // Split the active panel
         pm.splitActivePanel(direction: .horizontal)
 
-        guard let updatedWorkspace = wm.selectedWorkspace else {
-            return XCTFail("Expected workspace after split")
-        }
-        XCTAssertEqual(updatedWorkspace.paneTree.paneCount, 2,
-                       "splitActivePanel should add a new pane to the tree")
+        XCTAssertEqual(pm.allPanelIDs(in: wsID).count, 2,
+                       "splitActivePanel should add a new pane")
     }
 
     // MARK: - Additional coverage: RateLimiter blocks gateway over limit via middleware

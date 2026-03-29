@@ -1,4 +1,5 @@
 import Foundation
+import Bonsplit
 import Combine
 import CoreGraphics
 import os.log
@@ -202,8 +203,8 @@ final class SessionPersistence: ObservableObject {
                 isPinned: workspace.isPinned,
                 customTitle: workspace.customTitle,
                 processTitle: workspace.processTitle.isEmpty ? nil : workspace.processTitle,
-                layout: buildLayoutSnapshot(from: workspace.paneTree, panelManager: panelManager),
-                activePanelID: workspace.activePanelID
+                layout: buildLayoutFromBonsplit(workspaceID: workspace.id, panelManager: panelManager),
+                activePanelID: panelManager.focusedPanelID(in: workspace.id)
             )
         }
         let frameArray: [Double]? = windowFrame.map { [Double($0.origin.x), Double($0.origin.y), Double($0.size.width), Double($0.size.height)] }
@@ -217,27 +218,46 @@ final class SessionPersistence: ObservableObject {
         )
     }
 
-    private func buildLayoutSnapshot(from tree: PaneTree, panelManager: PanelManager) -> WorkspaceLayoutSnapshot {
-        switch tree {
-        case .pane(let leaf):
-            let panel = panelManager.panel(for: leaf.id)
+    /// Build layout snapshot directly from BonsplitController's tree — single source of truth.
+    private func buildLayoutFromBonsplit(workspaceID: UUID, panelManager: PanelManager) -> WorkspaceLayoutSnapshot {
+        let eng = panelManager.engine(for: workspaceID)
+        let treeNode = eng.treeSnapshot()
+        return externalNodeToLayout(treeNode, engine: eng, panelManager: panelManager)
+    }
+
+    private func externalNodeToLayout(_ node: ExternalTreeNode, engine eng: BonsplitLayoutEngine, panelManager: PanelManager) -> WorkspaceLayoutSnapshot {
+        switch node {
+        case .pane(let paneNode):
+            // Find the first mapped panel in this pane's tabs
+            var panelID: UUID?
+            for tab in paneNode.tabs {
+                if let tabUUID = UUID(uuidString: tab.id),
+                   let id = eng.panelID(for: Bonsplit.TabID(uuid: tabUUID)) {
+                    panelID = id
+                    break
+                }
+            }
+            let id = panelID ?? UUID(uuidString: paneNode.id) ?? UUID()
+            let panel = panelManager.panel(for: id)
             let pane = PaneSnapshot(
-                id: leaf.id,
-                panelType: leaf.panelType,
+                id: id,
+                panelType: .terminal,
                 workingDirectory: panel?.workingDirectory,
-                scrollbackFile: nil,  // Scrollback written by shell integration, not readable here
+                scrollbackFile: nil,
                 gitBranch: panel?.gitBranch,
                 customTitle: panel?.customTitle
             )
             return .pane(pane)
 
-        case .split(let split):
+        case .split(let splitNode):
+            let direction: SplitDirection = splitNode.orientation == "vertical" ? .vertical : .horizontal
+            let splitID = UUID(uuidString: splitNode.id) ?? UUID()
             return .split(SplitSnapshot(
-                id: split.id,
-                direction: split.direction,
-                ratio: split.ratio,
-                first: buildLayoutSnapshot(from: split.first, panelManager: panelManager),
-                second: buildLayoutSnapshot(from: split.second, panelManager: panelManager)
+                id: splitID,
+                direction: direction,
+                ratio: splitNode.dividerPosition,
+                first: externalNodeToLayout(splitNode.first, engine: eng, panelManager: panelManager),
+                second: externalNodeToLayout(splitNode.second, engine: eng, panelManager: panelManager)
             ))
         }
     }
@@ -270,9 +290,11 @@ final class SessionPersistence: ObservableObject {
         var restoredWorkspaces: [Workspace] = []
 
         let defaultTitle = String(localized: "workspace.default.title", defaultValue: "New Workspace")
+        // Collect panel IDs per workspace for bootstrap
+        var workspacePanelIDs: [UUID: [UUID]] = [:]
+        var workspaceActivePanelIDs: [UUID: UUID?] = [:]
+
         for workspaceSnap in windowSnap.workspaces.sorted(by: { $0.order < $1.order }) {
-            let paneTree = buildPaneTree(from: workspaceSnap.layout)
-            // Title priority: customTitle > processTitle (cleaned) > default
             let restoredTitle: String = {
                 if let custom = workspaceSnap.customTitle, !custom.isEmpty { return custom }
                 if let process = workspaceSnap.processTitle, !process.isEmpty { return process }
@@ -282,13 +304,16 @@ final class SessionPersistence: ObservableObject {
                 id: workspaceSnap.id,
                 title: restoredTitle,
                 order: workspaceSnap.order,
-                isPinned: workspaceSnap.isPinned,
-                paneTree: paneTree,
-                activePanelID: workspaceSnap.activePanelID
+                isPinned: workspaceSnap.isPinned
             )
             workspace.customTitle = workspaceSnap.customTitle
             workspace.processTitle = workspaceSnap.processTitle ?? ""
             restoredWorkspaces.append(workspace)
+
+            // Create panels in PanelManager's registry
+            let panelIDs = collectPanelIDs(from: workspaceSnap.layout)
+            workspacePanelIDs[workspace.id] = panelIDs
+            workspaceActivePanelIDs[workspace.id] = workspaceSnap.activePanelID
             createPanels(from: workspaceSnap.layout, panelManager: panelManager)
         }
 
@@ -301,25 +326,20 @@ final class SessionPersistence: ObservableObject {
         }
 
         // Bootstrap BonsplitLayoutEngines for restored workspaces.
-        // Panels are already in panelManager.panels via createPanels() above;
-        // we need to set up engines with tabs mapped to those existing panels.
         for workspace in restoredWorkspaces {
-            panelManager.bootstrapRestoredWorkspace(workspace)
+            let panelIDs = workspacePanelIDs[workspace.id] ?? []
+            let activeID = workspaceActivePanelIDs[workspace.id] ?? nil
+            panelManager.bootstrapRestoredWorkspace(workspace, panelIDs: panelIDs, activePanelID: activeID)
         }
     }
 
-    private func buildPaneTree(from layout: WorkspaceLayoutSnapshot) -> PaneTree {
+    /// Collect all panel IDs from a layout snapshot in document order.
+    private func collectPanelIDs(from layout: WorkspaceLayoutSnapshot) -> [UUID] {
         switch layout {
         case .pane(let snap):
-            return .pane(PaneLeaf(id: snap.id, panelType: snap.panelType))
+            return [snap.id]
         case .split(let snap):
-            return .split(PaneSplit(
-                id: snap.id,
-                direction: snap.direction,
-                ratio: snap.ratio,
-                first: buildPaneTree(from: snap.first),
-                second: buildPaneTree(from: snap.second)
-            ))
+            return collectPanelIDs(from: snap.first) + collectPanelIDs(from: snap.second)
         }
     }
 

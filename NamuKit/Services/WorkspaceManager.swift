@@ -21,7 +21,7 @@ final class WorkspaceManager: ObservableObject {
     // MARK: - Init
 
     init() {
-        let initial = makeWorkspace(title: String(localized: "workspace.default.title", defaultValue: "New Workspace"), order: 0)
+        let initial = Workspace(title: String(localized: "workspace.default.title", defaultValue: "New Workspace"), order: 0)
         workspaces = [initial]
         selectedWorkspaceID = initial.id
     }
@@ -31,11 +31,10 @@ final class WorkspaceManager: ObservableObject {
     /// Create a new workspace and append it to the list.
     @discardableResult
     func createWorkspace(
-        title: String = String(localized: "workspace.default.title", defaultValue: "New Workspace"),
-        paneTree: PaneTree? = nil
+        title: String = String(localized: "workspace.default.title", defaultValue: "New Workspace")
     ) -> Workspace {
         let order = workspaces.map(\.order).max().map { $0 + 1 } ?? 0
-        let workspace = makeWorkspace(title: title, order: order, paneTree: paneTree)
+        let workspace = Workspace(title: title, order: order)
         workspaces.append(workspace)
         return workspace
     }
@@ -95,10 +94,6 @@ final class WorkspaceManager: ObservableObject {
     }
 
     // MARK: - Private helpers
-
-    private func makeWorkspace(title: String, order: Int, paneTree: PaneTree? = nil) -> Workspace {
-        Workspace(title: title, order: order, paneTree: paneTree)
-    }
 
     /// Reassign `order` values to match array positions after moves/deletions.
     private func reindex() {

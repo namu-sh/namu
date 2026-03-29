@@ -6,9 +6,11 @@ import Foundation
 final class BrowserCommands {
 
     private let workspaceManager: WorkspaceManager
+    private weak var panelManager: PanelManager?
 
-    init(workspaceManager: WorkspaceManager) {
+    init(workspaceManager: WorkspaceManager, panelManager: PanelManager? = nil) {
         self.workspaceManager = workspaceManager
+        self.panelManager = panelManager
     }
 
     // MARK: - Registration
@@ -667,8 +669,8 @@ final class BrowserCommands {
         }
 
         // Focused pane
-        if let workspace = workspaceManager.selectedWorkspace,
-           let focusedID = workspace.activePanelID,
+        if let wsID = workspaceManager.selectedWorkspaceID,
+           let focusedID = panelManager?.focusedPanelID(in: wsID),
            isBrowserPane(paneID: focusedID) {
             if let controller = BrowserRegistry.shared.controller(for: focusedID) {
                 return controller
@@ -684,12 +686,9 @@ final class BrowserCommands {
     }
 
     private func isBrowserPane(paneID: UUID) -> Bool {
-        for ws in workspaceManager.workspaces {
-            if let leaf = ws.paneTree.findPane(id: paneID) {
-                return leaf.panelType == .browser
-            }
-        }
-        return false
+        // Browser panel detection — currently only terminal panels exist.
+        // When browser panels are implemented, check via BrowserRegistry.
+        BrowserRegistry.shared.controller(for: paneID) != nil
     }
 }
 
