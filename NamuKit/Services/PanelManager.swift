@@ -225,6 +225,18 @@ final class PanelManager: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Create a new terminal tab in the focused pane of the selected workspace.
+    func createTabInFocusedPane() {
+        guard let wsID = workspaceManager.selectedWorkspaceID else { return }
+        let eng = engine(for: wsID)
+        guard let focusedPane = eng.focusedPaneID else { return }
+        let panel = createTerminalPanel(workspaceID: wsID)
+        if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: focusedPane) {
+            eng.registerMapping(tabID: tabID, panelID: panel.id)
+        }
+        objectWillChange.send()
+    }
+
     /// Convenience: split the active pane in the selected workspace.
     func splitActivePanel(direction: SplitDirection) {
         guard let wsID = workspaceManager.selectedWorkspaceID else { return }
@@ -432,7 +444,7 @@ final class PanelManager: ObservableObject {
         }
     }
 
-    /// Forward terminal title changes to the workspace for sidebar display.
+    /// Forward terminal title changes to workspace sidebar and Bonsplit tab bar.
     private func observePanelTitle(_ panel: TerminalPanel, workspaceID: UUID) {
         guard !observedPanelIDs.contains(panel.id) else { return }
         observedPanelIDs.insert(panel.id)
@@ -441,10 +453,19 @@ final class PanelManager: ObservableObject {
             .dropFirst()
             .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .sink { [weak self] newTitle in
-                guard let self,
-                      let idx = self.workspaceManager.workspaces.firstIndex(where: { $0.id == workspaceID }),
-                      self.focusedPanelID(in: workspaceID) == panel.id else { return }
-                self.workspaceManager.workspaces[idx].applyProcessTitle(newTitle)
+                guard let self else { return }
+
+                // Update Bonsplit tab title
+                if let eng = self.engines[workspaceID],
+                   let tabID = eng.tabID(for: panel.id) {
+                    eng.controller.updateTab(tabID, title: newTitle)
+                }
+
+                // Update workspace sidebar title (only for focused panel)
+                if let idx = self.workspaceManager.workspaces.firstIndex(where: { $0.id == workspaceID }),
+                   self.focusedPanelID(in: workspaceID) == panel.id {
+                    self.workspaceManager.workspaces[idx].applyProcessTitle(newTitle)
+                }
             }
             .store(in: &cancellables)
     }

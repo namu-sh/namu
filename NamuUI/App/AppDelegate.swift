@@ -178,9 +178,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
 
-        // Cmd+T → New workspace
-        if cmd && event.keyCode == 17 {
+        // Cmd+Shift+T → New workspace (check before Cmd+T)
+        if cmdShift && event.keyCode == 17 {
             panelManager?.createWorkspace()
+            return nil
+        }
+
+        // Cmd+T → New tab in focused pane
+        if cmd && event.keyCode == 17 {
+            panelManager?.createTabInFocusedPane()
             return nil
         }
 
