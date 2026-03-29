@@ -5,236 +5,295 @@ import Bonsplit
 @MainActor
 final class PanelManagerTests: XCTestCase {
 
-    private func makeStack() -> (WorkspaceManager, PanelManager) {
-        let wm = WorkspaceManager()
-        let pm = PanelManager(workspaceManager: wm)
-        return (wm, pm)
+    private var wm: WorkspaceManager!
+    private var pm: PanelManager!
+    /// The workspace ID created by WorkspaceManager.init()
+    private var initialWSID: UUID!
+
+    override func setUp() {
+        super.setUp()
+        wm = WorkspaceManager()
+        pm = PanelManager(workspaceManager: wm)
+        initialWSID = wm.selectedWorkspaceID
     }
 
-    // MARK: - Workspace creation is single entry point
-
-    func testCreateWorkspaceBootstrapsEngine() {
-        let (_, pm) = makeStack()
-        let ws = pm.createWorkspace(title: "Test")
-
-        // Engine should exist
-        let eng = pm.engine(for: ws.id)
-        XCTAssertFalse(eng.allPaneIDs.isEmpty, "Engine should have at least one pane")
+    override func tearDown() {
+        // Clean up all engines and panels to avoid leaked state
+        for wsID in Array(pm.engines.keys) {
+            pm.onWorkspaceDeleted(workspaceID: wsID)
+        }
+        pm = nil
+        wm = nil
+        initialWSID = nil
+        super.tearDown()
     }
 
-    func testCreateWorkspaceHasTerminalTab() {
-        let (_, pm) = makeStack()
-        let ws = pm.createWorkspace(title: "Test")
-        let eng = pm.engine(for: ws.id)
+    // MARK: - Initial state
 
-        // Should have exactly one pane with one terminal tab (no Welcome tab)
-        let paneIDs = eng.allPaneIDs
-        XCTAssertEqual(paneIDs.count, 1)
-
-        let tabs = eng.controller.tabs(inPane: paneIDs[0])
-        XCTAssertEqual(tabs.count, 1, "Should have exactly one tab (terminal, not Welcome)")
-
-        // Tab should be mapped to a panel
-        let panelID = eng.panelID(for: tabs[0].id)
-        XCTAssertNotNil(panelID, "Tab should be mapped to a panel")
-        XCTAssertNotNil(pm.panel(for: panelID!), "Panel should exist in registry")
+    func testInitialWorkspaceHasOneTerminal() {
+        let panels = pm.allPanelIDs(in: initialWSID)
+        XCTAssertEqual(panels.count, 1, "Initial workspace should have exactly one terminal")
+        XCTAssertNotNil(pm.panel(for: panels[0]))
     }
 
-    func testCreateWorkspaceNoWelcomeTab() {
-        let (_, pm) = makeStack()
-        let ws = pm.createWorkspace(title: "Test")
-        let eng = pm.engine(for: ws.id)
-
-        // Verify no tab is named "Welcome"
+    func testInitialWorkspaceHasNoWelcomeTab() {
+        let eng = pm.engine(for: initialWSID)
         for paneID in eng.allPaneIDs {
             for tab in eng.controller.tabs(inPane: paneID) {
-                XCTAssertNotEqual(tab.title, "Welcome", "Welcome tab should be removed")
+                XCTAssertNotEqual(tab.title, "Welcome")
             }
         }
     }
 
-    func testCreateWorkspaceSelectsNewWorkspace() {
-        let (wm, pm) = makeStack()
-        let originalID = wm.selectedWorkspaceID
+    // MARK: - Workspace creation (single entry point)
 
+    func testCreateWorkspaceBootstrapsEngine() {
+        let ws = pm.createWorkspace(title: "Test")
+        XCTAssertNotNil(pm.engines[ws.id], "Engine should exist after creation")
+        XCTAssertFalse(pm.engine(for: ws.id).allPaneIDs.isEmpty)
+    }
+
+    func testCreateWorkspaceHasOneTerminalTab() {
+        let ws = pm.createWorkspace(title: "Test")
+        let eng = pm.engine(for: ws.id)
+        let paneIDs = eng.allPaneIDs
+
+        XCTAssertEqual(paneIDs.count, 1, "Should have exactly one pane")
+        let tabs = eng.controller.tabs(inPane: paneIDs[0])
+        XCTAssertEqual(tabs.count, 1, "Should have exactly one tab")
+        XCTAssertNotNil(eng.panelID(for: tabs[0].id), "Tab should be mapped to a panel")
+    }
+
+    func testCreateWorkspaceNoWelcomeTab() {
+        let ws = pm.createWorkspace(title: "Test")
+        let eng = pm.engine(for: ws.id)
+        for paneID in eng.allPaneIDs {
+            for tab in eng.controller.tabs(inPane: paneID) {
+                XCTAssertNotEqual(tab.title, "Welcome", "Welcome tab must be removed")
+            }
+        }
+    }
+
+    func testCreateWorkspaceAutoSelects() {
         let ws = pm.createWorkspace(title: "New")
-        XCTAssertEqual(wm.selectedWorkspaceID, ws.id, "New workspace should be selected")
-        XCTAssertNotEqual(wm.selectedWorkspaceID, originalID)
+        XCTAssertEqual(wm.selectedWorkspaceID, ws.id, "New workspace should be auto-selected")
+    }
+
+    func testCreateWorkspaceDoesNotCorruptInitial() {
+        let initialPanels = pm.allPanelIDs(in: initialWSID)
+        _ = pm.createWorkspace(title: "Extra")
+        let panelsAfter = pm.allPanelIDs(in: initialWSID)
+        XCTAssertEqual(initialPanels, panelsAfter, "Creating a new workspace should not affect the initial one")
+    }
+
+    // MARK: - Structural constraint
+
+    func testDirectWMCreationDoesNotBootstrap() {
+        let ws = wm.createWorkspace(title: "Raw")
+        XCTAssertNil(pm.engines[ws.id], "Direct WM creation must not auto-bootstrap engine")
     }
 
     // MARK: - Bootstrap restored workspace
 
     func testBootstrapRestoredWorkspaceMapsExistingPanels() {
-        let (wm, pm) = makeStack()
-
-        // Simulate session restore: create a workspace with a panel manually
         let panelID = UUID()
         let leaf = PaneLeaf(id: panelID, panelType: .terminal)
-        let ws = Workspace(
-            id: UUID(),
-            title: "Restored",
-            paneTree: .pane(leaf)
-        )
-        // Create the panel in PanelManager's registry (as SessionPersistence would)
-        pm.restoreTerminalPanel(id: panelID, workingDirectory: nil, scrollbackFile: nil)
+        let ws = Workspace(id: UUID(), title: "Restored", paneTree: .pane(leaf))
 
-        // Now bootstrap it
+        pm.restoreTerminalPanel(id: panelID, workingDirectory: nil, scrollbackFile: nil)
         pm.bootstrapRestoredWorkspace(ws)
 
         let eng = pm.engine(for: ws.id)
         let allTabs = eng.allPaneIDs.flatMap { eng.controller.tabs(inPane: $0) }
-
-        // Should have a tab mapped to our restored panel
         let mappedIDs = allTabs.compactMap { eng.panelID(for: $0.id) }
-        XCTAssertTrue(mappedIDs.contains(panelID), "Restored panel should be mapped to a tab")
 
-        // No Welcome tab
-        XCTAssertFalse(allTabs.contains { $0.title == "Welcome" })
+        XCTAssertTrue(mappedIDs.contains(panelID), "Restored panel should be mapped to a tab")
+        XCTAssertFalse(allTabs.contains { $0.title == "Welcome" }, "No Welcome tab after restore")
+    }
+
+    func testBootstrapRestoredMultiplePanels() {
+        let id1 = UUID(), id2 = UUID()
+        let leaf1 = PaneLeaf(id: id1, panelType: .terminal)
+        let leaf2 = PaneLeaf(id: id2, panelType: .terminal)
+        let tree = PaneTree.split(PaneSplit(
+            direction: .horizontal,
+            first: .pane(leaf1),
+            second: .pane(leaf2)
+        ))
+        let ws = Workspace(id: UUID(), title: "Multi", paneTree: tree, activePanelID: id1)
+
+        pm.restoreTerminalPanel(id: id1, workingDirectory: nil, scrollbackFile: nil)
+        pm.restoreTerminalPanel(id: id2, workingDirectory: nil, scrollbackFile: nil)
+        pm.bootstrapRestoredWorkspace(ws)
+
+        let panelIDs = pm.allPanelIDs(in: ws.id)
+        XCTAssertTrue(panelIDs.contains(id1))
+        XCTAssertTrue(panelIDs.contains(id2))
     }
 
     // MARK: - Split pane
 
-    func testSplitPaneCreatesNewTerminal() {
-        let (wm, pm) = makeStack()
-        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
-
-        let panelsBefore = pm.allPanelIDs(in: wsID)
-        XCTAssertEqual(panelsBefore.count, 1)
-
-        pm.splitPane(in: wsID, direction: .horizontal)
-
-        let panelsAfter = pm.allPanelIDs(in: wsID)
-        XCTAssertEqual(panelsAfter.count, 2, "Split should create a second panel")
+    func testSplitPaneCreatesSecondPanel() {
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID).count, 2)
     }
 
-    func testSplitPaneSyncsWorkspace() {
-        let (wm, pm) = makeStack()
-        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
-
-        pm.splitPane(in: wsID, direction: .vertical)
-
-        // Workspace's paneTree should be synced from engine
+    func testSplitPaneSyncsWorkspacePaneTree() {
+        pm.splitPane(in: initialWSID, direction: .vertical)
         guard let ws = wm.selectedWorkspace else { return XCTFail() }
-        XCTAssertEqual(ws.paneTree.paneCount, 2, "Workspace paneTree should reflect split")
+        XCTAssertEqual(ws.paneTree.paneCount, 2, "Workspace paneTree should reflect the split")
+    }
+
+    func testSplitPaneFocusesNewPanel() {
+        let panelsBefore = pm.allPanelIDs(in: initialWSID)
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        let panelsAfter = pm.allPanelIDs(in: initialWSID)
+        let newPanel = panelsAfter.first { !panelsBefore.contains($0) }
+
+        XCTAssertNotNil(newPanel)
+        XCTAssertEqual(pm.focusedPanelID(in: initialWSID), newPanel, "New split panel should be focused")
     }
 
     // MARK: - Close panel
 
     func testClosePanelRemovesFromEngine() {
-        let (wm, pm) = makeStack()
-        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
-
-        pm.splitPane(in: wsID, direction: .horizontal)
-        let panels = pm.allPanelIDs(in: wsID)
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        let panels = pm.allPanelIDs(in: initialWSID)
         XCTAssertEqual(panels.count, 2)
 
         pm.closePanel(id: panels[1])
-        XCTAssertEqual(pm.allPanelIDs(in: wsID).count, 1)
-        XCTAssertNil(pm.panel(for: panels[1]), "Closed panel should be removed from registry")
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID).count, 1)
+        XCTAssertNil(pm.panel(for: panels[1]))
+    }
+
+    func testClosePanelSyncsWorkspace() {
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        let panels = pm.allPanelIDs(in: initialWSID)
+        pm.closePanel(id: panels[1])
+
+        guard let ws = wm.selectedWorkspace else { return XCTFail() }
+        XCTAssertEqual(ws.paneTree.paneCount, 1, "paneTree should sync after close")
     }
 
     // MARK: - Focus / activation
 
     func testActivatePanelChangesFocus() {
-        let (wm, pm) = makeStack()
-        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        let panels = pm.allPanelIDs(in: initialWSID)
 
-        pm.splitPane(in: wsID, direction: .horizontal)
-        let panels = pm.allPanelIDs(in: wsID)
-        XCTAssertEqual(panels.count, 2)
-
-        // After split, the new panel should be focused
-        let focusedAfterSplit = pm.focusedPanelID(in: wsID)
-        XCTAssertEqual(focusedAfterSplit, panels[1])
-
-        // Activate the first panel
         pm.activatePanel(id: panels[0])
-        XCTAssertEqual(pm.focusedPanelID(in: wsID), panels[0])
+        XCTAssertEqual(pm.focusedPanelID(in: initialWSID), panels[0])
+
+        pm.activatePanel(id: panels[1])
+        XCTAssertEqual(pm.focusedPanelID(in: initialWSID), panels[1])
     }
 
     func testActivatePanelTracksPreviousFocus() {
-        let (wm, pm) = makeStack()
-        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        let panels = pm.allPanelIDs(in: initialWSID)
+        let focusedAfterSplit = pm.focusedPanelID(in: initialWSID)
 
-        pm.splitPane(in: wsID, direction: .horizontal)
-        let panels = pm.allPanelIDs(in: wsID)
-
-        let firstFocused = panels[1] // after split, new panel is focused
         pm.activatePanel(id: panels[0])
-
-        XCTAssertEqual(pm.previousFocusedPanelID, firstFocused)
+        XCTAssertEqual(pm.previousFocusedPanelID, focusedAfterSplit)
     }
 
     func testFocusedPanelIDSyncsToWorkspace() {
-        let (wm, pm) = makeStack()
-        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
-
-        pm.splitPane(in: wsID, direction: .horizontal)
-        let panels = pm.allPanelIDs(in: wsID)
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        let panels = pm.allPanelIDs(in: initialWSID)
         pm.activatePanel(id: panels[0])
 
-        // Workspace.activePanelID should be synced
         guard let ws = wm.selectedWorkspace else { return XCTFail() }
-        XCTAssertEqual(ws.activePanelID, panels[0], "Workspace activePanelID should match focused panel")
+        XCTAssertEqual(ws.activePanelID, panels[0])
     }
 
-    // MARK: - Workspace lifecycle
+    // MARK: - Workspace deletion
 
-    func testOnWorkspaceDeletedCleansUpEngine() {
-        let (wm, pm) = makeStack()
-        let ws = pm.createWorkspace(title: "ToDelete")
-        let wsID = ws.id
+    func testDeleteWorkspaceCleansUpEngine() {
+        let ws = pm.createWorkspace(title: "Temp")
+        XCTAssertNotNil(pm.engines[ws.id])
 
-        XCTAssertNotNil(pm.engines[wsID])
+        pm.onWorkspaceDeleted(workspaceID: ws.id)
+        wm.deleteWorkspace(id: ws.id)
 
-        pm.onWorkspaceDeleted(workspaceID: wsID)
-        wm.deleteWorkspace(id: wsID)
+        XCTAssertNil(pm.engines[ws.id])
+        XCTAssertTrue(pm.allPanelIDs(in: ws.id).isEmpty)
+    }
 
-        XCTAssertNil(pm.engines[wsID], "Engine should be removed on workspace deletion")
+    func testDeleteWorkspaceDoesNotAffectOthers() {
+        let ws = pm.createWorkspace(title: "Temp")
+        let initialPanels = pm.allPanelIDs(in: initialWSID)
+
+        pm.onWorkspaceDeleted(workspaceID: ws.id)
+        wm.deleteWorkspace(id: ws.id)
+
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID), initialPanels)
     }
 
     // MARK: - Panel lookup
 
     func testPanelForUnknownIDReturnsNil() {
-        let (_, pm) = makeStack()
         XCTAssertNil(pm.panel(for: UUID()))
     }
 
     func testWorkspaceIDForPanel() {
-        let (_, pm) = makeStack()
-        let ws = pm.createWorkspace(title: "Test")
-        let panels = pm.allPanelIDs(in: ws.id)
-        XCTAssertFalse(panels.isEmpty)
-
-        let foundWSID = pm.workspaceIDForPanel(panels[0])
-        XCTAssertEqual(foundWSID, ws.id)
+        let panels = pm.allPanelIDs(in: initialWSID)
+        XCTAssertEqual(pm.workspaceIDForPanel(panels[0]), initialWSID)
     }
 
     func testWorkspaceIDForUnknownPanelReturnsNil() {
-        let (_, pm) = makeStack()
         XCTAssertNil(pm.workspaceIDForPanel(UUID()))
     }
 
-    // MARK: - Multiple workspaces isolation
+    // MARK: - Multi-workspace isolation
 
-    func testMultipleWorkspacesHaveIndependentEngines() {
-        let (_, pm) = makeStack()
+    func testMultipleWorkspacesHaveIndependentPanels() {
         let ws1 = pm.createWorkspace(title: "WS1")
         let ws2 = pm.createWorkspace(title: "WS2")
 
         let panels1 = pm.allPanelIDs(in: ws1.id)
         let panels2 = pm.allPanelIDs(in: ws2.id)
 
-        // Each workspace should have its own panel
         XCTAssertEqual(panels1.count, 1)
         XCTAssertEqual(panels2.count, 1)
-        XCTAssertNotEqual(panels1[0], panels2[0], "Different workspaces should have different panels")
+        XCTAssertNotEqual(panels1[0], panels2[0])
+    }
+
+    func testSplitInOneWorkspaceDoesNotAffectAnother() {
+        let ws2 = pm.createWorkspace(title: "WS2")
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID).count, 2)
+        XCTAssertEqual(pm.allPanelIDs(in: ws2.id).count, 1, "Other workspace should be unaffected")
     }
 
     // MARK: - Process running check
 
     func testIsProcessRunningForUnknownPanel() {
-        let (_, pm) = makeStack()
         XCTAssertFalse(pm.isProcessRunning(id: UUID()))
+    }
+
+    // MARK: - Split + close cycle (no leaked tabs)
+
+    func testSplitAndCloseReturnsToSinglePane() {
+        pm.splitPane(in: initialWSID, direction: .horizontal)
+        pm.splitPane(in: initialWSID, direction: .vertical)
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID).count, 3)
+
+        let panels = pm.allPanelIDs(in: initialWSID)
+        pm.closePanel(id: panels[2])
+        pm.closePanel(id: panels[1])
+        XCTAssertEqual(pm.allPanelIDs(in: initialWSID).count, 1, "Should return to single pane")
+    }
+
+    func testRepeatedCreateDeleteDoesNotLeak() {
+        for i in 0..<5 {
+            let ws = pm.createWorkspace(title: "Temp\(i)")
+            XCTAssertEqual(pm.allPanelIDs(in: ws.id).count, 1)
+            pm.onWorkspaceDeleted(workspaceID: ws.id)
+            wm.deleteWorkspace(id: ws.id)
+        }
+        // Only the initial workspace should remain
+        XCTAssertEqual(wm.workspaces.count, 1)
+        XCTAssertEqual(pm.engines.count, 1)
     }
 }
