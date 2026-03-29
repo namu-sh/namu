@@ -153,12 +153,14 @@ final class ServiceContainer {
 
             for (wm, pm) in pairs {
                 for workspace in wm.workspaces {
-                    for leaf in workspace.allPanels {
-                        if let panel = pm.panel(for: leaf.id), panel.session.id == session.id {
-                            if workspace.panelCount <= 1 {
+                    let panelIDs = pm.allPanelIDs(in: workspace.id)
+                    for panelID in panelIDs {
+                        if let panel = pm.panel(for: panelID), panel.session.id == session.id {
+                            if panelIDs.count <= 1 {
+                                pm.onWorkspaceDeleted(workspaceID: workspace.id)
                                 wm.deleteWorkspace(id: workspace.id)
                             } else {
-                                pm.closePanel(id: leaf.id)
+                                pm.closePanel(id: panelID)
                             }
                             return
                         }
@@ -216,7 +218,7 @@ final class ServiceContainer {
     // MARK: - Private
 
     private func registerCommands() {
-        let wc = WorkspaceCommands(workspaceManager: workspaceManager)
+        let wc = WorkspaceCommands(workspaceManager: workspaceManager, panelManager: panelManager)
         wc.register(in: commandRegistry)
         workspaceCommands = wc
 

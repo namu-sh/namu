@@ -6,12 +6,14 @@ import Foundation
 final class WorkspaceCommands {
 
     private let workspaceManager: WorkspaceManager
+    private let panelManager: PanelManager
 
     /// Tracks the previously selected workspace for workspace.last navigation.
     private var previousSelectedWorkspaceID: UUID?
 
-    init(workspaceManager: WorkspaceManager) {
+    init(workspaceManager: WorkspaceManager, panelManager: PanelManager) {
         self.workspaceManager = workspaceManager
+        self.panelManager = panelManager
     }
 
     // MARK: - Registration

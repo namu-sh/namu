@@ -75,7 +75,7 @@ final class SystemCommands {
             "workspace_id": .string(workspace.id.uuidString)
         ]
 
-        if let activePanelID = workspace.activePanelID {
+        if let activePanelID = panelManager?.focusedPanelID(in: workspace.id) {
             focused["pane_id"] = .string(activePanelID.uuidString)
             focused["surface_id"] = .string(activePanelID.uuidString)
             // pane_ref uses %<id> format for tmux compat

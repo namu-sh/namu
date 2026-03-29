@@ -17,25 +17,43 @@ final class SurfaceCommands {
     // MARK: - Registration
 
     func register(in registry: CommandRegistry) {
-        // Dangerous commands → .mainActor + .dangerous
         registry.register(HandlerRegistration(method: "surface.send_text", execution: .mainActor, safety: .dangerous,
             handler: { [weak self] req in try await self?.sendText(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "surface.send_key", execution: .mainActor, safety: .dangerous,
             handler: { [weak self] req in try await self?.sendKey(req) ?? .notAvailable(req) }))
-
-        // State-mutating commands → .mainActor + .normal
         registry.register(HandlerRegistration(method: "surface.split", execution: .mainActor, safety: .normal,
             handler: { [weak self] req in try await self?.split(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "surface.close", execution: .mainActor, safety: .normal,
             handler: { [weak self] req in try await self?.closeSurface(req) ?? .notAvailable(req) }))
-
-        // Read-only queries → .background + .safe
         registry.register(HandlerRegistration(method: "surface.list", execution: .mainActor, safety: .safe,
             handler: { [weak self] req in try await self?.list(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "surface.current", execution: .mainActor, safety: .safe,
             handler: { [weak self] req in try await self?.current(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "surface.read_text", execution: .background, safety: .safe,
             handler: { [weak self] req in try await self?.readText(req) ?? .notAvailable(req) }))
+    }
+
+    // MARK: - Helpers
+
+    /// Resolve target panel from params, falling back to the focused panel.
+    private func resolveTarget(params: [String: JSONRPCValue]) throws -> (panelID: UUID, workspaceID: UUID) {
+        // If surface_id is provided, look it up
+        if let sidValue = params["surface_id"], case .string(let sidStr) = sidValue,
+           let sid = UUID(uuidString: sidStr) {
+            guard let wsID = panelManager.workspaceIDForPanel(sid) else {
+                throw JSONRPCError(code: -32001, message: "Surface not found")
+            }
+            return (sid, wsID)
+        }
+
+        // Fall back to focused panel in selected workspace
+        guard let wsID = workspaceManager.selectedWorkspaceID else {
+            throw JSONRPCError(code: -32001, message: "No active workspace")
+        }
+        guard let focused = panelManager.focusedPanelID(in: wsID) else {
+            throw JSONRPCError(code: -32001, message: "No active surface")
+        }
+        return (focused, wsID)
     }
 
     // MARK: - surface.send_text
@@ -95,7 +113,6 @@ final class SurfaceCommands {
     private func list(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
         let params = req.params?.object ?? [:]
 
-        // Optionally filter by workspace
         let workspaces: [Workspace]
         if let wsValue = params["workspace_id"], case .string(let wsStr) = wsValue,
            let wsID = UUID(uuidString: wsStr) {
@@ -109,15 +126,16 @@ final class SurfaceCommands {
 
         var surfaces: [JSONRPCValue] = []
         for ws in workspaces {
-            for leaf in ws.allPanels {
-                let isFocused = ws.activePanelID == leaf.id
-                let title = panelManager.panel(for: leaf.id)?.title ?? ""
+            let panelIDs = panelManager.allPanelIDs(in: ws.id)
+            let focusedID = panelManager.focusedPanelID(in: ws.id)
+            for panelID in panelIDs {
+                let title = panelManager.panel(for: panelID)?.title ?? ""
                 surfaces.append(.object([
-                    "id":           .string(leaf.id.uuidString),
+                    "id":           .string(panelID.uuidString),
                     "workspace_id": .string(ws.id.uuidString),
-                    "type":         .string(leaf.panelType.rawValue),
+                    "type":         .string("terminal"),
                     "title":        .string(title),
-                    "focused":      .bool(isFocused)
+                    "focused":      .bool(panelID == focusedID)
                 ]))
             }
         }
@@ -148,24 +166,18 @@ final class SurfaceCommands {
 
         let (targetPanelID, workspaceID) = try resolveTarget(params: params)
 
-        let focusNew: Bool
-        if let focusVal = params["focus"], case .bool(let f) = focusVal {
-            focusNew = f
-        } else {
-            focusNew = true
-        }
+        panelManager.splitPane(in: workspaceID, direction: direction)
 
-        let newPanel = panelManager.createTerminalPanel()
-        panelManager.splitPanel(id: targetPanelID, direction: direction, newPanel: newPanel)
+        let newPanelID = panelManager.focusedPanelID(in: workspaceID)
 
-        // If focus=false (tmux -d flag), restore focus to original panel
-        if !focusNew {
+        // If focus=false, restore focus to original panel
+        if let focusVal = params["focus"], case .bool(let f) = focusVal, !f {
             panelManager.activatePanel(id: targetPanelID)
         }
 
         return .success(id: req.id, result: .object([
-            "surface_id":   .string(newPanel.id.uuidString),
-            "pane_id":      .string(newPanel.id.uuidString),
+            "surface_id":   .string(newPanelID?.uuidString ?? ""),
+            "pane_id":      .string(newPanelID?.uuidString ?? ""),
             "workspace_id": .string(workspaceID.uuidString)
         ]))
     }
@@ -188,21 +200,19 @@ final class SurfaceCommands {
     private func current(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
         let params = req.params?.object ?? [:]
 
-        let workspace: Workspace
+        let wsID: UUID
         if let wsValue = params["workspace_id"], case .string(let wsStr) = wsValue,
-           let wsID = UUID(uuidString: wsStr) {
-            guard let ws = workspaceManager.workspaces.first(where: { $0.id == wsID }) else {
-                throw JSONRPCError(code: -32001, message: "Workspace not found")
-            }
-            workspace = ws
+           let requestedWsID = UUID(uuidString: wsStr),
+           workspaceManager.workspaces.contains(where: { $0.id == requestedWsID }) {
+            wsID = requestedWsID
         } else {
-            guard let ws = workspaceManager.selectedWorkspace else {
+            guard let selected = workspaceManager.selectedWorkspaceID else {
                 throw JSONRPCError(code: -32001, message: "No active workspace")
             }
-            workspace = ws
+            wsID = selected
         }
 
-        guard let activePanelID = workspace.activePanelID else {
+        guard let activePanelID = panelManager.focusedPanelID(in: wsID) else {
             throw JSONRPCError(code: -32001, message: "No active surface")
         }
 
@@ -210,7 +220,7 @@ final class SurfaceCommands {
             "surface_id":   .string(activePanelID.uuidString),
             "pane_id":      .string(activePanelID.uuidString),
             "pane_ref":     .string("%\(activePanelID.uuidString)"),
-            "workspace_id": .string(workspace.id.uuidString)
+            "workspace_id": .string(wsID.uuidString)
         ]
 
         if let panel = panelManager.panel(for: activePanelID) {
@@ -246,31 +256,6 @@ final class SurfaceCommands {
             "workspace_id": .string(workspaceID.uuidString),
             "text":         .string(text)
         ]))
-    }
-
-    // MARK: - Private helpers
-
-    /// Resolve target panel from params, falling back to the focused panel.
-    private func resolveTarget(params: [String: JSONRPCValue]) throws -> (panelID: UUID, workspaceID: UUID) {
-        // If surface_id is provided, look it up across all workspaces
-        if let sidValue = params["surface_id"], case .string(let sidStr) = sidValue,
-           let sid = UUID(uuidString: sidStr) {
-            for ws in workspaceManager.workspaces {
-                if ws.paneTree.findPane(id: sid) != nil {
-                    return (sid, ws.id)
-                }
-            }
-            throw JSONRPCError(code: -32001, message: "Surface not found")
-        }
-
-        // Fall back to focused panel in selected workspace
-        guard let workspace = workspaceManager.selectedWorkspace else {
-            throw JSONRPCError(code: -32001, message: "No active workspace")
-        }
-        guard let focused = workspace.activePanelID else {
-            throw JSONRPCError(code: -32001, message: "No active surface")
-        }
-        return (focused, workspace.id)
     }
 }
 

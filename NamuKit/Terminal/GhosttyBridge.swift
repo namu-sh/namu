@@ -387,17 +387,19 @@ final class GhosttyApp {
             DispatchQueue.main.async {
                 guard let pm = AppDelegate.shared?.panelManager,
                       let wm = AppDelegate.shared?.workspaceManager,
-                      var workspace = wm.selectedWorkspace,
-                      let activeID = workspace.activePanelID else { return }
+                      let wsID = wm.selectedWorkspaceID,
+                      let activeID = pm.focusedPanelID(in: wsID) else { return }
                 // Find the split containing the active pane and adjust its ratio.
                 let delta = Double(amount) / 100.0
-                let adjusted = workspace.paneTree.adjustSplitRatio(
-                    containing: activeID,
-                    direction: resizeDir,
-                    delta: delta
-                )
-                if let (splitID, newRatio) = adjusted {
-                    pm.resizeSplit(splitID: splitID, ratio: newRatio)
+                if let workspace = wm.selectedWorkspace {
+                    let adjusted = workspace.paneTree.adjustSplitRatio(
+                        containing: activeID,
+                        direction: resizeDir,
+                        delta: delta
+                    )
+                    if let (splitID, newRatio) = adjusted {
+                        pm.resizeSplit(in: wsID, splitID: splitID, ratio: CGFloat(newRatio))
+                    }
                 }
             }
             return true
@@ -414,8 +416,8 @@ final class GhosttyApp {
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
             DispatchQueue.main.async {
                 guard let pm = AppDelegate.shared?.panelManager,
-                      let activeID = AppDelegate.shared?.workspaceManager?.selectedWorkspace?.activePanelID else { return }
-                pm.toggleZoom(id: activeID)
+                      let wsID = AppDelegate.shared?.workspaceManager?.selectedWorkspaceID else { return }
+                pm.toggleZoom(in: wsID)
             }
             return true
 

@@ -80,7 +80,7 @@ struct ContentView: View {
                         let isSelectedWorkspace = workspace.id == workspaceManager.selectedWorkspaceID
                         let isWorkspaceMode = sidebarViewModel.selection != .settings
                         let active = isSelectedWorkspace && isWorkspaceMode
-                        WorkspaceView(workspace: workspace, panelManager: panelManager, isActive: active)
+                        WorkspaceView(workspaceID: workspace.id, panelManager: panelManager, isActive: active)
                             .opacity(active ? 1 : 0)
                             .allowsHitTesting(active)
                     }
@@ -264,7 +264,8 @@ struct ContentView: View {
     // MARK: - Find helpers
 
     private func findNavigate(forward: Bool) {
-        guard let focusedID = workspaceManager.selectedWorkspace?.activePanelID,
+        guard let wsID = workspaceManager.selectedWorkspaceID,
+              let focusedID = panelManager.focusedPanelID(in: wsID),
               let panel = panelManager.panel(for: focusedID),
               let surface = panel.session.surface else { return }
         let action = forward ? "search_forward" : "search_backward"

@@ -200,7 +200,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Cmd+W → Close pane (if last pane, let AppKit close the window)
         if cmd && event.keyCode == 13 {
-            if let ws = workspaceManager?.selectedWorkspace, ws.panelCount <= 1 {
+            if let wsID = workspaceManager?.selectedWorkspaceID,
+               let pm = panelManager,
+               pm.allPanelIDs(in: wsID).count <= 1 {
                 return event
             }
             closePanelWithConfirmation()
@@ -272,10 +274,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// or the workspace is pinned.
     @MainActor func closePanelWithConfirmation() {
         guard let pm = panelManager, let wm = workspaceManager else { return }
-        guard let ws = wm.selectedWorkspace else { return }
-        guard let activeID = ws.activePanelID else { return }
+        guard let wsID = wm.selectedWorkspaceID else { return }
+        guard let activeID = pm.focusedPanelID(in: wsID) else { return }
+        let ws = wm.selectedWorkspace
 
-        let needsConfirmation = ws.isPinned || pm.isProcessRunning(id: activeID)
+        let needsConfirmation = (ws?.isPinned ?? false) || pm.isProcessRunning(id: activeID)
         guard needsConfirmation else {
             pm.closeActivePanel()
             return
