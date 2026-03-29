@@ -42,7 +42,7 @@ struct CommandPaletteView: View {
     private var builtInCommands: [PaletteCommand] {
         [
             PaletteCommand(title: "New Workspace", icon: "plus.rectangle") {
-                workspaceManager.createWorkspace()
+                panelManager.createWorkspace()
             },
             PaletteCommand(title: "Split Horizontal", icon: "rectangle.split.2x1") {
                 panelManager.splitActivePanel(direction: .horizontal)

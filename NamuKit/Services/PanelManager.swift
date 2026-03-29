@@ -60,13 +60,83 @@ final class PanelManager: ObservableObject {
     private func bootstrapWorkspace(_ workspace: Workspace) {
         let eng = engine(for: workspace.id)
 
-        // If the engine has no panes yet, create an initial terminal tab
-        if eng.allPaneIDs.isEmpty {
-            let panel = createTerminalPanel(workspaceID: workspace.id)
-            if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: nil) {
-                eng.registerMapping(tabID: tabID, panelID: panel.id)
+        // Check if any pane already has tabs with mapped panels.
+        let hasContent = eng.allPaneIDs.contains { paneID in
+            eng.controller.tabs(inPane: paneID).contains { tab in
+                eng.panelID(for: tab.id) != nil
             }
         }
+
+        if !hasContent {
+            // Capture Bonsplit's default Welcome tab IDs before creating ours
+            let welcomeTabIds = eng.controller.allTabIds
+            let targetPane = eng.allPaneIDs.first
+
+            // Create our terminal tab first
+            let panel = createTerminalPanel(workspaceID: workspace.id)
+            if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: targetPane) {
+                eng.registerMapping(tabID: tabID, panelID: panel.id)
+
+                // Now close the Welcome tab(s) — must happen AFTER creating our tab
+                // so Bonsplit never has zero tabs (which would recreate Welcome)
+                for welcomeTabId in welcomeTabIds {
+                    eng.closeTab(welcomeTabId)
+                }
+
+                // Focus the pane and select our tab
+                if let paneID = targetPane {
+                    eng.focusPane(paneID)
+                }
+                eng.controller.selectTab(tabID)
+            }
+        }
+    }
+
+    // MARK: - Workspace bootstrap
+
+    /// Bootstrap a restored workspace — maps existing panels (already in self.panels)
+    /// to Bonsplit tabs. Called by SessionPersistence after restoring panels.
+    func bootstrapRestoredWorkspace(_ workspace: Workspace) {
+        let eng = engine(for: workspace.id)
+        let welcomeTabIds = eng.controller.allTabIds
+
+        for leaf in workspace.allPanels {
+            if let panel = panels[leaf.id] {
+                let title = panel.title.isEmpty ? "Terminal" : panel.title
+                if let tabID = eng.createTab(title: title, kind: leaf.panelType.rawValue, inPane: nil) {
+                    eng.registerMapping(tabID: tabID, panelID: leaf.id)
+                }
+                observePanelTitle(panel, workspaceID: workspace.id)
+            }
+        }
+
+        // Close Welcome tabs after our tabs are created
+        for welcomeTabId in welcomeTabIds {
+            eng.closeTab(welcomeTabId)
+        }
+
+        // Focus the active panel
+        let activeID = workspace.activePanelID ?? workspace.allPanels.first?.id
+        if let activeID, let tabID = eng.tabID(for: activeID) {
+            if let paneID = eng.allPaneIDs.first {
+                eng.focusPane(paneID)
+            }
+            eng.controller.selectTab(tabID)
+        }
+    }
+
+    // MARK: - Workspace creation (single entry point)
+
+    /// Create a new workspace with a bootstrapped terminal and select it.
+    /// All workspace creation MUST go through this method to ensure the
+    /// BonsplitLayoutEngine is set up with an initial terminal tab.
+    @discardableResult
+    func createWorkspace(title: String = String(localized: "workspace.default.title", defaultValue: "New Workspace")) -> Workspace {
+        let ws = workspaceManager.createWorkspace(title: title)
+        bootstrapWorkspace(ws)
+        syncWorkspaceFromEngine(ws.id)
+        workspaceManager.selectWorkspace(id: ws.id)
+        return ws
     }
 
     // MARK: - Panel factory

@@ -299,6 +299,13 @@ final class SessionPersistence: ObservableObject {
         } else {
             workspaceManager.selectedWorkspaceID = restoredWorkspaces.first?.id
         }
+
+        // Bootstrap BonsplitLayoutEngines for restored workspaces.
+        // Panels are already in panelManager.panels via createPanels() above;
+        // we need to set up engines with tabs mapped to those existing panels.
+        for workspace in restoredWorkspaces {
+            panelManager.bootstrapRestoredWorkspace(workspace)
+        }
     }
 
     private func buildPaneTree(from layout: WorkspaceLayoutSnapshot) -> PaneTree {

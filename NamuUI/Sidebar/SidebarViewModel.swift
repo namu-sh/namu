@@ -127,8 +127,7 @@ final class SidebarViewModel: ObservableObject {
     }
 
     func createWorkspace() {
-        let ws = workspaceManager.createWorkspace()
-        panelManager?.onWorkspaceCreated(ws)
+        panelManager?.createWorkspace()
     }
 
     func moveWorkspace(from source: IndexSet, to destination: Int) {
@@ -203,22 +202,34 @@ final class SidebarViewModel: ObservableObject {
 
         // Terminal OSC notifications — sidebar metadata update only.
         // Suppression + sound + desktop notification handled by NotificationService.
+        // Route to the workspace that OWNS the terminal, not the selected workspace.
         NotificationCenter.default.publisher(for: .namuTerminalNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] notification in
-                guard let self else { return }
+                guard let self, let pm = self.panelManager else { return }
                 let title = notification.userInfo?["title"] as? String ?? ""
                 let body = notification.userInfo?["body"] as? String ?? ""
                 let displayText = body.isEmpty ? title : body
 
+                // Resolve the owning workspace from the surface pointer.
+                // The surface userdata is the TerminalSession; match its ID to find the workspace.
+                let wsID: UUID? = {
+                    if let surfacePtr = notification.userInfo?["surface"] as? UnsafeMutableRawPointer,
+                       let userdata = ghostty_surface_userdata(surfacePtr) {
+                        let session = Unmanaged<TerminalSession>.fromOpaque(userdata).takeUnretainedValue()
+                        return pm.workspaceIDForPanel(session.id)
+                    }
+                    return self.workspaceManager.selectedWorkspaceID
+                }()
+
+                guard let wsID else { return }
+
                 // Skip sidebar update for Claude panes (their notifications come via hooks).
-                let wsID = self.workspaceManager.selectedWorkspaceID
-                if let wsID, let ws = self.workspaceManager.workspaces.first(where: { $0.id == wsID }),
+                if let ws = self.workspaceManager.workspaces.first(where: { $0.id == wsID }),
                    ws.claudeSessionPID != nil {
                     return
                 }
 
-                guard let wsID else { return }
                 var meta = self.metadataCache[wsID] ?? SidebarMetadata()
                 meta.latestNotification = displayText
                 meta.unreadCount += 1
@@ -231,6 +242,14 @@ final class SidebarViewModel: ObservableObject {
     /// Rebuild sidebar items using the current `selection` so workspace
     /// highlight state reflects the generalized selection model.
     func rebuildItems() {
+        // Sync selection from WorkspaceManager if it changed externally
+        // (e.g. PanelManager.createWorkspace() selected a new workspace).
+        if case .workspace(let currentID) = selection,
+           let managerID = workspaceManager.selectedWorkspaceID,
+           managerID != currentID {
+            selection = .workspace(managerID)
+        }
+
         let sel = selection
         // Pinned workspaces sort to top, then by order within each group.
         let sorted = workspaceManager.workspaces.sorted {

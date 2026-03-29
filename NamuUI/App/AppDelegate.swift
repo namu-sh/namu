@@ -178,11 +178,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return nil
         }
 
-        // Cmd+T → New workspace (create AND select so the shell starts)
+        // Cmd+T → New workspace
         if cmd && event.keyCode == 17 {
-            if let ws = workspaceManager?.createWorkspace() {
-                workspaceManager?.selectWorkspace(id: ws.id)
-            }
+            panelManager?.createWorkspace()
             return nil
         }
 
@@ -471,7 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newWorkspaceFromMenu() {
         showMainWindow()
         DispatchQueue.main.async {
-            self.workspaceManager?.createWorkspace()
+            self.panelManager?.createWorkspace()
         }
     }
 
