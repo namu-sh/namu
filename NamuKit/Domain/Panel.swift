@@ -5,7 +5,6 @@ import Combine
 /// Focus intent for panels — describes what kind of focus transition is happening.
 enum FocusIntent {
     case capture    // Panel is gaining focus
-    case restore    // Panel is regaining focus after temporary loss
     case resign     // Panel is losing focus
 }
 
@@ -138,23 +137,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     // MARK: - Focus
 
-    func captureFocus() {
-        session.setFocus(true)
-    }
-
-    func restoreFocus() {
-        session.setFocus(true)
-    }
-
-    func resignFocus() {
-        session.setFocus(false)
-    }
-
     func handleFocus(_ intent: FocusIntent) {
         switch intent {
-        case .capture: captureFocus()
-        case .restore: restoreFocus()
-        case .resign:  resignFocus()
+        case .capture: session.setFocus(true)
+        case .resign:  session.setFocus(false)
         }
     }
 

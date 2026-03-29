@@ -17,13 +17,6 @@ final class CommandRegistry: @unchecked Sendable {
         }
     }
 
-    /// Unregister a handler.
-    func unregister(_ method: String) {
-        lock.withLock {
-            handlers.removeValue(forKey: method)
-        }
-    }
-
     /// Register a handler using metadata-aware registration.
     /// Stores the handler and its metadata for middleware pipeline decisions.
     func register(_ registration: HandlerRegistration) {

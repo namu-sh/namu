@@ -295,11 +295,6 @@ final class PanelManager: ObservableObject {
         return false
     }
 
-    /// Returns true if any panel in the workspace has a running foreground process.
-    func hasRunningProcess(in workspaceID: UUID) -> Bool {
-        allPanelIDs(in: workspaceID).contains { isProcessRunning(id: $0) }
-    }
-
     /// Find which workspace owns a panel.
     func workspaceIDForPanel(_ panelID: UUID) -> UUID? {
         for (wsID, eng) in engines {

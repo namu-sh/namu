@@ -79,22 +79,6 @@ final class CommandDispatcher: @unchecked Sendable {
         }
     }
 
-    // MARK: - Window ID routing helpers
-
-    /// Extract the window_id string from a request's params object, if present.
-    /// Command handlers can use this to route to the correct window context.
-    static func windowIDString(from params: [String: JSONRPCValue]?) -> String? {
-        guard let params, let v = params["window_id"], case .string(let s) = v else { return nil }
-        return s
-    }
-
-    // MARK: - Notification Builder
-
-    /// Encode an outbound notification (event push to client).
-    func encodeNotification(_ notification: JSONRPCNotification) -> Data? {
-        try? encoder.encode(notification)
-    }
-
     // MARK: - Private
 
     private func encode(_ response: JSONRPCResponse) -> Data? {
