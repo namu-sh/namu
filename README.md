@@ -10,17 +10,20 @@ Namu is a native macOS terminal built on [Ghostty](https://ghostty.org/) that or
 ## Features
 
 - **GPU-accelerated terminal** -- Ghostty-powered Metal rendering with sub-5ms typing latency
-- **Workspaces and splits** -- Tabbed workspaces with arbitrary horizontal/vertical split nesting
-- **Keyboard-driven** -- Full keyboard navigation, command palette, vim-style copy mode
+- **Workspaces and splits** -- Tabbed workspaces with arbitrary horizontal/vertical split nesting via [Bonsplit](vendor/bonsplit) layout engine
+- **Keyboard-driven** -- Full keyboard navigation, command palette, vim-style copy mode, keyboard hints
 - **Shell integration** -- Tracks working directory, git branch, ports, and command exit codes
 - **Session persistence** -- Quit and relaunch restores layout, splits, and scrollback
+- **SSH detection** -- Detects SSH foreground processes per pane for context-aware behavior
+- **Image transfer** -- Inline image rendering in terminal panes
 - **Socket API** -- JSON-RPC 2.0 over Unix socket for full programmatic control
 - **CLI tool** -- `namu` command-line interface for scripting and automation
 - **Namu AI** -- Natural language control plane that maps intent to socket commands
-- **LLM-swappable** -- Claude (default) or OpenAI as the AI backend
+- **LLM-swappable** -- Claude (default), OpenAI, Gemini, or custom LLM backends
 - **Command safety** -- Three-tier safety classification with destructive pattern detection
 - **Telegram gateway** -- Send commands and receive alerts from your phone
 - **Alert engine** -- Rule-based detection for build failures, crashes, and idle sessions
+- **In-app updates** -- Built-in update controller with titlebar badge
 
 ## Quick Start
 
@@ -36,7 +39,7 @@ Namu is a native macOS terminal built on [Ghostty](https://ghostty.org/) that or
 ```bash
 git clone --recursive https://github.com/omxyz/namu.git
 cd namu
-./Scripts/setup.sh       # builds GhosttyKit xcframework
+./scripts/setup.sh       # builds GhosttyKit xcframework
 xcodegen generate        # generates Namu.xcodeproj
 open Namu.xcodeproj
 ```
@@ -51,22 +54,22 @@ Namu is organized into four modules:
 NamuKit/       Core logic (no UI imports). Terminal, domain, IPC, AI, services.
 NamuUI/        SwiftUI + AppKit views. App entry point, sidebar, workspace, terminal.
 NamuGateway/   Standalone Hummingbird server. Telegram webhook, WebSocket bridge.
-CLI/             Command-line tool. Sends JSON-RPC to the Unix socket.
+CLI/           Command-line tool. Sends JSON-RPC to the Unix socket.
 ```
 
 ### Module Breakdown
 
 | Module | Directory | Purpose |
 |--------|-----------|---------|
-| **Domain** | `NamuKit/Domain/` | Value types: Workspace, Panel, PaneTree, SessionSnapshot, SidebarMetadata |
-| **Terminal** | `NamuKit/Terminal/` | Ghostty C FFI: GhosttyBridge, GhosttyConfig, GhosttyKeyboard, TerminalSession, ShellIntegration |
-| **IPC** | `NamuKit/IPC/` | SocketServer, CommandRegistry, CommandDispatcher, AccessControl, EventBus, command handlers |
-| **Services** | `NamuKit/Services/` | WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner |
-| **AI** | `NamuKit/AI/` | NamuAI, LLMProvider, CommandSafety, AlertEngine, ConversationManager, ContextCollector |
+| **Domain** | `NamuKit/Domain/` | Value types: Workspace, Panel, PaneTree, SessionSnapshot, SidebarMetadata, PullRequestDisplay |
+| **Terminal** | `NamuKit/Terminal/` | Ghostty C FFI (GhosttyBridge, GhosttyConfig, GhosttyKeyboard), TerminalSession, ShellIntegration, SessionState, CopyMode, SSHSessionDetector, ImageTransfer, TerminalBackend protocol |
+| **IPC** | `NamuKit/IPC/` | SocketServer, CommandRegistry, CommandDispatcher, CommandHandler, CommandMiddleware, AccessControl, EventBus, TypedEventBus, command handlers |
+| **Services** | `NamuKit/Services/` | WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner, BonsplitLayoutEngine, AppearanceManager, Analytics, WindowContext, VSCodeBridge |
+| **AI** | `NamuKit/AI/` | NamuAI, LLMProvider (Claude/OpenAI/Gemini/Custom), CommandSafety, AlertEngine, ConversationManager, ContextCollector, CommandMapper |
 | **Gateway** | `NamuKit/Gateway/` | GatewayClient, MessageModels (desktop-side gateway connection) |
-| **Views** | `NamuUI/` | App, Sidebar, Workspace, Terminal, CommandPalette, Settings, AI preferences |
+| **Views** | `NamuUI/` | App, Sidebar, Workspace, Terminal, CommandPalette, Settings, AI, Browser, Hints, Update |
 | **Gateway Server** | `NamuGateway/` | Telegram channel, auth, session management, webhook routing |
-| **CLI** | `CLI/` | `namu` command-line tool |
+| **CLI** | `CLI/` | `namu` CLI tool with subcommands (CLICommand, split-window, list-panes, select-pane, capture-pane) |
 
 ### Data Flow
 
@@ -74,6 +77,8 @@ CLI/             Command-line tool. Sends JSON-RPC to the Unix socket.
 SwiftUI Views --> @MainActor Managers --> Domain Value Types --> Ghostty C FFI
                          |
                    SocketServer <-- CLI / External clients
+                         |                    |
+                  CommandMiddleware --> CommandHandler --> CommandRegistry
                          |
                     NamuAI --> LLM Provider --> CommandSafety --> CommandRegistry
                          |
@@ -85,7 +90,7 @@ SwiftUI Views --> @MainActor Managers --> Domain Value Types --> Ghostty C FFI
 ### With Ghostty (full build)
 
 ```bash
-./Scripts/setup.sh          # init submodules, build GhosttyKit
+./scripts/setup.sh          # init submodules, build GhosttyKit
 xcodegen generate
 xcodebuild -scheme Namu -configuration Debug build
 ```

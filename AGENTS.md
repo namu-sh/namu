@@ -14,35 +14,41 @@ Key identity: Namu AI is a **NL control plane**, not an agent bridge or MCP wrap
 namu/
   NamuKit/              Core logic -- NO UI imports (except AppKit for FFI)
     AI/                   LLM integration, command safety, alert engine
-      Providers/          ClaudeProvider, OpenAIProvider
-    Domain/               Value types: Workspace, Panel, PaneTree, SessionSnapshot, SidebarMetadata
+      Providers/          ClaudeProvider, OpenAIProvider, GeminiProvider, CustomProvider
+    Domain/               Value types: Workspace, Panel, PaneTree, SessionSnapshot, SidebarMetadata, PullRequestDisplay
     Extensions/           Small utilities (e.g. Comparable+Clamped)
     Gateway/              Desktop-side gateway client and message models
-    IPC/                  Socket server, dispatcher, registry, access control, event bus
-      Commands/           Handler files: Workspace, Pane, Surface, Notification, Browser, System, AI
-    Services/             WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner
-    Terminal/             Ghostty C FFI: Bridge, Config, Keyboard, TerminalSession, ShellIntegration
+    IPC/                  Socket server, dispatcher, registry, handler, middleware, access control, event bus
+      Commands/           Handler files: Workspace, Pane, Surface, Sidebar, Notification, Browser, System, AI
+    Services/             WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner,
+                          BonsplitLayoutEngine, LayoutEngine, AppearanceManager, Analytics, WindowContext, VSCodeBridge
+    Terminal/             Ghostty C FFI: Bridge, Config, Keyboard, TerminalSession, ShellIntegration,
+                          SessionState, CopyMode, SSHSessionDetector, ImageTransfer, TerminalBackend
   NamuUI/               SwiftUI + AppKit views
-    AI/                   AIPreferencesView
-    App/                  NamuApp (@main), AppDelegate
-    Browser/              (placeholder for browser panel views)
+    AI/                   AIPreferencesView, AIChatPanelView
+    App/                  NamuApp (@main), AppDelegate, ServiceContainer
+    Browser/              BrowserPanelView
     CommandPalette/       CommandPaletteView
-    Notifications/        (placeholder for notification views)
-    Settings/             KeyboardShortcutSettings
+    Hints/                KeyboardHintOverlay
+    Settings/             KeyboardShortcutSettings, SettingsView
     Sidebar/              SidebarView, SidebarItemView, SidebarViewModel
-    Terminal/             TerminalView, TerminalPortalView, GhosttySurfaceView
+    Terminal/             TerminalView, GhosttySurfaceView, FindOverlayView
+    Update/               UpdateController, UpdateViewModel, UpdatePopoverView, UpdateBadge, UpdateTitlebarAccessory
     Workspace/            WorkspaceView, PaneTreeView
   NamuGateway/          Standalone gateway server (Hummingbird)
     Auth/                 GatewayAuth, MessageSigning
     Channels/             TelegramChannel
-  CLI/                    namu CLI tool (namu.swift, main.swift)
+  CLI/                    namu CLI tool
+    Commands/             Subcommands: SplitWindow, ListPanes, SelectPane, CapturePane
   ghostty/                Ghostty submodule (manaflow-ai/ghostty fork)
   ghostty-stubs/          Stub C headers for building without full Ghostty
-  Resources/              Info.plist, shell-integration scripts (zsh, bash)
-  Scripts/                setup.sh (builds GhosttyKit xcframework)
+  vendor/bonsplit/        Bonsplit layout engine (submodule)
+  Resources/              Info.plist, shell-integration scripts, bundled CLI, skills
+  scripts/                setup.sh (builds GhosttyKit xcframework)
   Tests/
-    NamuKitTests/       Unit tests
-    SocketTests/          Integration tests (CI only)
+    NamuKitTests/         Unit tests (Swift)
+    NamuUITests/          UI tests (Swift)
+    *.py                  Integration tests (Python)
   project.yml             XcodeGen project definition
 ```
 
@@ -62,7 +68,7 @@ xcodebuild -scheme Namu -configuration Release build
 xcodebuild -scheme Namu -configuration Debug test
 
 # Setup Ghostty submodule + xcframework
-./Scripts/setup.sh
+./scripts/setup.sh
 
 # Compile a single Swift file (syntax check)
 swiftc -typecheck -target arm64-apple-macos14.0 <file.swift>
@@ -71,15 +77,17 @@ swiftc -typecheck -target arm64-apple-macos14.0 <file.swift>
 ## Test Commands
 
 ```bash
-# All tests
+# All Swift tests
 xcodebuild -scheme Namu -configuration Debug test
 
 # Specific test class
 xcodebuild -scheme Namu -configuration Debug \
   -only-testing:NamuTests/WorkspaceTests test
-```
 
-Note: Socket integration tests in `Tests/SocketTests/` are CI-only and should not be run locally.
+# Python integration tests (require running Namu instance)
+python3 Tests/test_shell_integration.py
+python3 Tests/test_v5_commands.py
+```
 
 ## Key Architectural Decisions
 
@@ -89,7 +97,7 @@ Note: Socket integration tests in `Tests/SocketTests/` are CI-only and should no
 
 3. **No god objects.** Workspace is ~100 lines. PanelManager handles panel lifecycle. WorkspaceManager handles workspace lifecycle. Each has a clear, bounded responsibility.
 
-4. **Concrete types for v1.** TerminalSession is a concrete class wrapping Ghostty, not a protocol. Protocol extraction (`TerminalBackend`) deferred to pre-v2 when iOS `RelayBackend` requirements inform the abstraction boundary.
+4. **TerminalBackend protocol extracted.** `TerminalBackend` defines the abstraction boundary for terminal sessions. `TerminalSession` is the concrete Ghostty implementation. `SessionState` is an explicit state machine for session lifecycle (created → starting → running → exited → destroyed).
 
 5. **AI is the control plane.** NamuAI interprets natural language, emits structured tool_use calls, each mapping to exactly one socket command. It is not an agent bridge.
 
@@ -149,12 +157,13 @@ All IPC uses JSON-RPC 2.0. Requests have `id` (string or number). Notifications 
 
 ### Adding a new socket command
 
-1. Choose the namespace (workspace, pane, surface, notification, browser, system, ai).
+1. Choose the namespace (workspace, pane, surface, sidebar, notification, browser, system, ai).
 2. Add the handler method to the appropriate `*Commands.swift` file in `NamuKit/IPC/Commands/`.
 3. Register it in the `register(in:)` method with the `namespace.method` key.
-4. Update `CommandSafety.safetyLevel(for:)` if the command name is not already classified.
-5. Add the command to the CLI's valid namespaces if adding a new namespace.
-6. Write a test in `Tests/NamuKitTests/`.
+4. Optionally add a `CommandMiddleware` for cross-cutting concerns (logging, auth, rate limiting).
+5. Update `CommandSafety.safetyLevel(for:)` if the command name is not already classified.
+6. Add the command to the CLI's valid namespaces if adding a new namespace.
+7. Write a test in `Tests/NamuKitTests/`.
 
 ### Adding a new panel type
 
@@ -172,7 +181,7 @@ All IPC uses JSON-RPC 2.0. Requests have `id` (string or number). Notifications 
 
 ### Adding a new event type
 
-1. Add a case to `NamuEvent` in `EventBus.swift`.
+1. Add a case to `NamuEvent` in `EventBus.swift` (or use `TypedEventBus` for type-safe events).
 2. Publish the event from the appropriate service using `eventBus.publish(event:params:)`.
 3. Document the event in the socket API reference.
 
@@ -184,12 +193,16 @@ When onboarding to this codebase, read these files in order:
 2. `NamuKit/Domain/Workspace.swift` -- core domain model
 3. `NamuKit/Domain/PaneTree.swift` -- layout tree (indirect enum)
 4. `NamuKit/Terminal/GhosttyBridge.swift` -- how Ghostty is embedded
-5. `NamuKit/IPC/Models.swift` -- JSON-RPC types used everywhere
-6. `NamuKit/IPC/CommandRegistry.swift` -- how commands are registered
-7. `NamuKit/IPC/Commands/PaneCommands.swift` -- example command handler
-8. `NamuKit/AI/CommandSafety.swift` -- safety classification system
-9. `NamuKit/AI/NamuAI.swift` -- NL control plane core
-10. `CLI/namu.swift` -- CLI tool (self-contained, good overview of the API)
+5. `NamuKit/Terminal/SessionState.swift` -- session lifecycle state machine
+6. `NamuKit/IPC/Models.swift` -- JSON-RPC types used everywhere
+7. `NamuKit/IPC/CommandRegistry.swift` -- how commands are registered
+8. `NamuKit/IPC/CommandHandler.swift` -- command handler protocol
+9. `NamuKit/IPC/Commands/PaneCommands.swift` -- example command handler
+10. `NamuKit/Services/BonsplitLayoutEngine.swift` -- Bonsplit-backed layout
+11. `NamuKit/AI/CommandSafety.swift` -- safety classification system
+12. `NamuKit/AI/NamuAI.swift` -- NL control plane core
+13. `CLI/CLICommand.swift` -- CLI subcommand protocol
+14. `CLI/namu.swift` -- CLI tool (self-contained, good overview of the API)
 
 ## Access Control Modes
 
