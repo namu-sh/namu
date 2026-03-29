@@ -127,7 +127,8 @@ final class SidebarViewModel: ObservableObject {
     }
 
     func createWorkspace() {
-        workspaceManager.createWorkspace()
+        let ws = workspaceManager.createWorkspace()
+        panelManager?.onWorkspaceCreated(ws)
     }
 
     func moveWorkspace(from source: IndexSet, to destination: Int) {

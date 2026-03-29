@@ -28,11 +28,6 @@ struct Workspace: Identifiable, Codable, Equatable {
     /// The panel currently receiving keyboard input.
     var activePanelID: UUID?
 
-    /// Pane IDs that have unread notifications (flash/badge). Multiple panes can have attention.
-    /// Cleared when the pane becomes active (user clicks it).
-    /// Transient state — not persisted.
-    var attentionPanelIDs: Set<UUID> = []
-
     // MARK: - Codable
 
     enum CodingKeys: String, CodingKey {
