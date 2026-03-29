@@ -16,7 +16,8 @@ final class IPCCommandTests: XCTestCase {
     }
 
     private func makeWorkspaceCommands(manager: WorkspaceManager) -> WorkspaceCommands {
-        WorkspaceCommands(workspaceManager: manager)
+        let pm = PanelManager(workspaceManager: manager)
+        return WorkspaceCommands(workspaceManager: manager, panelManager: pm)
     }
 
     private func makeRegistry(manager: WorkspaceManager) -> (WorkspaceCommands, CommandRegistry) {

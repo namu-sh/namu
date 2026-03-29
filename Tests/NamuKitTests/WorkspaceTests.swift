@@ -78,7 +78,6 @@ final class WorkspaceTests: XCTestCase {
     }
 
     func testPaneSnapshotV2MigrationNilPanelIds() throws {
-        // Simulates a v2 snapshot where panelIds is absent
         let paneID = UUID()
         let snap = PaneSnapshot(
             id: paneID,
@@ -90,7 +89,6 @@ final class WorkspaceTests: XCTestCase {
         let data = try encoder.encode(snap)
         let decoded = try decoder.decode(PaneSnapshot.self, from: data)
 
-        // panelIds should be nil for v2 snapshots; callers default to [id]
         XCTAssertNil(decoded.panelIds)
         XCTAssertNil(decoded.selectedPanelId)
     }
@@ -120,5 +118,81 @@ final class WorkspaceTests: XCTestCase {
     func testSessionStateInvalidTransition() {
         var state = SessionState.destroyed
         XCTAssertThrowsError(try state.handle(.start))
+    }
+}
+
+// MARK: - WorkspaceManager + PanelManager integration
+
+@MainActor
+final class WorkspaceManagerIntegrationTests: XCTestCase {
+
+    private func makeStack() -> (WorkspaceManager, PanelManager) {
+        let wm = WorkspaceManager()
+        let pm = PanelManager(workspaceManager: wm)
+        return (wm, pm)
+    }
+
+    func testInitialWorkspaceHasEngineAndTerminal() {
+        let (wm, pm) = makeStack()
+        guard let wsID = wm.selectedWorkspaceID else { return XCTFail("No selected workspace") }
+
+        let panels = pm.allPanelIDs(in: wsID)
+        XCTAssertEqual(panels.count, 1, "Initial workspace should have one terminal panel")
+        XCTAssertNotNil(pm.panel(for: panels[0]))
+    }
+
+    func testCreateWorkspaceViaManagerAloneDoesNotBootstrap() {
+        // This verifies that calling workspaceManager.createWorkspace() directly
+        // does NOT create an engine — proving the structural constraint.
+        let (wm, pm) = makeStack()
+        let ws = wm.createWorkspace(title: "Raw")
+
+        // Engine won't exist until someone calls pm.engine(for:)
+        XCTAssertNil(pm.engines[ws.id], "Direct WM creation should not auto-bootstrap engine")
+    }
+
+    func testCreateWorkspaceViaPanelManagerBootstraps() {
+        let (wm, pm) = makeStack()
+        let ws = pm.createWorkspace(title: "Proper")
+
+        XCTAssertNotNil(pm.engines[ws.id], "PM creation should bootstrap engine")
+        XCTAssertEqual(pm.allPanelIDs(in: ws.id).count, 1)
+        XCTAssertEqual(wm.selectedWorkspaceID, ws.id, "Should auto-select new workspace")
+    }
+
+    func testDeleteWorkspaceAfterCreate() {
+        let (wm, pm) = makeStack()
+        let ws = pm.createWorkspace(title: "Temp")
+        XCTAssertEqual(wm.workspaces.count, 2)
+
+        pm.onWorkspaceDeleted(workspaceID: ws.id)
+        wm.deleteWorkspace(id: ws.id)
+
+        XCTAssertEqual(wm.workspaces.count, 1)
+        XCTAssertNil(pm.engines[ws.id])
+        XCTAssertTrue(pm.allPanelIDs(in: ws.id).isEmpty)
+    }
+
+    func testSplitAndCloseReturnsToSinglePane() {
+        let (wm, pm) = makeStack()
+        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
+
+        pm.splitPane(in: wsID, direction: .horizontal)
+        XCTAssertEqual(pm.allPanelIDs(in: wsID).count, 2)
+
+        let panels = pm.allPanelIDs(in: wsID)
+        pm.closePanel(id: panels[1])
+        XCTAssertEqual(pm.allPanelIDs(in: wsID).count, 1)
+    }
+
+    func testWorkspacePaneTreeStaysInSync() {
+        let (wm, pm) = makeStack()
+        guard let wsID = wm.selectedWorkspaceID else { return XCTFail() }
+
+        // Split and verify paneTree is synced
+        pm.splitPane(in: wsID, direction: .vertical)
+        guard let ws = wm.workspaces.first(where: { $0.id == wsID }) else { return XCTFail() }
+        XCTAssertEqual(ws.paneTree.paneCount, 2, "paneTree should sync after split")
+        XCTAssertNotNil(ws.activePanelID, "activePanelID should be synced")
     }
 }

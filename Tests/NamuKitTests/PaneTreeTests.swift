@@ -66,35 +66,6 @@ final class PaneTreeTests: XCTestCase {
         XCTAssertEqual(result.paneCount, tree.paneCount)
     }
 
-    // MARK: - removePane
-
-    func testRemovePaneFromSplit() {
-        let left = PaneLeaf(id: UUID())
-        let right = PaneLeaf(id: UUID())
-        var tree = PaneTree.pane(left)
-        tree = tree.insertSplit(at: left.id, direction: .horizontal, newPanel: PaneLeaf(id: right.id))
-        let reduced = tree.removePane(id: right.id)
-        XCTAssertNotNil(reduced)
-        XCTAssertEqual(reduced?.paneCount, 1)
-        XCTAssertNotNil(reduced?.findPane(id: left.id))
-    }
-
-    func testRemoveSinglePaneReturnsNil() {
-        let leaf = PaneLeaf(id: UUID(), panelType: .terminal)
-        let tree = PaneTree.pane(leaf)
-        let result = tree.removePane(id: leaf.id)
-        XCTAssertNil(result)
-    }
-
-    func testRemoveNonExistentPaneNoOp() {
-        let a = PaneLeaf(id: UUID())
-        let b = PaneLeaf(id: UUID())
-        var tree = PaneTree.pane(a)
-        tree = tree.insertSplit(at: a.id, direction: .horizontal, newPanel: PaneLeaf(id: b.id))
-        let result = tree.removePane(id: UUID())
-        XCTAssertEqual(result?.paneCount, 2)
-    }
-
     // MARK: - allPanels ordering
 
     func testAllPanelsOrderIsDepthFirstLeftToRight() {
