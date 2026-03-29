@@ -157,8 +157,7 @@ final class ServiceContainer {
                     for panelID in panelIDs {
                         if let panel = pm.panel(for: panelID), panel.session.id == session.id {
                             if panelIDs.count <= 1 {
-                                pm.onWorkspaceDeleted(workspaceID: workspace.id)
-                                wm.deleteWorkspace(id: workspace.id)
+                                pm.deleteWorkspace(id: workspace.id)
                             } else {
                                 pm.closePanel(id: panelID)
                             }

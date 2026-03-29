@@ -137,7 +137,7 @@ final class WorkspaceManagerIntegrationTests: XCTestCase {
 
     override func tearDown() {
         for wsID in Array(pm.engines.keys) {
-            pm.onWorkspaceDeleted(workspaceID: wsID)
+            pm.deleteWorkspace(id: wsID)
         }
         pm = nil
         wm = nil
@@ -165,8 +165,7 @@ final class WorkspaceManagerIntegrationTests: XCTestCase {
 
     func testDeleteWorkspaceCleansUp() {
         let ws = pm.createWorkspace(title: "Temp")
-        pm.onWorkspaceDeleted(workspaceID: ws.id)
-        wm.deleteWorkspace(id: ws.id)
+        pm.deleteWorkspace(id: ws.id)
 
         XCTAssertEqual(wm.workspaces.count, 1)
         XCTAssertNil(pm.engines[ws.id])

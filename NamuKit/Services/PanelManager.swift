@@ -139,6 +139,13 @@ final class PanelManager: ObservableObject {
         return ws
     }
 
+    /// Delete a workspace — cleans up engine + panels, then removes from WorkspaceManager.
+    /// All workspace deletion MUST go through this method.
+    func deleteWorkspace(id: UUID) {
+        onWorkspaceDeleted(workspaceID: id)
+        workspaceManager.deleteWorkspace(id: id)
+    }
+
     // MARK: - Panel factory
 
     /// Create a new TerminalPanel with per-pane environment variables.
@@ -401,8 +408,8 @@ final class PanelManager: ObservableObject {
     // MARK: - Private
 
     /// Sync Workspace.paneTree and activePanelID from BonsplitController state.
-    /// This keeps legacy code (GhosttyBridge, ContextCollector, sidebar, etc.) working
-    /// without changes — they read from Workspace fields which mirror the Bonsplit state.
+    /// Walks the BonsplitController's tree snapshot to rebuild PaneTree with
+    /// correct orientations, ratios, and nesting — no lossy flattening.
     func syncWorkspaceFromEngine(_ workspaceID: UUID) {
         guard let eng = engines[workspaceID],
               let idx = workspaceManager.workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
@@ -410,20 +417,50 @@ final class PanelManager: ObservableObject {
         // Sync activePanelID
         workspaceManager.workspaces[idx].activePanelID = focusedPanelID(in: workspaceID)
 
-        // Rebuild PaneTree from BonsplitController's tree for persistence/legacy compat
-        let paneIDs = eng.allPaneIDs
-        if paneIDs.isEmpty { return }
-
-        // Simple flat rebuild: single pane or just use first panel
-        // A full tree rebuild would walk the BonsplitController's split tree,
-        // but for now a flat list of panels preserves the panel count and IDs.
-        let leaves: [PaneLeaf] = allPanelIDs(in: workspaceID).map { PaneLeaf(id: $0) }
-        if let first = leaves.first {
-            var tree: PaneTree = .pane(first)
-            for leaf in leaves.dropFirst() {
-                tree = tree.insertSplit(at: tree.allPanels.last!.id, direction: .horizontal, newPanel: leaf)
-            }
+        // Rebuild PaneTree from BonsplitController's ExternalTreeNode
+        let snapshot = eng.treeSnapshot()
+        if let tree = paneTreeFromExternalNode(snapshot, engine: eng) {
             workspaceManager.workspaces[idx].paneTree = tree
+        }
+    }
+
+    /// Convert a Bonsplit ExternalTreeNode to a Namu PaneTree, preserving
+    /// split orientation, ratio, and nesting structure.
+    private func paneTreeFromExternalNode(_ node: ExternalTreeNode, engine eng: BonsplitLayoutEngine) -> PaneTree? {
+        switch node {
+        case .pane(let paneNode):
+            // Find the first mapped panel in this pane's tabs
+            for tab in paneNode.tabs {
+                if let tabUUID = UUID(uuidString: tab.id),
+                   let panelID = eng.panelID(for: Bonsplit.TabID(uuid: tabUUID)) {
+                    return .pane(PaneLeaf(id: panelID))
+                }
+            }
+            // Pane with no mapped tabs — use pane ID as fallback
+            if let paneUUID = UUID(uuidString: paneNode.id) {
+                return .pane(PaneLeaf(id: paneUUID))
+            }
+            return nil
+
+        case .split(let splitNode):
+            guard let first = paneTreeFromExternalNode(splitNode.first, engine: eng),
+                  let second = paneTreeFromExternalNode(splitNode.second, engine: eng) else {
+                // If one side is empty, return the other
+                let firstResult = paneTreeFromExternalNode(splitNode.first, engine: eng)
+                let secondResult = paneTreeFromExternalNode(splitNode.second, engine: eng)
+                return firstResult ?? secondResult
+            }
+
+            let direction: SplitDirection = splitNode.orientation == "vertical" ? .vertical : .horizontal
+            let splitID = UUID(uuidString: splitNode.id) ?? UUID()
+
+            return .split(PaneSplit(
+                id: splitID,
+                direction: direction,
+                ratio: splitNode.dividerPosition,
+                first: first,
+                second: second
+            ))
         }
     }
 

@@ -20,7 +20,7 @@ final class PanelManagerTests: XCTestCase {
     override func tearDown() {
         // Clean up all engines and panels to avoid leaked state
         for wsID in Array(pm.engines.keys) {
-            pm.onWorkspaceDeleted(workspaceID: wsID)
+            pm.deleteWorkspace(id: wsID)
         }
         pm = nil
         wm = nil
@@ -212,8 +212,7 @@ final class PanelManagerTests: XCTestCase {
         let ws = pm.createWorkspace(title: "Temp")
         XCTAssertNotNil(pm.engines[ws.id])
 
-        pm.onWorkspaceDeleted(workspaceID: ws.id)
-        wm.deleteWorkspace(id: ws.id)
+        pm.deleteWorkspace(id: ws.id)
 
         XCTAssertNil(pm.engines[ws.id])
         XCTAssertTrue(pm.allPanelIDs(in: ws.id).isEmpty)
@@ -223,8 +222,7 @@ final class PanelManagerTests: XCTestCase {
         let ws = pm.createWorkspace(title: "Temp")
         let initialPanels = pm.allPanelIDs(in: initialWSID)
 
-        pm.onWorkspaceDeleted(workspaceID: ws.id)
-        wm.deleteWorkspace(id: ws.id)
+        pm.deleteWorkspace(id: ws.id)
 
         XCTAssertEqual(pm.allPanelIDs(in: initialWSID), initialPanels)
     }

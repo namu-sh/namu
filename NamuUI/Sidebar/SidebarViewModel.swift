@@ -119,7 +119,7 @@ final class SidebarViewModel: ObservableObject {
     }
 
     func closeWorkspace(id: UUID) {
-        workspaceManager.deleteWorkspace(id: id)
+        panelManager?.deleteWorkspace(id: id)
     }
 
     func setColor(_ color: String?, for id: UUID) {

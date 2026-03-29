@@ -67,7 +67,7 @@ final class WorkspaceCommands {
             title = String(localized: "workspace.default.title", defaultValue: "New Workspace")
         }
 
-        let ws = workspaceManager.createWorkspace(title: title)
+        let ws = panelManager.createWorkspace(title: title)
         return .success(id: req.id, result: .object([
             "id":    .string(ws.id.uuidString),
             "title": .string(ws.title),
@@ -90,7 +90,7 @@ final class WorkspaceCommands {
             throw JSONRPCError(code: -32001, message: "Cannot delete the last workspace")
         }
 
-        workspaceManager.deleteWorkspace(id: id)
+        panelManager.deleteWorkspace(id: id)
         return .success(id: req.id, result: .object(["id": .string(idStr)]))
     }
 
@@ -200,7 +200,7 @@ final class WorkspaceCommands {
             throw JSONRPCError(code: -32001, message: "Cannot close the last workspace")
         }
 
-        workspaceManager.deleteWorkspace(id: workspaceID)
+        panelManager.deleteWorkspace(id: workspaceID)
         return .success(id: req.id, result: .object([
             "workspace_id": .string(workspaceID.uuidString)
         ]))

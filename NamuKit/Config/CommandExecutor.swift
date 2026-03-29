@@ -94,11 +94,10 @@ final class NamuCommandTarget: CommandExecuting {
     }
 
     func createWorkspace(name: String?, color: String?, cwd: String?) {
-        let ws = workspaceManager.createWorkspace(title: name ?? "New Workspace")
+        let ws = panelManager.createWorkspace(title: name ?? "New Workspace")
         if let color {
             workspaceManager.setWorkspaceColor(id: ws.id, color: color)
         }
-        workspaceManager.selectWorkspace(id: ws.id)
     }
 
     func workspaceExists(name: String) -> Bool {
@@ -107,6 +106,6 @@ final class NamuCommandTarget: CommandExecuting {
 
     func deleteWorkspace(name: String) {
         guard let ws = workspaceManager.workspaces.first(where: { $0.title == name || $0.customTitle == name }) else { return }
-        workspaceManager.deleteWorkspace(id: ws.id)
+        panelManager.deleteWorkspace(id: ws.id)
     }
 }
