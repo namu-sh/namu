@@ -1,10 +1,12 @@
-# Telegram webhook updates are not connected to any service
+# Historical: Telegram webhook updates were not connected to any service
 
-- Severity: High
-- Area: `NamuGateway`
-- Validation: Revalidated against current code on 2026-03-29
+> Historical note: this issue refers to a dormant gateway design that is not part of the current checkout. Telegram support in the active app is outbound alert delivery, not inbound webhook routing.
+
+- Severity: Historical
+- Area: Dormant gateway design (`NamuGateway`)
+- Validation: Archived historical note on 2026-03-30
 - Bucket: Needs architectural correction
-- Priority note: Lower priority if `NamuGateway` remains inactive, but incomplete as written
+- Priority note: Archived for historical context; not an active defect in the shipped target
 
 ## Summary
 

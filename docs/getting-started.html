@@ -3,13 +3,13 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Getting Started -- Mosaic</title>
+    <title>Getting Started — Namu</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="page-wrapper">
     <aside class="sidebar">
-        <a href="index.html" class="sidebar-logo">Mosaic</a>
+        <a href="index.html" class="sidebar-logo">Namu</a>
         <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
         <nav>
             <ul>
@@ -27,101 +27,66 @@
         <h1>Getting Started</h1>
 
         <h2>Prerequisites</h2>
-        <table>
-            <thead>
-                <tr><th>Dependency</th><th>Version</th><th>Install</th></tr>
-            </thead>
-            <tbody>
-                <tr><td>macOS</td><td>14.0+</td><td>--</td></tr>
-                <tr><td>Xcode</td><td>16.0+</td><td><a href="https://developer.apple.com/xcode/">developer.apple.com</a></td></tr>
-                <tr><td>zig</td><td>0.15.2</td><td><code>brew install zig</code></td></tr>
-                <tr><td>XcodeGen</td><td>latest</td><td><code>brew install xcodegen</code></td></tr>
-            </tbody>
-        </table>
+        <ul>
+            <li>macOS 14.0 or newer</li>
+            <li>Xcode 16.0 or newer</li>
+            <li><code>zig</code> 0.15.2</li>
+            <li><code>xcodegen</code></li>
+        </ul>
 
         <h2>Clone and Setup</h2>
-        <pre><code><span class="cmt"># Clone with submodules (includes Ghostty fork)</span>
-git clone --recursive https://github.com/manaflow-ai/mosaic.git
-cd mosaic
-
-<span class="cmt"># Run setup script -- builds GhosttyKit xcframework</span>
-./Scripts/setup.sh</code></pre>
-
-        <p>The setup script will:</p>
-        <ol>
-            <li>Initialize and update the Ghostty git submodule</li>
-            <li>Verify that <code>zig</code> is installed</li>
-            <li>Build <code>GhosttyKit.xcframework</code> with <code>ReleaseFast</code> optimization (cached by commit SHA)</li>
-            <li>Symlink the framework into <code>ghostty/zig-out/</code></li>
-        </ol>
-
-        <blockquote>
-            <p>The GhosttyKit build is cached at <code>~/.cache/mosaic/ghosttykit/</code> keyed by the Ghostty submodule commit SHA. Subsequent runs reuse the cache.</p>
-        </blockquote>
-
-        <h2>Building with Ghostty (Full Build)</h2>
-        <pre><code><span class="cmt"># Generate the Xcode project from project.yml</span>
+        <pre><code>git clone --recursive https://github.com/omxyz/namu.git
+cd namu
+./Scripts/setup.sh
 xcodegen generate
+open Namu.xcodeproj</code></pre>
 
-<span class="cmt"># Build from command line</span>
-xcodebuild -scheme Mosaic -configuration Debug build
-
-<span class="cmt"># Or open in Xcode and build with Cmd+R</span>
-open Mosaic.xcodeproj</code></pre>
-
-        <h2>Building without Ghostty (Stub Build)</h2>
         <p>
-            For CI or development without the full Ghostty xcframework, the project
-            includes stub headers in <code>ghostty-stubs/</code> that provide the C API
-            type declarations. This allows compilation and testing of non-FFI code.
+            <code>Scripts/setup.sh</code> initializes the Ghostty dependency and builds the
+            <code>GhosttyKit.xcframework</code> needed for the full app.
         </p>
-        <pre><code>xcodegen generate
-xcodebuild -scheme Mosaic -configuration Debug build</code></pre>
 
-        <h2>Running the App</h2>
-        <p>After building, run the <code>Mosaic</code> scheme in Xcode or launch from the command line:</p>
-        <pre><code><span class="cmt"># Run from build products</span>
-open build/Debug/Mosaic.app
+        <h2>Build</h2>
+        <pre><code>xcodebuild -scheme Namu -configuration Debug build</code></pre>
 
-<span class="cmt"># Or use xcodebuild</span>
-xcodebuild -scheme Mosaic -configuration Debug build
-open "$(xcodebuild -scheme Mosaic -configuration Debug -showBuildSettings \
-    | grep ' BUILT_PRODUCTS_DIR' | awk '{print $3}')/Mosaic.app"</code></pre>
+        <h2>Run Tests</h2>
+        <pre><code>xcodebuild -scheme Namu -configuration Debug test
 
-        <h2>Running Tests</h2>
-        <pre><code><span class="cmt"># Run all tests</span>
-xcodebuild -scheme Mosaic -configuration Debug test
+xcodebuild -scheme Namu -configuration Debug \
+  -only-testing:NamuTests/WorkspaceTests test</code></pre>
 
-<span class="cmt"># Run a specific test class</span>
-xcodebuild -scheme Mosaic -configuration Debug \
-    -only-testing:MosaicTests/WorkspaceTests test</code></pre>
+        <h2>Repository Layout</h2>
+        <pre><code>namu/
+  NamuKit/         Core logic: domain, terminal, IPC, AI, alerting, services
+  NamuUI/          SwiftUI + AppKit app and views
+  CLI/             `namu` CLI and hook integrations
+  daemon/remote/   Remote relay helper/bootstrap
+  Resources/       Info.plist, shell integration, bundled CLI, skills
+  Tests/           Unit tests, UI tests, Python integration tests
+  project.yml      XcodeGen project definition</code></pre>
 
-        <blockquote>
-            <p>Socket integration tests in <code>Tests/SocketTests/</code> are designed for CI only and should not be run locally.</p>
-        </blockquote>
-
-        <h2>Project Structure</h2>
-        <pre><code>mosaic/
-  MosaicKit/         Core logic (no UI imports)
-  MosaicUI/          SwiftUI + AppKit views
-  MosaicGateway/     Telegram gateway server
-  CLI/               mosaic command-line tool
-  ghostty/           Ghostty submodule
-  ghostty-stubs/     Stub C headers for builds without Ghostty
-  Resources/         Info.plist, shell integration scripts
-  Scripts/           setup.sh
-  Tests/             Unit and integration tests
-  project.yml        XcodeGen project definition</code></pre>
-
-        <h2>Verifying the Setup</h2>
-        <p>After building and running, verify the following:</p>
+        <h2>First Run Checks</h2>
         <ol>
-            <li>A Mosaic window appears with a working terminal</li>
-            <li>Typing produces characters with no visible lag</li>
-            <li>The sidebar shows at least one workspace</li>
-            <li>The socket is created at <code>/tmp/mosaic.sock</code></li>
-            <li>Run <code>mosaic system ping</code> from another terminal -- it should return <code>pong: true</code></li>
+            <li>Launch the <code>Namu</code> scheme from Xcode.</li>
+            <li>Confirm a terminal workspace opens successfully.</li>
+            <li>Verify the Unix socket exists at <code>/tmp/namu.sock</code>.</li>
+            <li>From another terminal, run <code>namu system ping</code>.</li>
+            <li>Optionally inspect available methods with <code>namu system capabilities --json</code>.</li>
         </ol>
+
+        <h2>Optional Remote Relay</h2>
+        <p>
+            The app also includes an authenticated TCP relay (<code>RelayServer</code>) plus a
+            helper under <code>daemon/remote/</code>. This is the active remote-access path in
+            the current checkout.
+        </p>
+
+        <h2>Notes</h2>
+        <ul>
+            <li>Some older documentation still references a standalone gateway module. Treat those references as historical.</li>
+            <li>Current alert delivery is outbound only via configured channel credentials.</li>
+            <li>Current AI workflows are available locally through the app UI and <code>namu ai *</code> commands.</li>
+        </ul>
     </main>
 </div>
 </body>

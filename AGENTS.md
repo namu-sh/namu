@@ -4,7 +4,7 @@ This file is for AI coding agents (Claude, Codex, Copilot, etc.) working on the 
 
 ## Project Overview
 
-Namu is a native macOS terminal multiplexer built on Ghostty (GPU-accelerated terminal via C FFI). It provides workspaces with split panes, a JSON-RPC socket API, a CLI tool, a built-in natural language AI control plane, and a Telegram gateway for remote alerts and commands.
+Namu is a native macOS terminal multiplexer built on Ghostty (GPU-accelerated terminal via C FFI). It provides workspaces with split panes, a JSON-RPC socket API, a CLI tool, a built-in natural language AI control plane, outbound alert channels, and an authenticated TCP relay for remote access.
 
 Key identity: Namu AI is a **NL control plane**, not an agent bridge or MCP wrapper. It interprets natural language, maps to socket commands, safety-checks, and executes.
 
@@ -13,13 +13,15 @@ Key identity: Namu AI is a **NL control plane**, not an agent bridge or MCP wrap
 ```
 namu/
   NamuKit/              Core logic -- NO UI imports (except AppKit for FFI)
-    AI/                   LLM integration, command safety, alert engine
+    AI/                   LLM integration, command safety, conversation state, alert engine
       Providers/          ClaudeProvider, OpenAIProvider, GeminiProvider, CustomProvider
+    Alerting/             Outbound alert channels: Slack, Telegram, Discord, webhook
+    Browser/              Browser-side models and helpers
     Domain/               Value types: Workspace, Panel, PaneTree, SessionSnapshot, SidebarMetadata, PullRequestDisplay
     Extensions/           Small utilities (e.g. Comparable+Clamped)
-    Gateway/              Desktop-side gateway client and message models
     IPC/                  Socket server, dispatcher, registry, handler, middleware, access control, event bus
       Commands/           Handler files: Workspace, Pane, Surface, Sidebar, Notification, Browser, System, AI
+      RelayServer.swift   Authenticated TCP relay that proxies JSON-RPC to the dispatcher
     Services/             WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner,
                           BonsplitLayoutEngine, LayoutEngine, AppearanceManager, Analytics, WindowContext, VSCodeBridge
     Terminal/             Ghostty C FFI: Bridge, Config, Keyboard, TerminalSession, ShellIntegration,
@@ -35,16 +37,14 @@ namu/
     Terminal/             TerminalView, GhosttySurfaceView, FindOverlayView
     Update/               UpdateController, UpdateViewModel, UpdatePopoverView, UpdateBadge, UpdateTitlebarAccessory
     Workspace/            WorkspaceView, PaneTreeView
-  NamuGateway/          Standalone gateway server (Hummingbird)
-    Auth/                 GatewayAuth, MessageSigning
-    Channels/             TelegramChannel
   CLI/                    namu CLI tool
     Commands/             Subcommands: SplitWindow, ListPanes, SelectPane, CapturePane
+  daemon/remote/         Remote helper for forwarded relay access
   ghostty/                Ghostty submodule (manaflow-ai/ghostty fork)
   ghostty-stubs/          Stub C headers for building without full Ghostty
   vendor/bonsplit/        Bonsplit layout engine (submodule)
   Resources/              Info.plist, shell-integration scripts, bundled CLI, skills
-  scripts/                setup.sh (builds GhosttyKit xcframework)
+  Scripts/                setup.sh (builds GhosttyKit xcframework)
   Tests/
     NamuKitTests/         Unit tests (Swift)
     NamuUITests/          UI tests (Swift)
@@ -68,7 +68,7 @@ xcodebuild -scheme Namu -configuration Release build
 xcodebuild -scheme Namu -configuration Debug test
 
 # Setup Ghostty submodule + xcframework
-./scripts/setup.sh
+./Scripts/setup.sh
 
 # Compile a single Swift file (syntax check)
 swiftc -typecheck -target arm64-apple-macos14.0 <file.swift>
@@ -131,7 +131,7 @@ NamuKit must not import SwiftUI or UIKit. The only exception is AppKit imports i
 `WorkspaceManager`, `PanelManager`, and all command handler classes (`WorkspaceCommands`, `PaneCommands`, etc.) are `@MainActor`. Socket parsing and validation happen off-main. Only UI mutations dispatch to main.
 
 ### CommandSafety is mandatory
-Every command path from external sources (Telegram, LLM) must pass through `CommandSafety` before execution. Three levels:
+Every command path from external sources (relay clients, hooks, future remote surfaces, LLM) must pass through `CommandSafety` before execution. Three levels:
 - `safe` -- read-only (list, status, read_screen, ping)
 - `normal` -- structural changes (create, delete, split, focus, resize)
 - `dangerous` -- input injection (send_keys, send_text, execute_js)
@@ -201,8 +201,8 @@ When onboarding to this codebase, read these files in order:
 10. `NamuKit/Services/BonsplitLayoutEngine.swift` -- Bonsplit-backed layout
 11. `NamuKit/AI/CommandSafety.swift` -- safety classification system
 12. `NamuKit/AI/NamuAI.swift` -- NL control plane core
-13. `CLI/CLICommand.swift` -- CLI subcommand protocol
-14. `CLI/namu.swift` -- CLI tool (self-contained, good overview of the API)
+13. `CLI/CLICommand.swift` -- tmux-compat command protocol
+14. `CLI/main.swift` -- CLI tool entry point, hooks, and namespace dispatch
 
 ## Access Control Modes
 

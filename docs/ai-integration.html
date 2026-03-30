@@ -3,13 +3,13 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI Integration -- Mosaic</title>
+    <title>AI Integration — Namu</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="page-wrapper">
     <aside class="sidebar">
-        <a href="index.html" class="sidebar-logo">Mosaic</a>
+        <a href="index.html" class="sidebar-logo">Namu</a>
         <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
         <nav>
             <ul>
@@ -26,349 +26,103 @@
     <main class="content">
         <h1>AI Integration</h1>
 
-        <h2>Overview</h2>
         <p>
-            Mosaic AI is a <strong>natural language control plane</strong>. It is not an
-            agent bridge, an MCP wrapper, or a chat assistant. When you send a message
-            like "split pane and run npm test", Mosaic AI:
+            <strong>NamuAI</strong> is a natural-language control plane. It is not an agent
+            bridge and not an MCP wrapper. Given a request like “split the pane and run
+            npm test”, NamuAI gathers context, calls an LLM provider, maps tool calls to
+            socket commands, safety-checks them, executes them, and returns a result.
         </p>
-        <ol>
-            <li>Collects context (workspace list, pane states, working directories, git branches)</li>
-            <li>Sends the message plus context to an LLM (Claude or OpenAI)</li>
-            <li>Parses the LLM's <code>tool_use</code> response into structured socket commands</li>
-            <li>Validates each command through the CommandSafety filter</li>
-            <li>Executes approved commands via the CommandRegistry</li>
-            <li>Returns the result to the user</li>
-        </ol>
 
-        <blockquote>
-            <p>
-                Mosaic AI uses the LLM as a command interpreter, not as an autonomous agent.
-                Every action maps to exactly one socket API command. Batch operations
-                (e.g., "split and run") emit multiple sequential tool_use calls.
-            </p>
-        </blockquote>
-
-        <h2>LLM Provider Configuration</h2>
-        <p>
-            Mosaic supports swappable LLM backends. Providers conform to the
-            <code>LLMProvider</code> protocol:
-        </p>
-        <pre><code><span class="kw">protocol</span> <span class="typ">LLMProvider</span> {
-    <span class="kw">func</span> <span class="fn">complete</span>(
-        messages: [<span class="typ">Message</span>],
-        tools: [<span class="typ">Tool</span>]
-    ) <span class="kw">async throws</span> -> <span class="typ">Response</span>
-}</code></pre>
-
-        <h3>Supported Providers</h3>
+        <h2>Provider Model</h2>
+        <p>Namu supports swappable LLM providers through a common <code>LLMProvider</code> abstraction.</p>
         <table>
-            <thead><tr><th>Provider</th><th>File</th><th>API</th></tr></thead>
+            <thead><tr><th>Provider</th><th>Implementation</th></tr></thead>
             <tbody>
-                <tr>
-                    <td>Claude (default)</td>
-                    <td><code>MosaicKit/AI/Providers/ClaudeProvider.swift</code></td>
-                    <td>Anthropic Messages API with <code>tool_use</code></td>
-                </tr>
-                <tr>
-                    <td>OpenAI</td>
-                    <td><code>MosaicKit/AI/Providers/OpenAIProvider.swift</code></td>
-                    <td>OpenAI Chat Completions API with <code>function_calling</code></td>
-                </tr>
+                <tr><td>Claude</td><td><code>NamuKit/AI/Providers/ClaudeProvider.swift</code></td></tr>
+                <tr><td>OpenAI</td><td><code>NamuKit/AI/Providers/OpenAIProvider.swift</code></td></tr>
+                <tr><td>Gemini</td><td><code>NamuKit/AI/Providers/GeminiProvider.swift</code></td></tr>
+                <tr><td>Custom</td><td><code>NamuKit/AI/Providers/CustomProvider.swift</code></td></tr>
             </tbody>
         </table>
 
-        <h3>Configuring a Provider</h3>
+        <h2>Local Entry Points</h2>
+        <pre><code>namu ai message --content "create a new workspace called API"
+namu ai status
+namu ai history --limit 10</code></pre>
         <p>
-            Provider selection and API key configuration are available in Mosaic's
-            AI preferences (Settings panel). You can also check the current
-            configuration via the CLI:
-        </p>
-        <pre><code>mosaic ai status</code></pre>
-        <p>Returns:</p>
-        <pre><code>{
-    <span class="str">"ready"</span>:        <span class="kw">true</span>,
-    <span class="str">"provider"</span>:     <span class="str">"claude"</span>,
-    <span class="str">"model"</span>:        <span class="str">"claude-sonnet-4-20250514"</span>,
-    <span class="str">"safety_level"</span>: <span class="str">"normal"</span>,
-    <span class="str">"processing"</span>:   <span class="kw">false</span>
-}</code></pre>
-
-        <h2>Async Execution Model</h2>
-        <p>
-            Mosaic AI follows an async-by-default model:
-        </p>
-        <ul>
-            <li><strong>Acknowledge immediately</strong> -- "On it..." sent within 500ms</li>
-            <li><strong>Execute asynchronously</strong> -- LLM call + command execution</li>
-            <li><strong>Deliver result when ready</strong> -- typically within 30 seconds (LLM-dependent)</li>
-        </ul>
-        <p>
-            There is no real-time streaming requirement. Terminal operations are not chat --
-            a few seconds of latency is acceptable.
+            The current checkout ships local AI usage through the app UI and the CLI above.
         </p>
 
-        <h2>Multi-Turn Disambiguation</h2>
-        <p>
-            When intent is ambiguous, Mosaic AI asks clarifying questions. For example:
-        </p>
-        <pre><code><span class="cmt">User:</span>  "check the logs"
-<span class="cmt">AI:</span>    "You have 3 panes open. Which one has the logs?
-         1. Pane in 'Backend' (~/api, running node)
-         2. Pane in 'Frontend' (~/web, running vite)
-         3. Pane in 'Backend' (~/api, idle)"
-<span class="cmt">User:</span>  "the first one"
-<span class="cmt">AI:</span>    [reads screen from pane 1, returns output]</code></pre>
-        <p>
-            Conversations are tracked per session via <code>ConversationManager</code>.
-            Sessions expire after 30 minutes of inactivity.
-        </p>
+        <h2>Execution Model</h2>
+        <pre><code>User message
+  --> ConversationManager
+    --> ContextCollector snapshot
+      --> LLM provider.complete(...)
+        --> tool_use calls
+          --> CommandMapper
+            --> CommandSafety
+              --> JSON-RPC handler
+                --> formatted result</code></pre>
 
-        <hr>
+        <p>
+            AI execution is async by default. The model can emit multiple tool calls in a loop,
+            each of which is fed back into the conversation before the final answer is produced.
+        </p>
 
         <h2>Command Safety</h2>
-        <p>
-            Every command from Mosaic AI passes through <code>CommandSafety</code>
-            before execution. This is mandatory and cannot be bypassed.
-        </p>
-
-        <h3>Safety Levels</h3>
-        <table>
-            <thead><tr><th>Level</th><th>Commands</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td><code>safe</code></td>
-                    <td>list, status, read_screen, ping, version, capabilities, get_url, get_title</td>
-                    <td>Read-only operations with no side effects</td>
-                </tr>
-                <tr>
-                    <td><code>normal</code></td>
-                    <td>create, delete, select, rename, split, close, focus, resize, back, forward, reload, navigate, clear, subscribe, unsubscribe</td>
-                    <td>Structural changes to workspaces, panes, or configuration</td>
-                </tr>
-                <tr>
-                    <td><code>dangerous</code></td>
-                    <td>send_keys, send_text, send_key, execute_js, message</td>
-                    <td>Input injection or process execution that can modify running state</td>
-                </tr>
-            </tbody>
-        </table>
-        <p>Unknown commands default to <code>dangerous</code> to err on the side of safety.</p>
-
-        <h3>Behavior by Source</h3>
-        <table>
-            <thead><tr><th>Source</th><th>Safe</th><th>Normal</th><th>Dangerous</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td>Local (socket CLI)</td>
-                    <td>Allowed</td>
-                    <td>Allowed</td>
-                    <td>Allowed (logged)</td>
-                </tr>
-                <tr>
-                    <td>External (Telegram)</td>
-                    <td>Allowed</td>
-                    <td>Allowed</td>
-                    <td>Requires confirmation</td>
-                </tr>
-            </tbody>
-        </table>
-
-        <h3>Destructive Pattern Detection</h3>
-        <p>
-            When a <code>send_keys</code> command payload matches a destructive pattern,
-            confirmation is always required regardless of source. Detected patterns include:
-        </p>
+        <p>Every AI-issued command passes through <code>CommandSafety</code>:</p>
         <ul>
-            <li><code>rm -rf</code></li>
-            <li><code>sudo rm</code>, <code>sudo kill</code></li>
-            <li><code>mkfs</code>, <code>dd if=</code></li>
-            <li><code>chmod 777</code></li>
-            <li><code>shutdown</code>, <code>reboot</code></li>
-            <li><code>kill -9</code>, <code>pkill -9</code></li>
-            <li>Fork bombs</li>
-            <li>Pipe-to-shell patterns (<code>curl | sh</code>, <code>wget | sh</code>)</li>
+            <li><code>safe</code> — read-only commands like list, status, and screen reads</li>
+            <li><code>normal</code> — structural changes like create, split, focus, resize</li>
+            <li><code>dangerous</code> — input injection such as send-keys, send-text, execute-js</li>
         </ul>
+
         <p>
-            Payloads are normalized (whitespace collapsed, lowercased, escape characters
-            stripped) before matching.
+            Destructive shell patterns always require confirmation. External callers should not
+            bypass this layer.
         </p>
 
-        <h3>Rate Limiting</h3>
+        <h2>Alerts and Channels</h2>
         <p>
-            External sources (Telegram) are rate-limited to a maximum of
-            <strong>20 commands per minute</strong>. Exceeding this limit returns a
-            rejection with the message "Rate limit exceeded".
+            Namu also includes a rule-based <code>AlertEngine</code>. This is separate from the
+            LLM layer and does not require AI to function.
+        </p>
+        <pre><code>EventBus event
+  --> AlertEngine
+    --> AlertRouter
+      --> Slack / Telegram / Discord / Webhook</code></pre>
+
+        <p>
+            In the current checkout, Telegram support is an outbound alert channel alongside
+            Slack, Discord, and generic webhooks.
         </p>
 
-        <h3>Logging</h3>
+        <h2>Remote Access Today</h2>
         <p>
-            Every command is logged with its source (local or external), safety level,
-            and validation result (allowed, requires_confirmation, or rejected).
+            Remote forwarding in the active codebase is handled by the authenticated TCP
+            <code>RelayServer</code> plus helper tooling in <code>daemon/remote/</code>.
+            Use <code>namu system relay_status</code> to inspect whether relay support is
+            available and running.
         </p>
 
-        <hr>
-
-        <h2>Alert Engine</h2>
+        <h2>Historical Gateway Note</h2>
         <p>
-            The AlertEngine provides rule-based detection via EventBus subscriptions.
-            It does not use the LLM -- alerts are triggered by deterministic pattern
-            matching on terminal events.
+            Some older repo-local docs mention a standalone gateway/WebSocket bridge for remote
+            AI or Telegram command ingress. That module is not part of the active checkout and
+            should be treated as historical design material, not shipped functionality.
         </p>
-
-        <h3>Alert Rules</h3>
-        <table>
-            <thead><tr><th>Trigger</th><th>Detection</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td>Output patterns</td>
-                    <td>Terminal output matching <code>error:</code>, <code>FAIL</code>, <code>panic</code></td>
-                </tr>
-                <tr>
-                    <td>Exit codes</td>
-                    <td>Non-zero process exit codes</td>
-                </tr>
-                <tr>
-                    <td>Port changes</td>
-                    <td>Listening ports appearing or disappearing</td>
-                </tr>
-                <tr>
-                    <td>Idle duration</td>
-                    <td>Shell idle beyond configured threshold (e.g., 30 minutes)</td>
-                </tr>
-            </tbody>
-        </table>
-        <p>Rules are configurable per workspace.</p>
-
-        <h3>Alert Flow</h3>
-        <pre><code>Terminal event
-  --> EventBus (publish)
-    --> AlertEngine (rule match)
-      --> GatewayClient (if connected)
-        --> MosaicGateway
-          --> TelegramChannel
-            --> User's Telegram chat</code></pre>
-        <p>
-            If the gateway is not connected, alerts fall back to in-app notifications
-            only.
-        </p>
-
-        <hr>
-
-        <h2>Telegram Gateway</h2>
-        <p>
-            MosaicGateway is a standalone Hummingbird server that bridges Mosaic to
-            Telegram. It runs as a separate process -- either locally
-            (<code>localhost:8080</code> for development) or on a VPS for remote access.
-        </p>
-
-        <h3>Architecture</h3>
-        <pre><code>Telegram Bot API
-  --> MosaicGateway (HTTP webhook: /telegram/webhook)
-    --> TelegramChannel (parse update)
-      --> SessionManager (find connected desktop)
-        --> WebSocket --> GatewayClient (desktop)
-          --> MosaicAI (NL processing)
-            --> CommandSafety (Telegram = external source)
-              --> CommandRegistry (execute)
-                --> Result relayed back through chain</code></pre>
-
-        <h3>Authentication</h3>
-        <ol>
-            <li>Desktop generates a 256-bit random pairing token (stored in macOS Keychain)</li>
-            <li>User links Telegram chat by sending <code>/start</code> to the bot and entering the pairing code in Mosaic settings</li>
-            <li>Desktop sends the token on every WebSocket connection to the gateway</li>
-            <li>All Gateway-to-Desktop command messages are signed with HMAC-SHA256 using the pairing token as key</li>
-            <li>Desktop rejects unsigned or tampered messages</li>
-        </ol>
-
-        <h3>Dangerous Command Confirmation</h3>
-        <p>
-            When CommandSafety blocks a Telegram-originated dangerous command, the
-            gateway sends a Telegram inline keyboard:
-        </p>
-        <pre><code>Allow `send_keys "rm -rf /tmp/cache"`?
-
-[Yes]  [No]</code></pre>
-        <p>
-            The confirmation expires after 60 seconds. Tapping "Yes" executes the command;
-            "No" cancels it.
-        </p>
-
-        <h3>Setup</h3>
-        <ol>
-            <li>Create a Telegram bot via <a href="https://t.me/BotFather">@BotFather</a></li>
-            <li>Set the bot token in MosaicGateway configuration</li>
-            <li>Configure the webhook URL (e.g., <code>https://your-server.com/telegram/webhook</code>)</li>
-            <li>Start the gateway: <code>swift run MosaicGateway</code></li>
-            <li>In Mosaic settings, enter the gateway URL and complete the pairing flow</li>
-        </ol>
-
-        <h3>Gateway Endpoints</h3>
-        <table>
-            <thead><tr><th>Endpoint</th><th>Method</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>/telegram/webhook</code></td><td>POST</td><td>Telegram Bot API webhook handler</td></tr>
-                <tr><td><code>/health</code></td><td>GET</td><td>Health check</td></tr>
-                <tr><td><code>/status</code></td><td>GET</td><td>Gateway status and connected sessions</td></tr>
-            </tbody>
-        </table>
-
-        <h3>Reconnection</h3>
-        <p>
-            The desktop GatewayClient automatically reconnects with exponential backoff:
-            1s, 2s, 4s, 8s, up to a maximum of 60s between attempts. An in-app status
-            indicator shows the connection state.
-        </p>
-
-        <hr>
 
         <h2>Error Handling</h2>
         <table>
             <thead><tr><th>Failure</th><th>Behavior</th></tr></thead>
             <tbody>
-                <tr>
-                    <td>LLM API down</td>
-                    <td>"AI temporarily unavailable. Terminal and socket API still work." In-app banner displayed.</td>
-                </tr>
-                <tr>
-                    <td>LLM returns malformed tool_use</td>
-                    <td>Raw response logged. Malformed call skipped. User sees "I couldn't understand how to do that. Try rephrasing."</td>
-                </tr>
-                <tr>
-                    <td>Socket command fails</td>
-                    <td>JSON-RPC error returned. MosaicAI reports "That command failed: [error]."</td>
-                </tr>
-                <tr>
-                    <td>Gateway WebSocket disconnects</td>
-                    <td>Auto-reconnect with exponential backoff. Alerts fall back to in-app only.</td>
-                </tr>
-                <tr>
-                    <td>Telegram rate limited</td>
-                    <td>Messages buffered, retried with backoff. User alerted if backlog exceeds 10 messages.</td>
-                </tr>
+                <tr><td>LLM API unavailable</td><td>NamuAI returns a user-facing temporary-unavailable message.</td></tr>
+                <tr><td>Malformed tool call</td><td>The malformed call is skipped and the model is prompted to continue safely.</td></tr>
+                <tr><td>Socket command error</td><td>The JSON-RPC error is formatted back into the AI response.</td></tr>
+                <tr><td>Safety rejection</td><td>The command is blocked and the rejection reason is surfaced to the user.</td></tr>
+                <tr><td>Alert delivery failure</td><td>The channel error is logged without crashing the app.</td></tr>
             </tbody>
         </table>
-
-        <hr>
-
-        <h2>Using AI Locally (Without Telegram)</h2>
-        <p>
-            The <code>ai.*</code> socket namespace enables AI interaction without the
-            Telegram gateway. All AI features are available locally via the CLI:
-        </p>
-        <pre><code><span class="cmt"># Send a natural language command</span>
-mosaic ai message --content "create a new workspace called API"
-
-<span class="cmt"># Check AI readiness</span>
-mosaic ai status
-
-<span class="cmt"># View conversation history</span>
-mosaic ai history --limit 10</code></pre>
-        <p>
-            Local commands are classified as <code>CommandSource.local</code>, which means
-            dangerous commands are allowed with logging only (no confirmation required).
-        </p>
     </main>
 </div>
 </body>

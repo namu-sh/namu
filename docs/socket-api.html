@@ -3,13 +3,13 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Socket API -- Mosaic</title>
+    <title>Socket API — Namu</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="page-wrapper">
     <aside class="sidebar">
-        <a href="index.html" class="sidebar-logo">Mosaic</a>
+        <a href="index.html" class="sidebar-logo">Namu</a>
         <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
         <nav>
             <ul>
@@ -26,367 +26,86 @@
     <main class="content">
         <h1>Socket API</h1>
         <p>
-            Mosaic exposes a JSON-RPC 2.0 API over a Unix domain socket. The default
-            socket path is <code>/tmp/mosaic.sock</code> (tagged debug builds use
-            <code>/tmp/mosaic-&lt;tag&gt;.sock</code>).
+            Namu exposes a newline-delimited JSON-RPC 2.0 API over a Unix domain socket.
+            The default socket path is <code>/tmp/namu.sock</code>. Tagged debug builds use
+            <code>/tmp/namu-&lt;tag&gt;.sock</code>.
         </p>
 
-        <h2>Protocol</h2>
-        <p>
-            The API follows the
-            <a href="https://www.jsonrpc.org/specification">JSON-RPC 2.0 specification</a>.
-            Messages are newline-delimited JSON. Each line is one complete JSON-RPC message.
-        </p>
+        <h2>Transport</h2>
+        <ul>
+            <li>Protocol: JSON-RPC 2.0</li>
+            <li>Socket type: Unix domain socket</li>
+            <li>Framing: one JSON document per line</li>
+            <li>Request IDs: string or number</li>
+            <li>Notifications: request without an <code>id</code></li>
+        </ul>
 
-        <h3>Request Format</h3>
-        <pre><code>{
-    <span class="str">"jsonrpc"</span>: <span class="str">"2.0"</span>,
-    <span class="str">"id"</span>:      <span class="str">"unique-request-id"</span>,
-    <span class="str">"method"</span>:  <span class="str">"namespace.command"</span>,
-    <span class="str">"params"</span>:  { <span class="str">"key"</span>: <span class="str">"value"</span> }
-}</code></pre>
-        <p>The <code>id</code> field can be a string or integer. The <code>params</code> field is an object or array.</p>
-
-        <h3>Success Response</h3>
-        <pre><code>{
-    <span class="str">"jsonrpc"</span>: <span class="str">"2.0"</span>,
-    <span class="str">"id"</span>:      <span class="str">"unique-request-id"</span>,
-    <span class="str">"result"</span>:  { ... }
-}</code></pre>
-
-        <h3>Error Response</h3>
-        <pre><code>{
-    <span class="str">"jsonrpc"</span>: <span class="str">"2.0"</span>,
-    <span class="str">"id"</span>:      <span class="str">"unique-request-id"</span>,
-    <span class="str">"error"</span>:   {
-        <span class="str">"code"</span>:    <span class="num">-32601</span>,
-        <span class="str">"message"</span>: <span class="str">"Method not found"</span>
-    }
-}</code></pre>
-
-        <h3>Standard Error Codes</h3>
-        <table>
-            <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
-            <tbody>
-                <tr><td><code>-32700</code></td><td>Parse error -- invalid JSON</td></tr>
-                <tr><td><code>-32600</code></td><td>Invalid request -- missing or wrong jsonrpc version</td></tr>
-                <tr><td><code>-32601</code></td><td>Method not found</td></tr>
-                <tr><td><code>-32602</code></td><td>Invalid params</td></tr>
-                <tr><td><code>-32603</code></td><td>Internal error</td></tr>
-                <tr><td><code>-32000</code></td><td>Access denied</td></tr>
-                <tr><td><code>-32001</code></td><td>Application-level error (not found, invalid state)</td></tr>
-            </tbody>
-        </table>
-
-        <h3>Notifications (No ID)</h3>
-        <p>
-            Messages without an <code>id</code> field are notifications (fire-and-forget).
-            The server processes them but does not send a response. Server-push events
-            to subscribed clients also use the notification format.
-        </p>
-        <pre><code>{
-    <span class="str">"jsonrpc"</span>: <span class="str">"2.0"</span>,
-    <span class="str">"method"</span>:  <span class="str">"process.exit"</span>,
-    <span class="str">"params"</span>:  { <span class="str">"pane_id"</span>: <span class="str">"..."</span>, <span class="str">"exit_code"</span>: <span class="num">1</span> }
-}</code></pre>
-
-        <hr>
-
-        <h2>Event Subscriptions</h2>
-        <p>
-            Clients can subscribe to server-push events via the EventBus. Subscribed events
-            are delivered as JSON-RPC notifications (no <code>id</code>) pushed to the client
-            over the same socket connection.
-        </p>
-
-        <h3>Available Events</h3>
-        <table>
-            <thead><tr><th>Event</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>process.exit</code></td><td>A terminal process exited (includes exit code)</td></tr>
-                <tr><td><code>output.match</code></td><td>Terminal output matched a subscribed pattern</td></tr>
-                <tr><td><code>port.change</code></td><td>Listening ports changed (detected by port scanner)</td></tr>
-                <tr><td><code>shell.idle</code></td><td>Shell has been idle beyond configured duration</td></tr>
-                <tr><td><code>workspace.change</code></td><td>Workspace created, deleted, selected, or modified</td></tr>
-            </tbody>
-        </table>
-
-        <hr>
-
-        <h2>Access Control</h2>
-        <p>
-            The socket server supports five access control modes, configured in
-            Mosaic settings:
-        </p>
+        <h2>Access Control Modes</h2>
         <table>
             <thead><tr><th>Mode</th><th>Behavior</th></tr></thead>
             <tbody>
-                <tr><td><code>off</code></td><td>All connections rejected</td></tr>
-                <tr><td><code>localOnly</code></td><td>Only child processes of Mosaic (PID ancestry verification)</td></tr>
-                <tr><td><code>automation</code></td><td>Any local connection accepted, marked as automation context</td></tr>
-                <tr><td><code>password</code></td><td>Challenge-response authentication (constant-time comparison)</td></tr>
-                <tr><td><code>allowAll</code></td><td>Any local connection accepted without checks</td></tr>
+                <tr><td><code>off</code></td><td>Reject all connections</td></tr>
+                <tr><td><code>localOnly</code></td><td>Allow only child processes of Namu via PID ancestry checks</td></tr>
+                <tr><td><code>automation</code></td><td>Allow local automation clients and mark the session as automation context</td></tr>
+                <tr><td><code>password</code></td><td>Require password authentication before commands are accepted</td></tr>
+                <tr><td><code>allowAll</code></td><td>Allow any local connection</td></tr>
             </tbody>
         </table>
 
-        <hr>
+        <h2>Request Example</h2>
+        <pre><code>{"jsonrpc":"2.0","id":"1","method":"system.ping","params":{}}</code></pre>
 
-        <h2>Commands by Namespace</h2>
+        <h2>Response Example</h2>
+        <pre><code>{"jsonrpc":"2.0","id":"1","result":{"pong":true}}</code></pre>
 
-        <h3>workspace.*</h3>
+        <h2>Core Namespaces</h2>
         <table>
-            <thead><tr><th>Method</th><th>Params</th><th>Returns</th><th>Focus</th></tr></thead>
+            <thead><tr><th>Namespace</th><th>Examples</th></tr></thead>
             <tbody>
-                <tr>
-                    <td><code>workspace.list</code></td>
-                    <td>none</td>
-                    <td><code>{ workspaces: [...], selected_id }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>workspace.create</code></td>
-                    <td><code>{ title? }</code></td>
-                    <td><code>{ id, title, order }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>workspace.delete</code></td>
-                    <td><code>{ id }</code></td>
-                    <td><code>{ id }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>workspace.select</code></td>
-                    <td><code>{ id }</code></td>
-                    <td><code>{ id, selected: true }</code></td>
-                    <td>yes</td>
-                </tr>
-                <tr>
-                    <td><code>workspace.rename</code></td>
-                    <td><code>{ id, title }</code></td>
-                    <td><code>{ id, title }</code></td>
-                    <td>no</td>
-                </tr>
+                <tr><td><code>workspace.*</code></td><td><code>workspace.list</code>, <code>workspace.create</code>, <code>workspace.select</code></td></tr>
+                <tr><td><code>pane.*</code></td><td><code>pane.split</code>, <code>pane.focus</code>, <code>pane.read_screen</code></td></tr>
+                <tr><td><code>surface.*</code></td><td><code>surface.send_text</code>, <code>surface.send_key</code>, <code>surface.read_text</code></td></tr>
+                <tr><td><code>notification.*</code></td><td><code>notification.create</code>, <code>notification.list</code>, <code>notification.clear</code></td></tr>
+                <tr><td><code>browser.*</code></td><td><code>browser.navigate</code>, <code>browser.eval</code>, <code>browser.screenshot</code></td></tr>
+                <tr><td><code>system.*</code></td><td><code>system.ping</code>, <code>system.identify</code>, <code>system.relay_status</code></td></tr>
+                <tr><td><code>ai.*</code></td><td><code>ai.message</code>, <code>ai.status</code>, <code>ai.history</code></td></tr>
             </tbody>
         </table>
 
-        <h3>pane.*</h3>
-        <table>
-            <thead><tr><th>Method</th><th>Params</th><th>Returns</th><th>Focus</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td><code>pane.split</code></td>
-                    <td><code>{ direction, pane_id? }</code></td>
-                    <td><code>{ pane_id, workspace_id, direction }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>pane.close</code></td>
-                    <td><code>{ pane_id? }</code></td>
-                    <td><code>{ pane_id }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>pane.focus</code></td>
-                    <td><code>{ pane_id }</code></td>
-                    <td><code>{ pane_id, workspace_id }</code></td>
-                    <td>yes</td>
-                </tr>
-                <tr>
-                    <td><code>pane.resize</code></td>
-                    <td><code>{ split_id, ratio }</code></td>
-                    <td><code>{ split_id, ratio }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>pane.send_keys</code></td>
-                    <td><code>{ keys, pane_id? }</code></td>
-                    <td><code>{ pane_id, workspace_id, sent }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>pane.read_screen</code></td>
-                    <td><code>{ pane_id? }</code></td>
-                    <td><code>{ pane_id, workspace_id, text }</code></td>
-                    <td>no</td>
-                </tr>
-            </tbody>
-        </table>
+        <h2>Server-Push Events</h2>
+        <p>Subscribed clients can receive JSON-RPC notifications for these event families:</p>
+        <ul>
+            <li><code>process.exit</code></li>
+            <li><code>output.match</code></li>
+            <li><code>port.change</code></li>
+            <li><code>shell.idle</code></li>
+            <li><code>workspace.change</code></li>
+        </ul>
 
-        <h3>surface.*</h3>
-        <table>
-            <thead><tr><th>Method</th><th>Params</th><th>Returns</th><th>Focus</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td><code>surface.list</code></td>
-                    <td><code>{ workspace_id? }</code></td>
-                    <td><code>{ surfaces: [...] }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>surface.send_text</code></td>
-                    <td><code>{ text, surface_id? }</code></td>
-                    <td><code>{ surface_id, workspace_id, sent }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>surface.send_key</code></td>
-                    <td><code>{ key, surface_id? }</code></td>
-                    <td><code>{ surface_id, workspace_id, key, sent }</code></td>
-                    <td>no</td>
-                </tr>
-            </tbody>
-        </table>
+        <h2>Relay Status</h2>
+        <p>
+            Remote access in the current checkout is based on an authenticated TCP relay,
+            not a standalone gateway target. Use <code>system.relay_status</code> to inspect
+            whether the relay is available and currently running.
+        </p>
 
-        <h3>notification.*</h3>
-        <table>
-            <thead><tr><th>Method</th><th>Params</th><th>Returns</th><th>Focus</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td><code>notification.create</code></td>
-                    <td><code>{ title, body?, workspace_id?, pane_id? }</code></td>
-                    <td><code>{ id, title, body, workspace_id, pane_id }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>notification.list</code></td>
-                    <td><code>{ workspace_id? }</code></td>
-                    <td><code>{ notifications: [...], count }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>notification.clear</code></td>
-                    <td><code>{ id? | workspace_id? }</code></td>
-                    <td><code>{ cleared: int }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>notification.subscribe</code></td>
-                    <td>none</td>
-                    <td><code>{ subscribed, events }</code></td>
-                    <td>no</td>
-                </tr>
-                <tr>
-                    <td><code>notification.unsubscribe</code></td>
-                    <td><code>{ token? }</code></td>
-                    <td><code>{ unsubscribed, token }</code></td>
-                    <td>no</td>
-                </tr>
-            </tbody>
-        </table>
-
-        <h3>system.*</h3>
-        <table>
-            <thead><tr><th>Method</th><th>Params</th><th>Returns</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td><code>system.ping</code></td>
-                    <td>none</td>
-                    <td><code>{ pong: true }</code></td>
-                </tr>
-                <tr>
-                    <td><code>system.version</code></td>
-                    <td>none</td>
-                    <td><code>{ version, name, platform }</code></td>
-                </tr>
-                <tr>
-                    <td><code>system.status</code></td>
-                    <td>none</td>
-                    <td><code>{ status, version, pid }</code></td>
-                </tr>
-                <tr>
-                    <td><code>system.capabilities</code></td>
-                    <td>none</td>
-                    <td><code>{ methods: [...], version }</code></td>
-                </tr>
-            </tbody>
-        </table>
-
-        <h3>ai.*</h3>
-        <table>
-            <thead><tr><th>Method</th><th>Params</th><th>Returns</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td><code>ai.message</code></td>
-                    <td><code>{ content, session_id? }</code></td>
-                    <td><code>{ session_id, reply }</code></td>
-                </tr>
-                <tr>
-                    <td><code>ai.status</code></td>
-                    <td>none</td>
-                    <td><code>{ ready, provider, model, safety_level, processing }</code></td>
-                </tr>
-                <tr>
-                    <td><code>ai.history</code></td>
-                    <td><code>{ session_id?, limit?, before_id? }</code></td>
-                    <td><code>{ session_id, turns: [...], total, has_more }</code></td>
-                </tr>
-            </tbody>
-        </table>
-
-        <h3>browser.*</h3>
-        <table>
-            <thead><tr><th>Method</th><th>Params</th><th>Returns</th></tr></thead>
-            <tbody>
-                <tr>
-                    <td><code>browser.navigate</code></td>
-                    <td><code>{ url, surface_id? }</code></td>
-                    <td><code>{ surface_id, url }</code></td>
-                </tr>
-                <tr>
-                    <td><code>browser.back</code></td>
-                    <td><code>{ surface_id? }</code></td>
-                    <td><code>{ surface_id }</code></td>
-                </tr>
-                <tr>
-                    <td><code>browser.forward</code></td>
-                    <td><code>{ surface_id? }</code></td>
-                    <td><code>{ surface_id }</code></td>
-                </tr>
-                <tr>
-                    <td><code>browser.reload</code></td>
-                    <td><code>{ surface_id? }</code></td>
-                    <td><code>{ surface_id }</code></td>
-                </tr>
-                <tr>
-                    <td><code>browser.get_url</code></td>
-                    <td><code>{ surface_id? }</code></td>
-                    <td><code>{ surface_id, url }</code></td>
-                </tr>
-                <tr>
-                    <td><code>browser.get_title</code></td>
-                    <td><code>{ surface_id? }</code></td>
-                    <td><code>{ surface_id, title }</code></td>
-                </tr>
-                <tr>
-                    <td><code>browser.execute_js</code></td>
-                    <td><code>{ script, surface_id? }</code></td>
-                    <td><code>{ surface_id, result }</code></td>
-                </tr>
-            </tbody>
-        </table>
-
-        <hr>
-
-        <h2>Connection Example (Python)</h2>
-        <pre><code><span class="kw">import</span> socket, json
+        <h2>Python Example</h2>
+        <pre><code>import json
+import socket
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect(<span class="str">"/tmp/mosaic.sock"</span>)
+sock.connect("/tmp/namu.sock")
 
 request = {
-    <span class="str">"jsonrpc"</span>: <span class="str">"2.0"</span>,
-    <span class="str">"id"</span>: <span class="num">1</span>,
-    <span class="str">"method"</span>: <span class="str">"workspace.list"</span>,
-    <span class="str">"params"</span>: {}
+    "jsonrpc": "2.0",
+    "id": "ping-1",
+    "method": "system.ping",
+    "params": {}
 }
 
-sock.sendall((json.dumps(request) + <span class="str">"\n"</span>).encode())
-response = sock.recv(<span class="num">8192</span>).decode()
-data = json.loads(response)
-
-<span class="kw">print</span>(json.dumps(data, indent=<span class="num">2</span>))
-sock.close()</code></pre>
+sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
+response = sock.recv(4096).decode("utf-8")
+print(response)</code></pre>
     </main>
 </div>
 </body>

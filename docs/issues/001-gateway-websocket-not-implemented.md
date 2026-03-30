@@ -1,10 +1,12 @@
-# Gateway desktop connection cannot work end-to-end
+# Historical: gateway desktop connection could not work end-to-end
 
-- Severity: Critical
-- Area: `NamuGateway`, `NamuKit/Gateway`
-- Validation: Revalidated against current code on 2026-03-29
+> Historical note: this issue refers to a dormant gateway design that is not part of the current checkout. The active remote-access path today is `NamuKit/IPC/RelayServer.swift` plus `daemon/remote/`.
+
+- Severity: Historical
+- Area: Dormant gateway design (`NamuGateway`, `NamuKit/Gateway`)
+- Validation: Archived historical note on 2026-03-30
 - Bucket: Needs architectural correction
-- Priority note: Lower priority if `NamuGateway` remains inactive, but still inconsistent as written
+- Priority note: Archived for historical context; not an active defect in the shipped target
 
 ## Summary
 

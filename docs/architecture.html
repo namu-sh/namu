@@ -3,13 +3,13 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Architecture -- Mosaic</title>
+    <title>Architecture — Namu</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="page-wrapper">
     <aside class="sidebar">
-        <a href="index.html" class="sidebar-logo">Mosaic</a>
+        <a href="index.html" class="sidebar-logo">Namu</a>
         <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
         <nav>
             <ul>
@@ -27,212 +27,171 @@
         <h1>Architecture</h1>
 
         <h2>Module Overview</h2>
-        <p>Mosaic is organized into four top-level modules with clear boundaries:</p>
+        <p>Namu is organized around four main code areas with clear boundaries:</p>
 
         <table>
             <thead>
-                <tr><th>Module</th><th>Directory</th><th>Purpose</th></tr>
+                <tr><th>Area</th><th>Directory</th><th>Purpose</th></tr>
             </thead>
             <tbody>
                 <tr>
-                    <td><strong>MosaicKit</strong></td>
-                    <td><code>MosaicKit/</code></td>
-                    <td>Core logic. Domain models, terminal FFI, IPC, services, AI engine. No UI imports (except AppKit for Ghostty FFI).</td>
+                    <td><strong>NamuKit</strong></td>
+                    <td><code>NamuKit/</code></td>
+                    <td>Core logic. Domain models, Ghostty FFI, IPC, relay, services, AI, alerting. No SwiftUI imports.</td>
                 </tr>
                 <tr>
-                    <td><strong>MosaicUI</strong></td>
-                    <td><code>MosaicUI/</code></td>
-                    <td>SwiftUI and AppKit views. App entry point, sidebar, workspace renderer, terminal views, settings.</td>
-                </tr>
-                <tr>
-                    <td><strong>MosaicGateway</strong></td>
-                    <td><code>MosaicGateway/</code></td>
-                    <td>Standalone Hummingbird server. Telegram webhook handler, WebSocket bridge to desktop, authentication.</td>
+                    <td><strong>NamuUI</strong></td>
+                    <td><code>NamuUI/</code></td>
+                    <td>SwiftUI and AppKit views. App entry point, workspace rendering, browser views, settings, AI chat, notifications, update UI.</td>
                 </tr>
                 <tr>
                     <td><strong>CLI</strong></td>
                     <td><code>CLI/</code></td>
-                    <td>Self-contained <code>mosaic</code> command-line tool. Sends JSON-RPC requests to the Unix socket.</td>
+                    <td>The <code>namu</code> command-line client plus tmux compatibility, Claude hooks, Codex hooks, and helper entry points.</td>
+                </tr>
+                <tr>
+                    <td><strong>Remote Helper</strong></td>
+                    <td><code>daemon/remote/</code></td>
+                    <td>Remote relay helper/bootstrap for forwarded command access over an authenticated TCP relay.</td>
                 </tr>
             </tbody>
         </table>
 
-        <h2>MosaicKit Internals</h2>
+        <h2>NamuKit Internals</h2>
         <table>
             <thead>
-                <tr><th>Subdirectory</th><th>Files</th><th>Responsibility</th></tr>
+                <tr><th>Subdirectory</th><th>Responsibility</th></tr>
             </thead>
             <tbody>
-                <tr>
-                    <td><code>Domain/</code></td>
-                    <td>5</td>
-                    <td>Value types: Workspace, Panel, PaneTree (indirect enum), SessionSnapshot, SidebarMetadata</td>
-                </tr>
-                <tr>
-                    <td><code>Terminal/</code></td>
-                    <td>5</td>
-                    <td>Ghostty C FFI wrappers: GhosttyBridge, GhosttyConfig, GhosttyKeyboard, TerminalSession, ShellIntegration</td>
-                </tr>
-                <tr>
-                    <td><code>IPC/</code></td>
-                    <td>11</td>
-                    <td>SocketServer, CommandRegistry, CommandDispatcher, AccessControl, EventBus, and 7 command handler files</td>
-                </tr>
-                <tr>
-                    <td><code>Services/</code></td>
-                    <td>5</td>
-                    <td>WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner</td>
-                </tr>
-                <tr>
-                    <td><code>AI/</code></td>
-                    <td>9</td>
-                    <td>MosaicAI, LLMProvider protocol, Claude/OpenAI providers, CommandSafety, AlertEngine, ConversationManager, ContextCollector, CommandMapper</td>
-                </tr>
-                <tr>
-                    <td><code>Gateway/</code></td>
-                    <td>2</td>
-                    <td>GatewayClient (WebSocket client to gateway), MessageModels</td>
-                </tr>
+                <tr><td><code>Domain/</code></td><td>Core value types such as <code>Workspace</code>, <code>Panel</code>, <code>PaneTree</code>, and session snapshots.</td></tr>
+                <tr><td><code>Terminal/</code></td><td>Ghostty bridge/config/keyboard wrappers, terminal session lifecycle, shell integration, copy mode, image transfer.</td></tr>
+                <tr><td><code>IPC/</code></td><td><code>SocketServer</code>, <code>RelayServer</code>, command registry/dispatcher, access control, event bus, and command namespaces.</td></tr>
+                <tr><td><code>Services/</code></td><td>Workspace/panel managers, persistence, notifications, layout, appearance, analytics, and app coordination.</td></tr>
+                <tr><td><code>AI/</code></td><td><code>NamuAI</code>, provider abstraction, context collection, command mapping, conversation state, and command safety.</td></tr>
+                <tr><td><code>Alerting/</code></td><td>Outbound channel delivery for Slack, Telegram, Discord, and generic webhook alerts.</td></tr>
+                <tr><td><code>Browser/</code></td><td>Browser-related models and helpers that support the browser command namespace and UI.</td></tr>
             </tbody>
         </table>
 
         <h2>Dependency Graph</h2>
-        <pre><code>MosaicUI
+        <pre><code>NamuUI
   |
-  +---> MosaicKit
+  +---> NamuKit
   |       |
-  |       +---> Domain (value types, no dependencies)
-  |       +---> Terminal (Ghostty C FFI via xcframework)
-  |       +---> IPC (socket server, command dispatch)
-  |       +---> Services (managers, persistence)
-  |       +---> AI (LLM providers, safety, alerts)
-  |       +---> Gateway (WebSocket client)
+  |       +---> Domain
+  |       +---> Terminal (Ghostty C FFI)
+  |       +---> IPC (socket + relay + command dispatch)
+  |       +---> Services
+  |       +---> AI
+  |       +---> Alerting
   |
-  +---> AppKit (Ghostty NSView hosting, portal pattern)
+  +---> AppKit (hosting, overlays, browser integration)
 
-CLI ---> Unix Socket ---> MosaicKit/IPC
+CLI ---> Unix Socket ---> NamuKit/IPC
 
-MosaicGateway
-  |
-  +---> Hummingbird (HTTP + WebSocket)
-  +---> Telegram Bot API
-  +---> WebSocket ---> MosaicKit/Gateway</code></pre>
+daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre>
 
-        <h2>Data Flow</h2>
-        <h3>User Input (Keyboard)</h3>
-        <pre><code>NSEvent (keyDown)
-  --> AppDelegate (three-phase routing)
-    --> performKeyEquivalent (shortcuts)
-    --> keyDown (normal keys)
-    --> interpretKeyEvents (IME)
-      --> GhosttyKeyboard (zero-allocation translation)
-        --> ghostty_surface_key / ghostty_surface_text (C FFI)
-          --> Ghostty renders via Metal</code></pre>
+        <h2>Runtime Flows</h2>
 
-        <h3>Socket Command</h3>
-        <pre><code>CLI / External Client
-  --> Unix Socket (/tmp/mosaic.sock)
-    --> SocketServer (accept, read, off-main-thread)
-      --> AccessController (auth check)
-        --> CommandDispatcher (JSON-RPC 2.0 parse)
-          --> CommandRegistry (lookup handler)
-            --> *Commands handler (@MainActor for UI mutations)
-              --> Manager (WorkspaceManager / PanelManager)
-                --> Response (JSON-RPC 2.0)</code></pre>
+        <h3>Keyboard Input</h3>
+        <pre><code>NSEvent
+  --> AppKit routing
+    --> performKeyEquivalent
+    --> keyDown
+    --> interpretKeyEvents
+      --> GhosttyKeyboard
+        --> Ghostty surface</code></pre>
 
-        <h3>Mosaic AI</h3>
-        <pre><code>User message (Telegram or ai.message socket command)
-  --> MosaicAI
-    --> ContextCollector (gather workspace/pane state)
-      --> CommandMapper (build system prompt + tools)
-        --> LLMProvider (Claude / OpenAI API call)
-          --> Parse tool_use response
-            --> CommandSafety (validate each command)
-              --> CommandRegistry (execute via socket API)
-                --> Result relayed back to user</code></pre>
+        <h3>Local Socket Command</h3>
+        <pre><code>CLI / automation client
+  --> SocketServer
+    --> AccessControl
+      --> CommandDispatcher
+        --> CommandRegistry
+          --> namespace handler
+            --> manager / service / terminal</code></pre>
 
-        <h3>Telegram Alert</h3>
-        <pre><code>Terminal event (process exit, output match, etc.)
-  --> EventBus (publish)
-    --> AlertEngine (rule-based detection)
-      --> GatewayClient (WebSocket)
-        --> MosaicGateway (relay)
-          --> TelegramChannel (Bot API)
-            --> User's Telegram chat</code></pre>
+        <h3>AI Command Flow</h3>
+        <pre><code>User message
+  --> NamuAI
+    --> ContextCollector + ConversationManager
+      --> LLM provider
+        --> tool_use response
+          --> CommandMapper
+            --> CommandSafety
+              --> CommandRegistry
+                --> JSON-RPC handler
+                  --> result summarized back to user</code></pre>
+
+        <h3>Alert Flow</h3>
+        <pre><code>EventBus event
+  --> AlertEngine
+    --> AlertRouter
+      --> Slack / Telegram / Discord / Webhook channel
+        --> outbound API delivery</code></pre>
+
+        <h3>Remote Relay Flow</h3>
+        <pre><code>Remote helper / forwarded client
+  --> RelayServer (TCP)
+    --> HMAC challenge-response
+      --> CommandDispatcher
+        --> JSON-RPC handler
+          --> response sent over relay socket</code></pre>
 
         <h2>Key Design Decisions</h2>
 
         <h3>Clean Rewrite</h3>
         <p>
-            Mosaic is a clean rewrite that references established projects's proven patterns (FFI lifecycle,
-            socket API namespaces, portal pattern, session persistence) but shares no code.
-            established projects had god objects (TerminalController at 15K lines, Workspace at 9.6K,
-            ContentView at 13.3K) and a flat directory structure with 54 files. Mosaic
-            decomposes these into focused types with clear boundaries.
+            Namu references proven ideas from established projects — Ghostty embedding, socket namespaces,
+            layout persistence, portal-style UI coordination — but it is a fresh codebase.
+            The main architectural goal is to avoid god objects and keep responsibilities
+            narrow and testable.
         </p>
 
-        <h3>Single Target, Folder-Based Modules</h3>
+        <h3>Folder-Based Modules in a Single App Target</h3>
         <p>
-            MosaicKit is a folder group within the Xcode project, not a separate Swift
-            package. This keeps the build simple for v1. SPM extraction is planned for
-            pre-v2 when iOS requirements (TerminalBackend protocol, RelayBackend) make
-            the abstraction boundary concrete.
+            Most of the app still builds as a single Xcode target organized by directory,
+            rather than as many Swift packages. That keeps build complexity low while the
+            architecture is still settling.
         </p>
 
-        <h3>Concrete Types for v1</h3>
+        <h3>NamuKit Avoids UI Imports</h3>
         <p>
-            <code>TerminalSession</code> is a concrete class wrapping Ghostty directly, not a
-            protocol. With only one implementor (Ghostty), designing a protocol with ~30 methods
-            across config, keyboard, display link, search, and copy mode would be premature.
-            Protocol extraction happens pre-v2 when iOS <code>RelayBackend</code> requirements
-            inform the real abstraction boundary.
+            Core logic lives in <code>NamuKit</code> and avoids SwiftUI/UIKit imports. The main
+            exception is AppKit where Ghostty surface hosting requires it.
         </p>
 
-        <h3>PaneTree as Indirect Enum</h3>
+        <h3>TerminalBackend Boundary</h3>
         <p>
-            The layout tree uses Swift's indirect enum pattern:
-        </p>
-        <pre><code><span class="kw">indirect enum</span> <span class="typ">PaneTree</span> {
-    <span class="kw">case</span> <span class="fn">pane</span>(<span class="typ">Panel</span>)
-    <span class="kw">case</span> <span class="fn">split</span>(direction: <span class="typ">SplitDirection</span>, ratio: <span class="typ">Double</span>,
-               left: <span class="typ">PaneTree</span>, right: <span class="typ">PaneTree</span>)
-}</code></pre>
-        <p>
-            PaneTree is immutable. Methods return new trees rather than mutating in place.
-            This makes undo/redo and snapshot persistence straightforward.
+            <code>TerminalBackend</code> defines the abstraction boundary, while
+            <code>TerminalSession</code> is the concrete Ghostty-backed implementation. Session
+            lifecycle is modeled explicitly through <code>SessionState</code>.
         </p>
 
-        <h3>Portal Pattern</h3>
+        <h3>Immutable PaneTree</h3>
         <p>
-            An AppKit overlay (portal) sits above the SwiftUI view hierarchy for
-            hit-test performance. An <code>isPointerEvent</code> guard separates the
-            keyboard path (fast, zero-allocation) from the mouse path (expensive but
-            infrequent). This preserves the sub-5ms typing latency target.
-        </p>
-
-        <h3>Three-Phase Keyboard Routing</h3>
-        <p>
-            Keyboard events flow through three phases in the AppDelegate:
-            <code>performKeyEquivalent</code> (system shortcuts),
-            <code>keyDown</code> (normal keys), and
-            <code>interpretKeyEvents</code> (IME input). This matches how macOS
-            processes keyboard input and ensures correct behavior with input methods.
+            Layout state is modeled as an indirect enum. Operations return new trees instead
+            of mutating nested nodes in place, which keeps persistence and snapshotting simple.
         </p>
 
         <h3>Focus Policy</h3>
         <p>
-            Only two commands steal focus: <code>workspace.select</code> and
-            <code>pane.focus</code>. All other socket commands preserve the current
-            focus state. This prevents automation scripts and AI commands from
-            disrupting the user's active context.
+            Only <code>workspace.select</code> and <code>pane.focus</code> are allowed to steal
+            focus. Other commands preserve the current user focus state.
         </p>
 
-        <h3>Threading Model</h3>
+        <h3>Async AI by Default</h3>
         <p>
-            Socket parsing and JSON validation run off the main thread.
-            <code>@MainActor</code> is applied to managers and command handlers
-            that mutate UI state. Telemetry and event coalescing also happen off-main.
-            The keyboard hot path (GhosttyKeyboard) uses zero allocations.
+            NamuAI is not an agent bridge or MCP wrapper. It interprets natural language,
+            emits structured tool calls, runs those calls through safety checks, and returns
+            results asynchronously.
+        </p>
+
+        <h3>Historical Gateway Docs</h3>
+        <p>
+            Some older repo-local docs still mention a standalone gateway/WebSocket bridge.
+            That module is not part of the active checkout. Current remote behavior is based
+            on <code>RelayServer</code> plus the helper under <code>daemon/remote/</code>.
         </p>
 
         <h2>Performance Targets</h2>
@@ -241,11 +200,11 @@ MosaicGateway
                 <tr><th>Metric</th><th>Target</th><th>Measurement</th></tr>
             </thead>
             <tbody>
-                <tr><td>Typing latency (p99)</td><td>&lt; 5ms</td><td><code>mach_absolute_time()</code> in DEBUG, logged per 1000 keystrokes</td></tr>
-                <tr><td>Socket command (read)</td><td>&lt; 10ms</td><td>Timestamp at dispatcher entry/exit</td></tr>
-                <tr><td>Socket command (write)</td><td>&lt; 50ms</td><td>Timestamp at dispatcher entry/exit</td></tr>
-                <tr><td>Alert delivery</td><td>&lt; 3 seconds</td><td>AlertEngine emit to Telegram API response</td></tr>
-                <tr><td>Session restore</td><td>&lt; 2 seconds</td><td>Launch to all surfaces rendered</td></tr>
+                <tr><td>Typing latency (p99)</td><td>&lt; 5ms</td><td>Ghostty/keyboard-path instrumentation in debug builds</td></tr>
+                <tr><td>Socket command (read)</td><td>&lt; 10ms</td><td>Dispatcher entry/exit timing</td></tr>
+                <tr><td>Socket command (write)</td><td>&lt; 50ms</td><td>Dispatcher entry/exit timing</td></tr>
+                <tr><td>Alert routing</td><td>&lt; 3s</td><td>AlertEngine emit to channel API response</td></tr>
+                <tr><td>Session restore</td><td>&lt; 2s</td><td>Launch to rendered surfaces</td></tr>
             </tbody>
         </table>
     </main>

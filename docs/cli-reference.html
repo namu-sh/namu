@@ -3,13 +3,13 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CLI Reference -- Mosaic</title>
+    <title>CLI Reference — Namu</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="page-wrapper">
     <aside class="sidebar">
-        <a href="index.html" class="sidebar-logo">Mosaic</a>
+        <a href="index.html" class="sidebar-logo">Namu</a>
         <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
         <nav>
             <ul>
@@ -26,22 +26,27 @@
     <main class="content">
         <h1>CLI Reference</h1>
         <p>
-            The <code>mosaic</code> CLI communicates with the running Mosaic app
-            over a Unix domain socket using JSON-RPC 2.0. The default socket path
-            is <code>/tmp/mosaic.sock</code>.
+            The <code>namu</code> CLI communicates with the running app over a Unix domain
+            socket using JSON-RPC 2.0. The default socket path is <code>/tmp/namu.sock</code>.
         </p>
 
         <h2>Usage</h2>
-        <pre><code>mosaic &lt;namespace&gt; &lt;command&gt; [--param value ...]</code></pre>
+        <pre><code>namu &lt;namespace&gt; &lt;command&gt; [--param value ...]</code></pre>
+
+        <h2>Namespaces</h2>
+        <p>
+            Primary namespaces exposed by the CLI today: <code>workspace</code>,
+            <code>pane</code>, <code>surface</code>, <code>notification</code>,
+            <code>browser</code>, <code>system</code>, <code>window</code>,
+            <code>debug</code>, and <code>ai</code>.
+        </p>
 
         <h2>Global Flags</h2>
         <table>
-            <thead>
-                <tr><th>Flag</th><th>Description</th><th>Default</th></tr>
-            </thead>
+            <thead><tr><th>Flag</th><th>Description</th><th>Default</th></tr></thead>
             <tbody>
-                <tr><td><code>--json</code></td><td>Output raw JSON-RPC response</td><td>off (pretty-printed)</td></tr>
-                <tr><td><code>--socket &lt;path&gt;</code></td><td>Custom socket path</td><td><code>/tmp/mosaic.sock</code></td></tr>
+                <tr><td><code>--json</code></td><td>Output raw JSON-RPC response</td><td>off</td></tr>
+                <tr><td><code>--socket &lt;path&gt;</code></td><td>Custom socket path</td><td><code>/tmp/namu.sock</code></td></tr>
                 <tr><td><code>--timeout &lt;secs&gt;</code></td><td>Request timeout in seconds</td><td>5 (30 for long-running commands)</td></tr>
             </tbody>
         </table>
@@ -49,300 +54,106 @@
         <hr>
 
         <h2>workspace.*</h2>
-        <p>Manage workspaces (tabbed sessions). Only <code>workspace select</code> steals focus.</p>
-
-        <h3>workspace list</h3>
-        <p>List all workspaces with their IDs, titles, order, and selection state.</p>
-        <pre><code>mosaic workspace list
-mosaic workspace list --json</code></pre>
-
-        <h3>workspace create</h3>
-        <p>Create a new workspace. Returns the new workspace ID.</p>
-        <pre><code>mosaic workspace create --title "Backend"
-mosaic workspace create  <span class="cmt"># uses default title "New Workspace"</span></code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--title</code></td><td>string</td><td>no</td><td>Workspace name</td></tr>
-            </tbody>
-        </table>
-
-        <h3>workspace select</h3>
-        <p>Switch to a workspace by ID. This command steals focus.</p>
-        <pre><code>mosaic workspace select --id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--id</code></td><td>UUID</td><td>yes</td><td>Workspace ID</td></tr>
-            </tbody>
-        </table>
-
-        <h3>workspace rename</h3>
-        <p>Rename an existing workspace.</p>
-        <pre><code>mosaic workspace rename --id "A1B2C3D4-..." --title "Frontend"</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--id</code></td><td>UUID</td><td>yes</td><td>Workspace ID</td></tr>
-                <tr><td><code>--title</code></td><td>string</td><td>yes</td><td>New title</td></tr>
-            </tbody>
-        </table>
-
-        <h3>workspace delete</h3>
-        <p>Delete a workspace. Cannot delete the last remaining workspace.</p>
-        <pre><code>mosaic workspace delete --id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--id</code></td><td>UUID</td><td>yes</td><td>Workspace ID</td></tr>
-            </tbody>
-        </table>
-
-        <hr>
+        <pre><code>namu workspace list
+namu workspace create --title "Backend"
+namu workspace select --id "A1B2C3D4-..."
+namu workspace rename --id "A1B2C3D4-..." --title "Frontend"
+namu workspace pin --id "A1B2C3D4-..."
+namu workspace color --id "A1B2C3D4-..." --color "#FF6B6B"
+namu workspace delete --id "A1B2C3D4-..."</code></pre>
 
         <h2>pane.*</h2>
-        <p>Manage panes within the active workspace. Only <code>pane focus</code> steals focus.</p>
-
-        <h3>pane split</h3>
-        <p>Split a pane horizontally or vertically. Creates a new terminal in the new pane.</p>
-        <pre><code>mosaic pane split --direction horizontal
-mosaic pane split --direction vertical --pane_id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--direction</code></td><td>string</td><td>yes</td><td><code>horizontal</code> or <code>vertical</code></td></tr>
-                <tr><td><code>--pane_id</code></td><td>UUID</td><td>no</td><td>Pane to split (defaults to focused pane)</td></tr>
-            </tbody>
-        </table>
-
-        <h3>pane close</h3>
-        <p>Close a pane.</p>
-        <pre><code>mosaic pane close
-mosaic pane close --pane_id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--pane_id</code></td><td>UUID</td><td>no</td><td>Pane to close (defaults to focused pane)</td></tr>
-            </tbody>
-        </table>
-
-        <h3>pane focus</h3>
-        <p>Focus a specific pane. This command steals focus.</p>
-        <pre><code>mosaic pane focus --pane_id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--pane_id</code></td><td>UUID</td><td>yes</td><td>Pane to focus</td></tr>
-            </tbody>
-        </table>
-
-        <h3>pane resize</h3>
-        <p>Resize a split by adjusting its ratio.</p>
-        <pre><code>mosaic pane resize --split_id "A1B2C3D4-..." --ratio 0.6</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--split_id</code></td><td>UUID</td><td>yes</td><td>Split node ID</td></tr>
-                <tr><td><code>--ratio</code></td><td>float</td><td>yes</td><td>Split ratio (0.05 to 0.95)</td></tr>
-            </tbody>
-        </table>
-
-        <h3>pane send-keys</h3>
-        <p>Send keystrokes to a pane. Use <code>\n</code> for Enter.</p>
-        <pre><code>mosaic pane send-keys --keys "ls\n"
-mosaic pane send-keys --keys "npm test\n" --pane_id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--keys</code></td><td>string</td><td>yes</td><td>Keystrokes to send</td></tr>
-                <tr><td><code>--pane_id</code></td><td>UUID</td><td>no</td><td>Target pane (defaults to focused)</td></tr>
-            </tbody>
-        </table>
-
-        <h3>pane read-screen</h3>
-        <p>Read the visible text content of a pane.</p>
-        <pre><code>mosaic pane read-screen
-mosaic pane read-screen --pane_id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--pane_id</code></td><td>UUID</td><td>no</td><td>Target pane (defaults to focused)</td></tr>
-            </tbody>
-        </table>
-
-        <hr>
+        <pre><code>namu pane split --direction horizontal
+namu pane split --direction vertical --pane_id "A1B2C3D4-..."
+namu pane focus --pane_id "A1B2C3D4-..."
+namu pane resize --split_id "A1B2C3D4-..." --ratio 0.6
+namu pane send_keys "npm test\n"
+namu pane read_screen --lines 50
+namu pane zoom
+namu pane unzoom
+namu pane last
+namu pane list</code></pre>
 
         <h2>surface.*</h2>
-        <p>Lower-level surface operations. Surfaces map to panels in Mosaic's domain model. No surface command steals focus.</p>
-
-        <h3>surface list</h3>
-        <p>List all surfaces across workspaces.</p>
-        <pre><code>mosaic surface list
-mosaic surface list --workspace_id "A1B2C3D4-..."</code></pre>
-
-        <h3>surface send_text</h3>
-        <p>Send text to a surface.</p>
-        <pre><code>mosaic surface send_text --text "hello" --surface_id "A1B2C3D4-..."</code></pre>
-
-        <h3>surface send_key</h3>
-        <p>Send a named key to a surface (e.g., "enter", "tab", "escape").</p>
-        <pre><code>mosaic surface send_key --key "enter" --surface_id "A1B2C3D4-..."</code></pre>
-
-        <hr>
-
-        <h2>notification.*</h2>
-        <p>Manage in-app notifications. No notification command steals focus.</p>
-
-        <h3>notification create</h3>
-        <p>Create a new notification.</p>
-        <pre><code>mosaic notification create --title "Build done" --body "All tests passed"
-mosaic notification create --title "Error" --workspace_id "A1B2C3D4-..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--title</code></td><td>string</td><td>yes</td><td>Notification title</td></tr>
-                <tr><td><code>--body</code></td><td>string</td><td>no</td><td>Notification body</td></tr>
-                <tr><td><code>--workspace_id</code></td><td>UUID</td><td>no</td><td>Scope to workspace</td></tr>
-                <tr><td><code>--pane_id</code></td><td>UUID</td><td>no</td><td>Scope to pane</td></tr>
-            </tbody>
-        </table>
-
-        <h3>notification list</h3>
-        <p>List all notifications, optionally filtered by workspace.</p>
-        <pre><code>mosaic notification list
-mosaic notification list --workspace_id "A1B2C3D4-..."</code></pre>
-
-        <h3>notification clear</h3>
-        <p>Clear a specific notification or all notifications.</p>
-        <pre><code>mosaic notification clear --id "A1B2C3D4-..."  <span class="cmt"># clear one</span>
-mosaic notification clear                        <span class="cmt"># clear all</span>
-mosaic notification clear --workspace_id "..."   <span class="cmt"># clear all in workspace</span></code></pre>
-
-        <h3>notification subscribe</h3>
-        <p>Subscribe to notification events via the EventBus.</p>
-        <pre><code>mosaic notification subscribe</code></pre>
-
-        <h3>notification unsubscribe</h3>
-        <p>Unsubscribe from notification events.</p>
-        <pre><code>mosaic notification unsubscribe --token "..."</code></pre>
-
-        <hr>
-
-        <h2>system.*</h2>
-        <p>Read-only system information commands.</p>
-
-        <h3>system ping</h3>
-        <p>Health check. Returns <code>pong: true</code>.</p>
-        <pre><code>mosaic system ping</code></pre>
-
-        <h3>system version</h3>
-        <p>Returns the Mosaic version, name, and platform.</p>
-        <pre><code>mosaic system version</code></pre>
-
-        <h3>system status</h3>
-        <p>Returns status, version, and process ID.</p>
-        <pre><code>mosaic system status</code></pre>
-
-        <h3>system capabilities</h3>
-        <p>Lists all registered RPC methods and the app version.</p>
-        <pre><code>mosaic system capabilities
-mosaic system capabilities --json</code></pre>
-
-        <hr>
-
-        <h2>ai.*</h2>
-        <p>Interact with Mosaic AI, the natural language control plane.</p>
-
-        <h3>ai message</h3>
-        <p>Send a natural language message. Mosaic AI interprets the intent, maps to socket commands, safety-checks, and executes.</p>
-        <pre><code>mosaic ai message --content "split pane and run npm test"
-mosaic ai message --content "show me all workspaces"
-mosaic ai message --content "what is running in pane 2?" --session_id "..."</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--content</code></td><td>string</td><td>yes</td><td>Natural language message</td></tr>
-                <tr><td><code>--session_id</code></td><td>UUID</td><td>no</td><td>Conversation session (defaults to active workspace)</td></tr>
-            </tbody>
-        </table>
-
-        <h3>ai status</h3>
-        <p>Check AI engine status: provider, model, readiness, and processing state.</p>
-        <pre><code>mosaic ai status</code></pre>
-
-        <h3>ai history</h3>
-        <p>Retrieve conversation history for a session.</p>
-        <pre><code>mosaic ai history
-mosaic ai history --session_id "..." --limit 20</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--session_id</code></td><td>UUID</td><td>no</td><td>Session to query (defaults to active workspace)</td></tr>
-                <tr><td><code>--limit</code></td><td>int</td><td>no</td><td>Max turns to return (default 50, max 200)</td></tr>
-                <tr><td><code>--before_id</code></td><td>string</td><td>no</td><td>Cursor for pagination</td></tr>
-            </tbody>
-        </table>
-
-        <hr>
+        <pre><code>namu surface list
+namu surface current
+namu surface split --direction right
+namu surface send_text --text "ls\n"
+namu surface send_key --key enter
+namu surface read_text --lines 100
+namu surface close</code></pre>
 
         <h2>browser.*</h2>
-        <p>Control embedded browser panels. Limited to 7 basic navigation commands for v1.</p>
+        <pre><code>namu browser open
+namu browser navigate --url "https://example.com"
+namu browser eval --code "document.title"
+namu browser click --selector "#submit"
+namu browser type --selector "#input" --text "hello"
+namu browser hover --selector ".menu-item"
+namu browser get-text --selector "h1"
+namu browser get-attr --selector "a" --attribute "href"
+namu browser screenshot --path screenshot.png
+namu browser back
+namu browser forward
+namu browser reload
+namu browser url
+namu browser title
+namu browser find --text "search term"</code></pre>
 
-        <h3>browser navigate</h3>
-        <pre><code>mosaic browser navigate --url "https://example.com"</code></pre>
+        <h2>notification.*</h2>
+        <pre><code>namu notification create --title "Build done" --body "All tests passed"
+namu notification list
+namu notification clear</code></pre>
 
-        <h3>browser back / forward / reload</h3>
-        <pre><code>mosaic browser back
-mosaic browser forward
-mosaic browser reload</code></pre>
+        <h2>system.*</h2>
+        <pre><code>namu system ping
+namu system version
+namu system status
+namu system identify
+namu system relay_status
+namu system capabilities --json</code></pre>
 
-        <h3>browser get_url / get_title</h3>
-        <pre><code>mosaic browser get_url
-mosaic browser get_title</code></pre>
-
-        <h3>browser execute_js</h3>
-        <pre><code>mosaic browser execute_js --script "document.title"</code></pre>
-        <table>
-            <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-            <tbody>
-                <tr><td><code>--script</code></td><td>string</td><td>yes</td><td>JavaScript to evaluate</td></tr>
-                <tr><td><code>--surface_id</code></td><td>UUID</td><td>no</td><td>Target browser panel</td></tr>
-            </tbody>
-        </table>
+        <h2>ai.*</h2>
+        <p>
+            AI commands talk to <code>NamuAI</code>, which interprets natural language,
+            maps it onto structured commands, and runs those commands through
+            <code>CommandSafety</code> before execution.
+        </p>
+        <pre><code>namu ai message --content "split pane and run npm test"
+namu ai message --content "show me all workspaces"
+namu ai status
+namu ai history --limit 20</code></pre>
 
         <hr>
+
+        <h2>Special Entry Points</h2>
+        <p>
+            The CLI also includes non-namespace integration helpers that matter for current
+            workflows:
+        </p>
+        <pre><code>namu claude-teams
+namu claude-hook session-start
+namu codex install-hooks
+namu codex uninstall-hooks
+namu __tmux-compat split-window -h</code></pre>
 
         <h2>Examples</h2>
 
-        <h3>Scripting a development workflow</h3>
-        <pre><code><span class="cmt"># Create a workspace and split it</span>
-WS=$(mosaic workspace create --title "Dev" --json | python3 -c \
-    "import sys,json; print(json.load(sys.stdin)['result']['id'])")
+        <h3>Create a workspace and split it</h3>
+        <pre><code>WS=$(namu workspace create --title "Dev" --json | python3 -c \
+  "import sys,json; print(json.load(sys.stdin)['result']['id'])")
 
-mosaic workspace select --id "$WS"
-mosaic pane split --direction vertical
+namu workspace select --id "$WS"
+namu pane split --direction vertical</code></pre>
 
-<span class="cmt"># Run server in left pane, tests in right pane</span>
-mosaic pane send-keys --keys "npm start\n"
-<span class="cmt"># (focus switches to new pane after split)</span>
-mosaic pane send-keys --keys "npm test --watch\n"</code></pre>
+        <h3>Run commands and read screen state</h3>
+        <pre><code>namu pane send_keys "npm start\n"
+namu pane read_screen --json</code></pre>
 
-        <h3>Reading terminal output</h3>
-        <pre><code><span class="cmt"># Get the text visible in the current pane</span>
-mosaic pane read-screen --json
-
-<span class="cmt"># Read from a specific pane</span>
-mosaic pane read-screen --pane_id "A1B2C3D4-..."</code></pre>
-
-        <h3>Using AI for natural language control</h3>
-        <pre><code><span class="cmt"># Split and run a command</span>
-mosaic ai message --content "split the pane horizontally and run pytest"
-
-<span class="cmt"># Query workspace state</span>
-mosaic ai message --content "how many workspaces do I have?"
-
-<span class="cmt"># Check what is running</span>
-mosaic ai message --content "what is the output in the right pane?"</code></pre>
+        <h3>Use natural language control</h3>
+        <pre><code>namu ai message --content "split the pane horizontally and run pytest"
+namu ai message --content "how many workspaces do I have?"
+namu ai message --content "what is the output in the right pane?"</code></pre>
     </main>
 </div>
 </body>
