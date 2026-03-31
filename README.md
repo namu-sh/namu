@@ -8,19 +8,67 @@ The current checkout also includes outbound alert routing (Slack, Telegram, Disc
 
 ## Features
 
+### Core Terminal & Layout
 - **GPU-accelerated terminal** — Ghostty-powered Metal rendering with low-latency typing
 - **Workspaces and splits** — Tabbed workspaces with arbitrary horizontal and vertical nesting via [Bonsplit](vendor/bonsplit)
+- **Configurable workspace placement** — Position new workspaces at top, after current, or at end
+- **Equalize splits** — Proportional leaf-count weighted split distribution (Cmd+Shift+=)
+- **Tab-level pinning** — Pin tabs with session persistence across relaunches
+- **Session persistence** — Restores layout, splits, scrollback, and window state across relaunches
+- **Scrollback persistence** — ANSI-safe truncation with configurable buffer limits
+
+### Notification & Discovery
+- **Notification panel UI** — Cmd+Shift+I for keyboard-navigable notification panel
+- **Jump-to-unread** — Cmd+Shift+U (configurable) to jump to first unread notification
+
+### User Interface
 - **Keyboard-driven UI** — Command palette, copy mode, keyboard hints, and pane/workspace shortcuts
+- **32 configurable keyboard shortcuts** — Full customization in preferences
+- **Window decorations** — Traffic light management, custom drag handle, toolbar controller
+- **Keystroke latency profiling** — Always compiled with 34 instrumentation points (enabled via env var)
+
+### Panels & Content
+- **Embedded browser** — Browser panels with isolated profiles and data stores, 84+ automation commands
+- **Browser profiles** — Isolated data stores for separate browser contexts
+- **5 search engines** — Parallel suggest with history scoring
+- **Markdown panel** — Live file watching and rendering
+- **New panel shortcuts** — `pane.new_browser_tab`, `pane.new_markdown_tab` commands
+
+### Terminal Features
 - **Shell integration** — Tracks working directory, git branch, ports, shell state, and exit codes
-- **Session persistence** — Restores layout, splits, and scrollback across relaunches
-- **Embedded browser** — Browser panels with JSON-RPC automation commands
-- **Socket API** — JSON-RPC 2.0 over a Unix socket for programmatic control
+- **Port scanner** — Batched ps+lsof with coalesce and burst detection
+- **Image transfer pipeline** — Kitty graphics protocol + SCP upload support
+- **Surface pointer safety** — malloc_zone + registry cross-validation for dangling pointer detection
+
+### Automation & Integration
+- **Socket API** — JSON-RPC 2.0 over Unix socket and TCP relay for programmatic control
 - **CLI tool** — `namu` for scripting, tmux compatibility, and automation hooks
+- **37 tmux-compat commands** — Full tmux command coverage via CLI bridge
+- **AppleScript SDEF** — 4 classes, 11 commands for macOS automation
+- **Codex hook integration** — Install/uninstall hooks for IDE integration
+- **Remote Go daemon** — 12 RPC methods for remote command execution
+
+### AI & Intelligence
 - **NamuAI** — Natural-language control plane mapped onto structured socket commands
 - **LLM-swappable** — Claude, OpenAI, Gemini, or custom provider backends
 - **Command safety** — Structured safety classification with destructive-pattern detection
-- **Alert engine** — Rule-based alerts with Slack, Telegram, Discord, and webhook fan-out
-- **Remote relay** — Authenticated TCP relay for remote forwarding and daemon-assisted access
+- **10 Claude hook event types** — Session start, prompt submit, stop events
+
+### Localization & Accessibility
+- **953 localization keys** — Support across 19 languages
+- **Accessibility hints** — Full keyboard navigation and screen reader support
+
+### Alerting & Monitoring
+- **Alert engine** — Rule-based alerts with 4 trigger types
+- **Slack channel** — Native Slack integration with credential security
+- **Telegram channel** — Outbound Telegram delivery
+- **Discord channel** — Discord webhook support
+- **Webhook channel** — Generic webhook delivery with custom headers
+
+### Remote Access & Diagnostics
+- **Remote relay** — Authenticated TCP relay (HMAC-SHA256) for remote forwarding
+- **GPU Metal instrumentation** — IPC diagnostics for rendering performance
+- **Relay status monitoring** — `system.relay_status` command for relay health
 - **In-app updates** — Update controller and titlebar badge UI
 
 ## Quick Start

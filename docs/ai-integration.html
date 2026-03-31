@@ -84,23 +84,55 @@ namu ai history --limit 10</code></pre>
 
         <h2>Alerts and Channels</h2>
         <p>
-            Namu also includes a rule-based <code>AlertEngine</code>. This is separate from the
-            LLM layer and does not require AI to function.
+            Namu includes a rule-based <code>AlertEngine</code> with 4 trigger types.
+            This is separate from the LLM layer and does not require AI to function.
         </p>
         <pre><code>EventBus event
-  --> AlertEngine
+  --> AlertEngine (4 trigger types)
     --> AlertRouter
       --> Slack / Telegram / Discord / Webhook</code></pre>
 
+        <h3>Alert Channels</h3>
+        <ul>
+            <li><strong>Slack Channel</strong> — Native integration with credential security</li>
+            <li><strong>Telegram Channel</strong> — Outbound delivery to Telegram bots</li>
+            <li><strong>Discord Channel</strong> — Discord webhook support</li>
+            <li><strong>Webhook Channel</strong> — Generic webhook delivery with custom headers and payload formatting</li>
+        </ul>
+
+        <h3>Alert Trigger Types</h3>
         <p>
-            In the current checkout, Telegram support is an outbound alert channel alongside
-            Slack, Discord, and generic webhooks.
+            The AlertEngine supports 4 configurable trigger types for rule-based alert routing
+            based on EventBus events (process.exit, output.match, port.change, shell.idle, workspace.change).
         </p>
+
+        <h2>Claude Hook Integration</h2>
+        <p>
+            Namu supports 10 Claude hook event types for deep IDE integration.
+            Install hooks via <code>namu claude-hook</code> commands:
+        </p>
+        <ul>
+            <li><code>claude-hook session-start</code> — Triggered when a Claude session begins</li>
+            <li><code>claude-hook prompt-submit</code> — Triggered when a prompt is submitted</li>
+            <li><code>claude-hook stop</code> — Triggered when a Claude session stops</li>
+        </ul>
+        <p>
+            These hooks allow external tools to coordinate with Namu's terminal context.
+        </p>
+
+        <h2>Codex Integration</h2>
+        <p>
+            Namu ships Codex hook support for IDE-level automation:
+        </p>
+        <pre><code>namu codex install-hooks        # Install into ~/.codex/hooks.json
+namu codex uninstall-hooks      # Remove hooks
+namu codex-hook session-start   # Handle session start events
+namu codex-hook prompt-submit   # Handle prompt submit events</code></pre>
 
         <h2>Remote Access Today</h2>
         <p>
             Remote forwarding in the active codebase is handled by the authenticated TCP
-            <code>RelayServer</code> plus helper tooling in <code>daemon/remote/</code>.
+            <code>RelayServer</code> (HMAC-SHA256) plus helper tooling in <code>daemon/remote/</code>.
             Use <code>namu system relay_status</code> to inspect whether relay support is
             available and running.
         </p>

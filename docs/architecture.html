@@ -63,13 +63,16 @@
                 <tr><th>Subdirectory</th><th>Responsibility</th></tr>
             </thead>
             <tbody>
-                <tr><td><code>Domain/</code></td><td>Core value types such as <code>Workspace</code>, <code>Panel</code>, <code>PaneTree</code>, and session snapshots.</td></tr>
-                <tr><td><code>Terminal/</code></td><td>Ghostty bridge/config/keyboard wrappers, terminal session lifecycle, shell integration, copy mode, image transfer.</td></tr>
-                <tr><td><code>IPC/</code></td><td><code>SocketServer</code>, <code>RelayServer</code>, command registry/dispatcher, access control, event bus, and command namespaces.</td></tr>
-                <tr><td><code>Services/</code></td><td>Workspace/panel managers, persistence, notifications, layout, appearance, analytics, and app coordination.</td></tr>
-                <tr><td><code>AI/</code></td><td><code>NamuAI</code>, provider abstraction, context collection, command mapping, conversation state, and command safety.</td></tr>
-                <tr><td><code>Alerting/</code></td><td>Outbound channel delivery for Slack, Telegram, Discord, and generic webhook alerts.</td></tr>
-                <tr><td><code>Browser/</code></td><td>Browser-related models and helpers that support the browser command namespace and UI.</td></tr>
+                <tr><td><code>Domain/</code></td><td>Core value types such as <code>Workspace</code>, <code>Panel</code>, <code>PaneTree</code>, session snapshots, and workspace placement settings.</td></tr>
+                <tr><td><code>Terminal/</code></td><td>Ghostty bridge/config/keyboard wrappers, <code>TerminalSurfaceRegistry</code> (pointer safety), <code>PortalHostLease</code> system, session lifecycle, shell integration, copy mode, image transfer (Kitty graphics + SCP).</td></tr>
+                <tr><td><code>IPC/</code></td><td><code>SocketServer</code>, <code>RelayServer</code> (TCP with HMAC-SHA256 auth), command registry/dispatcher, access control, event bus, command namespaces, and middleware.</td></tr>
+                <tr><td><code>Services/</code></td><td>Workspace/panel managers, persistence, notifications, layout, appearance, analytics, <code>PortScanner</code> (batched ps+lsof), and app coordination.</td></tr>
+                <tr><td><code>AI/</code></td><td><code>NamuAI</code>, provider abstraction, context collection, command mapping, conversation state, command safety, and alert engine with 4 trigger types.</td></tr>
+                <tr><td><code>Alerting/</code></td><td>Outbound channel delivery for Slack, Telegram, Discord, and generic webhook alerts with credential security.</td></tr>
+                <tr><td><code>Browser/</code></td><td><code>BrowserProfileStore</code>, <code>BrowserHistoryStore</code>, browser models, <code>MarkdownPanel</code> with file watching, helpers for 84+ browser commands.</td></tr>
+                <tr><td><code>Debug/</code></td><td>Keystroke latency profiling (<code>TypingTiming</code>, always compiled with 34 instrumentation points).</td></tr>
+                <tr><td><code>Scripting/</code></td><td>AppleScript support (4 classes, 11 commands via SDEF).</td></tr>
+                <tr><td><code>Config/</code></td><td>Project configuration, directory trust, and command execution.</td></tr>
             </tbody>
         </table>
 
@@ -132,11 +135,24 @@ daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre
 
         <h3>Remote Relay Flow</h3>
         <pre><code>Remote helper / forwarded client
-  --> RelayServer (TCP)
-    --> HMAC challenge-response
+  --> RelayServer (TCP with HMAC-SHA256)
+    --> Access control check
       --> CommandDispatcher
         --> JSON-RPC handler
           --> response sent over relay socket</code></pre>
+
+        <h3>GPU Metal Instrumentation Flow</h3>
+        <pre><code>NamuMetalLayer (rendering)
+  --> drawable statistics collected
+    --> system.render_stats command
+      --> IPC diagnostics returned to client</code></pre>
+
+        <h3>Port Scanner Flow</h3>
+        <pre><code>Background timer
+  --> PortScanner (batched ps+lsof)
+    --> coalesce + burst detection
+      --> port.change event published
+        --> EventBus subscribers notified</code></pre>
 
         <h2>Key Design Decisions</h2>
 

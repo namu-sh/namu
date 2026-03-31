@@ -34,10 +34,11 @@
         <h2>Transport</h2>
         <ul>
             <li>Protocol: JSON-RPC 2.0</li>
-            <li>Socket type: Unix domain socket</li>
+            <li>Socket type: Unix domain socket (local) or TCP with HMAC-SHA256 auth (remote relay)</li>
             <li>Framing: one JSON document per line</li>
             <li>Request IDs: string or number</li>
             <li>Notifications: request without an <code>id</code></li>
+            <li>Relay transport: TCP relay with HMAC-SHA256 authentication and structured middleware</li>
         </ul>
 
         <h2>Access Control Modes</h2>
@@ -63,14 +64,32 @@
             <thead><tr><th>Namespace</th><th>Examples</th></tr></thead>
             <tbody>
                 <tr><td><code>workspace.*</code></td><td><code>workspace.list</code>, <code>workspace.create</code>, <code>workspace.select</code></td></tr>
-                <tr><td><code>pane.*</code></td><td><code>pane.split</code>, <code>pane.focus</code>, <code>pane.read_screen</code></td></tr>
+                <tr><td><code>pane.*</code></td><td><code>pane.split</code>, <code>pane.focus</code>, <code>pane.equalize</code>, <code>pane.pin</code>, <code>pane.unpin</code>, <code>pane.new_browser_tab</code>, <code>pane.new_markdown_tab</code></td></tr>
                 <tr><td><code>surface.*</code></td><td><code>surface.send_text</code>, <code>surface.send_key</code>, <code>surface.read_text</code></td></tr>
-                <tr><td><code>notification.*</code></td><td><code>notification.create</code>, <code>notification.list</code>, <code>notification.clear</code></td></tr>
-                <tr><td><code>browser.*</code></td><td><code>browser.navigate</code>, <code>browser.eval</code>, <code>browser.screenshot</code></td></tr>
-                <tr><td><code>system.*</code></td><td><code>system.ping</code>, <code>system.identify</code>, <code>system.relay_status</code></td></tr>
+                <tr><td><code>notification.*</code></td><td><code>notification.create</code>, <code>notification.list</code>, <code>notification.clear</code>, <code>notification.jump_to_unread</code></td></tr>
+                <tr><td><code>browser.*</code></td><td>84+ commands including <code>browser.navigate</code>, <code>browser.eval</code>, <code>browser.screenshot</code>, profile management, history, tabs, find, and more</td></tr>
+                <tr><td><code>system.*</code></td><td><code>system.ping</code>, <code>system.identify</code>, <code>system.relay_status</code>, <code>system.render_stats</code></td></tr>
                 <tr><td><code>ai.*</code></td><td><code>ai.message</code>, <code>ai.status</code>, <code>ai.history</code></td></tr>
             </tbody>
         </table>
+
+        <h2>Browser Commands (84+ methods)</h2>
+        <p>
+            The browser namespace exposes comprehensive web automation capabilities across
+            multiple categories:
+        </p>
+        <ul>
+            <li><strong>Navigation</strong> — navigate, back, forward, reload, go, stop</li>
+            <li><strong>DOM Interaction</strong> — click, type, hover, focus, blur, get-text, get-attr, get-property</li>
+            <li><strong>Screenshots & Images</strong> — screenshot, get-image, save-image</li>
+            <li><strong>JavaScript Execution</strong> — eval, eval-function, eval-async, eval-generator</li>
+            <li><strong>Tab Management</strong> — list-tabs, new-tab, close-tab, activate-tab, switch-tab</li>
+            <li><strong>History & Search</strong> — history, clear-history, find (with history scoring)</li>
+            <li><strong>Profile Management</strong> — list-profiles, create-profile, delete-profile, get-profile</li>
+            <li><strong>Cookie & Storage</strong> — get-cookies, set-cookies, clear-cookies, get-local-storage, set-local-storage</li>
+            <li><strong>Performance & Debugging</strong> — get-performance-metrics, enable-devtools, disable-devtools</li>
+            <li><strong>Window & Frame</strong> — get-window-size, set-window-size, list-frames, switch-frame</li>
+        </ul>
 
         <h2>Server-Push Events</h2>
         <p>Subscribed clients can receive JSON-RPC notifications for these event families:</p>
@@ -82,11 +101,21 @@
             <li><code>workspace.change</code></li>
         </ul>
 
-        <h2>Relay Status</h2>
+        <h2>TCP Relay Transport</h2>
         <p>
-            Remote access in the current checkout is based on an authenticated TCP relay,
-            not a standalone gateway target. Use <code>system.relay_status</code> to inspect
-            whether the relay is available and currently running.
+            Remote access in the current checkout is based on an authenticated TCP relay
+            with HMAC-SHA256 challenge-response authentication, not a standalone gateway.
+            The relay server multiplexes requests to the local command dispatcher.
+        </p>
+        <pre><code>Relay Features:
+- HMAC-SHA256 authentication (constant-time comparison)
+- Transparent JSON-RPC proxying
+- Command safety level enforcement
+- Access control integration
+- IPC diagnostics and health monitoring</code></pre>
+        <p>
+            Use <code>system.relay_status</code> to inspect whether the relay is available
+            and currently running.
         </p>
 
         <h2>Python Example</h2>

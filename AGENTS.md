@@ -13,40 +13,51 @@ Key identity: Namu AI is a **NL control plane**, not an agent bridge or MCP wrap
 ```
 namu/
   NamuKit/              Core logic -- NO UI imports (except AppKit for FFI)
-    AI/                   LLM integration, command safety, conversation state, alert engine
+    AI/                   LLM integration, command safety, conversation state, alert engine (4 trigger types)
       Providers/          ClaudeProvider, OpenAIProvider, GeminiProvider, CustomProvider
-    Alerting/             Outbound alert channels: Slack, Telegram, Discord, webhook
-    Browser/              Browser-side models and helpers
-    Domain/               Value types: Workspace, Panel, PaneTree, SessionSnapshot, SidebarMetadata, PullRequestDisplay
+    Alerting/             Outbound alert channels: Slack, Telegram, Discord, webhook (credential security)
+    Browser/              BrowserPanel, BrowserProfileStore, BrowserHistoryStore, MarkdownPanel (file watching),
+                          BrowserControlling, 84+ browser automation commands
+    Config/               Project configuration, directory trust, command execution
+    Debug/                TypingTiming (keystroke latency profiling, 34 instrumentation points, always compiled)
+    Domain/               Value types: Workspace (workspace placement), Panel, PaneTree, SessionSnapshot,
+                          PanelFocusIntent enum (rich focus management), SidebarMetadata, PullRequestDisplay
     Extensions/           Small utilities (e.g. Comparable+Clamped)
     IPC/                  Socket server, dispatcher, registry, handler, middleware, access control, event bus
       Commands/           Handler files: Workspace, Pane, Surface, Sidebar, Notification, Browser, System, AI
-      RelayServer.swift   Authenticated TCP relay that proxies JSON-RPC to the dispatcher
-    Services/             WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner,
-                          BonsplitLayoutEngine, LayoutEngine, AppearanceManager, Analytics, WindowContext, VSCodeBridge
+      RelayServer.swift   Authenticated TCP relay (HMAC-SHA256) that proxies JSON-RPC to the dispatcher
+    Scripting/            AppleScriptSupport (SDEF with 4 classes, 11 commands)
+    Services/             WorkspaceManager, PanelManager, SessionPersistence, NotificationService, PortScanner
+                          (batched ps+lsof, coalesce+burst), BonsplitLayoutEngine, LayoutEngine, AppearanceManager,
+                          Analytics, WindowContext, VSCodeBridge, BrowserHistoryStore, BrowserProfileStore
     Terminal/             Ghostty C FFI: Bridge, Config, Keyboard, TerminalSession, ShellIntegration,
-                          SessionState, CopyMode, SSHSessionDetector, ImageTransfer, TerminalBackend
+                          SessionState, CopyMode, SSHSessionDetector, ImageTransfer (Kitty graphics + SCP),
+                          TerminalBackend, TerminalSurfaceRegistry (pointer safety with malloc_zone),
+                          PortalHostLease system
   NamuUI/               SwiftUI + AppKit views
     AI/                   AIPreferencesView, AIChatPanelView
-    App/                  NamuApp (@main), AppDelegate, ServiceContainer
-    Browser/              BrowserPanelView
+    App/                  NamuApp (@main), AppDelegate, ServiceContainer, NotificationPanelView
+    Browser/              BrowserPanelView, 5 search engines with parallel suggest + history scoring
     CommandPalette/       CommandPaletteView
     Hints/                KeyboardHintOverlay
-    Settings/             KeyboardShortcutSettings, SettingsView
+    Settings/             KeyboardShortcutSettings (32 configurable shortcuts), SettingsView
     Sidebar/              SidebarView, SidebarItemView, SidebarViewModel
-    Terminal/             TerminalView, GhosttySurfaceView, FindOverlayView
+    Terminal/             TerminalView, GhosttySurfaceView (NamuMetalLayer with GPU instrumentation),
+                          FindOverlayView, NamuMetalLayer for Metal layer instrumentation
     Update/               UpdateController, UpdateViewModel, UpdatePopoverView, UpdateBadge, UpdateTitlebarAccessory
+    Window/               WindowDecorationsController, WindowDragHandleView, WindowToolbarController
+                          (traffic light management, custom drag handle)
     Workspace/            WorkspaceView, PaneTreeView
-  CLI/                    namu CLI tool
+  CLI/                    namu CLI tool (flat aliases, 37 tmux-compat commands)
     Commands/             Subcommands: SplitWindow, ListPanes, SelectPane, CapturePane
-  daemon/remote/         Remote helper for forwarded relay access
+  daemon/remote/         Remote helper for forwarded relay access (12 RPC methods)
   ghostty/                Ghostty submodule (manaflow-ai/ghostty fork)
   ghostty-stubs/          Stub C headers for building without full Ghostty
   vendor/bonsplit/        Bonsplit layout engine (submodule)
-  Resources/              Info.plist, shell-integration scripts, bundled CLI, skills
+  Resources/              Info.plist, shell-integration scripts, bundled CLI, skills, 953 localization keys (19 languages)
   Scripts/                setup.sh (builds GhosttyKit xcframework)
   Tests/
-    NamuKitTests/         Unit tests (Swift)
+    NamuKitTests/         Unit tests (Swift), including SurfaceSafetyTests
     NamuUITests/          UI tests (Swift)
     *.py                  Integration tests (Python)
   project.yml             XcodeGen project definition
@@ -99,9 +110,27 @@ python3 Tests/test_v5_commands.py
 
 4. **TerminalBackend protocol extracted.** `TerminalBackend` defines the abstraction boundary for terminal sessions. `TerminalSession` is the concrete Ghostty implementation. `SessionState` is an explicit state machine for session lifecycle (created → starting → running → exited → destroyed).
 
-5. **AI is the control plane.** NamuAI interprets natural language, emits structured tool_use calls, each mapping to exactly one socket command. It is not an agent bridge.
+5. **Surface pointer safety.** `TerminalSurfaceRegistry` uses malloc_zone + registry cross-validation to detect dangling pointers. Tested against stack pointers and freed allocations in `SurfaceSafetyTests`.
 
-6. **Async by default for AI.** Acknowledge immediately, deliver results when ready. No real-time pressure.
+6. **PortalHostLease system.** Manages portal host lifecycle and ensures consistent surface state across the app boundary.
+
+7. **Port scanner as a service.** `PortScanner` batches ps+lsof calls, coalesces results, and publishes port.change events. Avoids rapid successive system calls.
+
+8. **Browser isolation and profiles.** `BrowserProfileStore` maintains separate data stores per browser context. `BrowserHistoryStore` tracks visits with history scoring for search. Five search engines with parallel suggest.
+
+9. **Keystroke latency always profiled.** `TypingTiming` is always compiled with 34 instrumentation points. Gated on env var but never disabled at compile time.
+
+10. **Metal layer instrumentation.** `NamuMetalLayer` collects GPU drawable statistics for IPC diagnostics. `system.render_stats` exposes these metrics.
+
+11. **Alert engine with trigger types.** AlertEngine supports 4 configurable rule-based trigger types. Credentials are stored securely with channel-specific validation.
+
+12. **AI is the control plane.** NamuAI interprets natural language, emits structured tool_use calls, each mapping to exactly one socket command. It is not an agent bridge.
+
+13. **Async by default for AI.** Acknowledge immediately, deliver results when ready. No real-time pressure.
+
+14. **Tab pinning with session persistence.** `pane.pin` and `pane.unpin` persist to SessionSnapshot for cross-session state.
+
+15. **Relay with HMAC-SHA256.** RelayServer uses constant-time HMAC-SHA256 for authentication, not a simple password.
 
 ## Ghostty FFI Patterns
 
@@ -152,6 +181,67 @@ Default: `/tmp/namu.sock`. Tagged debug builds: `/tmp/namu-<tag>.sock`.
 
 ### JSON-RPC 2.0
 All IPC uses JSON-RPC 2.0. Requests have `id` (string or number). Notifications have no `id` (fire-and-forget). Events are pushed as notifications to subscribed clients.
+
+## New Features in Latest Commit (101 Implemented)
+
+### Notification Panel & Jump-to-Unread
+- Notification panel UI with keyboard navigation (Cmd+Shift+I)
+- Jump-to-unread command (Cmd+Shift+U, configurable)
+- `notification.jump_to_unread` socket command
+- Scrollback persistence with ANSI-safe truncation
+
+### Layout Enhancements
+- Workspace placement configuration (top/afterCurrent/end)
+- Equalize splits with proportional leaf-count weighting (Cmd+Shift+=)
+- `pane.equalize` socket command
+- Tab-level pinning with session persistence (`pane.pin`, `pane.unpin`)
+
+### New Panel Types
+- Markdown panel with live file watching (`pane.new_markdown_tab`)
+- Browser tab management (`pane.new_browser_tab`)
+- Browser profiles with isolated data stores (separate cookie/localStorage per profile)
+- BrowserHistoryStore with visit tracking and search scoring
+
+### Terminal Safety & Performance
+- TerminalSurfaceRegistry with malloc_zone + registry cross-validation
+- PortalHostLease system for host lifecycle management
+- PortScanner service with batched ps+lsof, coalesce and burst detection
+- Keystroke latency profiling (34 instrumentation points, always compiled)
+- GPU Metal layer instrumentation with IPC diagnostics (NamuMetalLayer, system.render_stats)
+
+### Automation & Integration
+- Image transfer pipeline: Kitty graphics protocol + SCP upload
+- AppleScript SDEF with 4 classes and 11 commands
+- Codex hook integration (install-hooks, uninstall-hooks, codex-hook events)
+- OpenCode/omo subcommand support
+- 37 tmux-compat commands via CLI bridge
+- Claude hook events (10 types: session-start, prompt-submit, stop, etc.)
+- Remote Go daemon with 12 RPC methods
+
+### UI & Customization
+- Window decorations controller (traffic light management)
+- Custom drag handle (WindowDragHandleView)
+- Window toolbar controller
+- 32 configurable keyboard shortcuts in preferences
+- 953 localization keys across 19 languages
+
+### Browser & Search
+- 5 search engines with parallel suggest + history scoring
+- 84+ browser automation commands (comprehensive category coverage)
+- Browser profile management and isolation
+- BrowserHistoryStore with scoring algorithm
+
+### Remote Access & Security
+- TCP relay with HMAC-SHA256 authentication (constant-time comparison)
+- RelayServer proxying JSON-RPC to CommandDispatcher
+- Command middleware and safety levels
+- PanelFocusIntent enum for rich focus management
+
+### Alerting Enhancements
+- Alert engine with 4 trigger types
+- Slack, Telegram, Discord, and webhook channels
+- Credential security with channel-specific validation
+- Rule-based alert routing from EventBus
 
 ## Common Tasks
 

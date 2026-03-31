@@ -67,12 +67,17 @@ namu workspace delete --id "A1B2C3D4-..."</code></pre>
 namu pane split --direction vertical --pane_id "A1B2C3D4-..."
 namu pane focus --pane_id "A1B2C3D4-..."
 namu pane resize --split_id "A1B2C3D4-..." --ratio 0.6
+namu pane equalize
 namu pane send_keys "npm test\n"
 namu pane read_screen --lines 50
 namu pane zoom
 namu pane unzoom
 namu pane last
-namu pane list</code></pre>
+namu pane list
+namu pane new_browser_tab
+namu pane new_markdown_tab
+namu pane pin
+namu pane unpin</code></pre>
 
         <h2>surface.*</h2>
         <pre><code>namu surface list
@@ -103,7 +108,8 @@ namu browser find --text "search term"</code></pre>
         <h2>notification.*</h2>
         <pre><code>namu notification create --title "Build done" --body "All tests passed"
 namu notification list
-namu notification clear</code></pre>
+namu notification clear
+namu notification jump_to_unread</code></pre>
 
         <h2>system.*</h2>
         <pre><code>namu system ping
@@ -111,6 +117,7 @@ namu system version
 namu system status
 namu system identify
 namu system relay_status
+namu system render_stats
 namu system capabilities --json</code></pre>
 
         <h2>ai.*</h2>
@@ -126,16 +133,46 @@ namu ai history --limit 20</code></pre>
 
         <hr>
 
+        <h2>Flat Command Aliases</h2>
+        <pre><code>namu version
+namu list-workspaces
+namu new-workspace
+namu list-panes
+namu send
+namu read-screen
+namu notify</code></pre>
+
         <h2>Special Entry Points</h2>
         <p>
-            The CLI also includes non-namespace integration helpers that matter for current
-            workflows:
+            The CLI also includes non-namespace integration helpers that matter for current workflows:
         </p>
-        <pre><code>namu claude-teams
-namu claude-hook session-start
-namu codex install-hooks
+
+        <h3>Claude Hook Integration</h3>
+        <pre><code>namu claude-hook session-start
+namu claude-hook prompt-submit
+namu claude-hook stop
+namu claude-teams</code></pre>
+
+        <h3>Codex Integration</h3>
+        <pre><code>namu codex install-hooks
 namu codex uninstall-hooks
-namu __tmux-compat split-window -h</code></pre>
+namu codex-hook session-start
+namu codex-hook prompt-submit</code></pre>
+
+        <h3>OpenCode Integration</h3>
+        <pre><code>namu opencode <command>
+namu omo <command></code></pre>
+
+        <h3>TMux Compatibility</h3>
+        <p>37 tmux-compat commands bridge common tmux patterns to Namu commands:</p>
+        <pre><code>namu __tmux-compat split-window -h
+namu __tmux-compat split-window -v
+namu __tmux-compat new-window
+namu __tmux-compat select-window -t 0
+namu __tmux-compat send-keys "command" Enter
+namu __tmux-compat list-windows
+namu __tmux-compat list-panes
+(and 30+ more tmux commands)</code></pre>
 
         <h2>Examples</h2>
 
