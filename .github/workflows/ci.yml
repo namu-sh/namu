@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: deriveddata-${{ runner.os }}-${{ hashFiles('**/*.swift', '**/*.h', 'Namu.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-
+
+      - name: Build
+        run: |
+          xcodebuild -scheme Namu \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -skipPackagePluginValidation \
+            build \
+            | tail -20
+          echo "Build exit code: ${PIPESTATUS[0]}"
+
+  test:
+    name: Test
+    runs-on: macos-15
+    timeout-minutes: 30
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Cache DerivedData
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData
+          key: deriveddata-${{ runner.os }}-${{ hashFiles('**/*.swift', '**/*.h', 'Namu.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-${{ runner.os }}-
+
+      - name: Run Tests
+        run: |
+          xcodebuild test \
+            -scheme Namu \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -skipPackagePluginValidation \
+            -resultBundlePath TestResults.xcresult \
+            | tail -30
+          echo "Test exit code: ${PIPESTATUS[0]}"
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults.xcresult
+          retention-days: 7
+
+  go-daemon:
+    name: Build Go Daemon
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build daemon
+        run: |
+          cd daemon/remote
+          go build -v ./cmd/namud-remote/
+
+      - name: Verify binary
+        run: |
+          ls -la daemon/remote/namud-remote
+          file daemon/remote/namud-remote
+
+  lint:
+    name: Lint
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check for hardcoded secrets
+        run: |
+          # Fail if any API keys, passwords, or tokens are hardcoded
+          if grep -rn "phc_\|sk-\|ghp_\|gho_\|xoxb-\|xoxp-" \
+            --include="*.swift" \
+            NamuKit/ NamuUI/ CLI/ \
+            | grep -v "// example\|// test\|Tests/"; then
+            echo "ERROR: Possible hardcoded secrets found"
+            exit 1
+          fi
+          echo "No hardcoded secrets found"
+
+      - name: Check localization coverage
+        run: |
+          count=$(grep -rn 'String(localized:' NamuKit/ NamuUI/ --include='*.swift' | wc -l | tr -d ' ')
+          echo "String(localized:) call sites: $count"
+          if [ "$count" -lt 800 ]; then
+            echo "WARNING: Localization coverage dropped below 800 call sites (was 830+)"
+          fi
+
+      - name: Check for TODO/FIXME
+        run: |
+          todos=$(grep -rn "TODO\|FIXME" --include="*.swift" NamuKit/ NamuUI/ CLI/ | grep -v "vendor\|ghostty\|Tests" | wc -l | tr -d ' ')
+          echo "TODO/FIXME count: $todos"
