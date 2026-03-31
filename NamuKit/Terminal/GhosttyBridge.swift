@@ -14,6 +14,7 @@ extension Notification.Name {
     static let namuTerminalNotification = Notification.Name("xyz.omlabs.namu.terminalNotification")
     static let namuPaneAttentionRequested = Notification.Name("xyz.omlabs.namu.paneAttentionRequested")
     static let namuWorkspaceAutoReorderRequested = Notification.Name("xyz.omlabs.namu.workspaceAutoReorderRequested")
+    static let namuWorkspaceDidDelete = Notification.Name("xyz.omlabs.namu.workspaceDidDelete")
     // Search/find overlay
     static let namuSearchStarted = Notification.Name("xyz.omlabs.namu.searchStarted")
     static let namuSearchEnded = Notification.Name("xyz.omlabs.namu.searchEnded")

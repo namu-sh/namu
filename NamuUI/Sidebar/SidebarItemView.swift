@@ -86,7 +86,9 @@ struct SidebarItemView: View, Equatable {
         onSetColor: @escaping (String?) -> Void = { _ in },
         onClose: @escaping () -> Void = {},
         availableWindows: [(id: UUID, title: String)] = [],
-        onMoveToWindow: ((UUID) -> Void)? = nil
+        onMoveToWindow: ((UUID) -> Void)? = nil,
+        onReconnectSSH: (() -> Void)? = nil,
+        onDisconnectSSH: (() -> Void)? = nil
     ) {
         self.title = title
         self.isSelected = isSelected
@@ -117,6 +119,8 @@ struct SidebarItemView: View, Equatable {
         self.onClose = onClose
         self.availableWindows = availableWindows
         self.onMoveToWindow = onMoveToWindow
+        self.onReconnectSSH = onReconnectSSH
+        self.onDisconnectSSH = onDisconnectSSH
     }
 
     // Action closures are excluded from == — they're recreated on every parent
@@ -130,6 +134,10 @@ struct SidebarItemView: View, Equatable {
     var availableWindows: [(id: UUID, title: String)]
     /// Called with the target windowID when "Move to Window" is selected.
     var onMoveToWindow: ((UUID) -> Void)?
+    /// Called when the user selects "Reconnect SSH" from the context menu (remote workspaces only).
+    var onReconnectSSH: (() -> Void)?
+    /// Called when the user selects "Disconnect SSH" from the context menu (remote workspaces only).
+    var onDisconnectSSH: (() -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
@@ -409,6 +417,17 @@ struct SidebarItemView: View, Equatable {
                         Button(window.title) { onMoveToWindow(window.id) }
                     }
                 }
+            }
+            if isRemoteSSH {
+                Divider()
+                Button(String(localized: "sidebar.item.menu.reconnectSSH", defaultValue: "Reconnect SSH")) {
+                    onReconnectSSH?()
+                }
+                .disabled(onReconnectSSH == nil)
+                Button(String(localized: "sidebar.item.menu.disconnectSSH", defaultValue: "Disconnect SSH")) {
+                    onDisconnectSSH?()
+                }
+                .disabled(onDisconnectSSH == nil)
             }
             Divider()
             Button(String(localized: "sidebar.item.menu.closeWorkspace", defaultValue: "Close Workspace"), role: .destructive) { onClose() }

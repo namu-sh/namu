@@ -169,3 +169,23 @@ final class TerminalPanel: Panel, ObservableObject {
         session.destroy()
     }
 }
+
+// MARK: - DetachedSurfaceTransfer
+
+/// Encapsulates all data needed to move a panel between panes or workspaces.
+/// Created by `PanelManager.detachPanel`, consumed by `PanelManager.attachPanel`.
+struct DetachedSurfaceTransfer {
+    let panelID: UUID
+    let panelType: PanelType
+    let title: String
+    let isPinned: Bool
+    let customTitle: String?
+    let workingDirectory: String?
+
+    /// The tab kind string used when re-creating the tab in Bonsplit (e.g. "terminal", "browser", "markdown").
+    let tabKind: String
+
+    /// The actual panel object. Stored as `AnyObject` because it can be
+    /// `TerminalPanel`, `BrowserPanel`, or `MarkdownPanel`.
+    let panel: AnyObject
+}

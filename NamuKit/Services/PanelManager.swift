@@ -24,6 +24,13 @@ final class PanelManager: ObservableObject {
     let workspaceManager: WorkspaceManager
     private var cancellables = Set<AnyCancellable>()
 
+    /// Optional remote session service. When set, browser panels created for a remote
+    /// workspace will automatically inherit the workspace's SOCKS5 proxy endpoint.
+    weak var remoteSessionService: RemoteSessionService?
+
+    // M10: Cancellable for proxy endpoint observation.
+    private var proxyEndpointCancellable: AnyCancellable?
+
     // MARK: - Layout engines (one per workspace)
 
     private(set) var engines: [UUID: BonsplitLayoutEngine] = [:]
@@ -213,7 +220,10 @@ final class PanelManager: ObservableObject {
     /// Create a new BrowserPanel.
     func createBrowserPanel(workspaceID: UUID? = nil, url: URL? = nil) -> BrowserPanel {
         let panelID = UUID()
-        let panel = BrowserPanel(id: panelID, url: url)
+        let proxyEndpoint: RemoteProxyEndpoint? = workspaceID.flatMap { wsID in
+            remoteSessionService?.proxyEndpoints[wsID]
+        }
+        let panel = BrowserPanel(id: panelID, url: url, proxyEndpoint: proxyEndpoint)
         browserPanels[panelID] = panel
         return panel
     }
@@ -395,6 +405,158 @@ final class PanelManager: ObservableObject {
             panel.close()
         }
         objectWillChange.send()
+    }
+
+    // MARK: - Detach / Attach (surface move infrastructure)
+
+    /// Detach a panel from its current workspace for moving to another location.
+    /// Removes the panel from the Bonsplit engine and panel registries but does NOT
+    /// destroy the panel object. Returns a transfer object, or nil if the panel doesn't exist.
+    func detachPanel(id panelID: UUID) -> DetachedSurfaceTransfer? {
+        guard let workspaceID = workspaceIDForPanel(panelID) else { return nil }
+        let eng = engine(for: workspaceID)
+
+        let title: String
+        let customTitle: String?
+        let workingDirectory: String?
+        let isPinned: Bool = isPanelPinned(id: panelID)
+        let panelType: PanelType
+        let tabKind: String
+        let panelObj: AnyObject
+
+        if let terminal = panels[panelID] {
+            title = terminal.title
+            customTitle = terminal.customTitle
+            workingDirectory = terminal.workingDirectory
+            panelType = .terminal
+            tabKind = "terminal"
+            panelObj = terminal
+        } else if let browser = browserPanels[panelID] {
+            title = browser.title
+            customTitle = browser.customTitle
+            workingDirectory = nil
+            panelType = .browser
+            tabKind = "browser"
+            panelObj = browser
+        } else if let markdown = markdownPanels[panelID] {
+            title = markdown.title
+            customTitle = nil
+            workingDirectory = nil
+            panelType = .markdown
+            tabKind = "markdown"
+            panelObj = markdown
+        } else {
+            return nil
+        }
+
+        // Remove mapping and close the Bonsplit tab (without destroying the panel object).
+        if let tabID = eng.tabID(for: panelID) {
+            eng.removeMapping(panelID: panelID)
+            eng.closeTab(tabID)
+        }
+
+        // Remove from panel registries — the panel object stays alive via the transfer.
+        panels.removeValue(forKey: panelID)
+        browserPanels.removeValue(forKey: panelID)
+        markdownPanels.removeValue(forKey: panelID)
+        observedPanelIDs.remove(panelID)
+
+        objectWillChange.send()
+
+        return DetachedSurfaceTransfer(
+            panelID: panelID,
+            panelType: panelType,
+            title: title,
+            isPinned: isPinned,
+            customTitle: customTitle,
+            workingDirectory: workingDirectory,
+            tabKind: tabKind,
+            panel: panelObj
+        )
+    }
+
+    /// Attach a previously detached panel to a workspace.
+    /// Re-registers the panel in the typed registry and adds it to the Bonsplit engine.
+    /// Returns the panel ID on success, nil on failure.
+    @discardableResult
+    func attachPanel(
+        _ transfer: DetachedSurfaceTransfer,
+        inWorkspace workspaceID: UUID,
+        paneID: Bonsplit.PaneID? = nil,
+        atIndex index: Int? = nil,
+        focus: Bool = true
+    ) -> UUID? {
+        let eng = engine(for: workspaceID)
+
+        // Re-register in the typed registry.
+        switch transfer.panelType {
+        case .terminal:
+            guard let terminal = transfer.panel as? TerminalPanel else { return nil }
+            panels[transfer.panelID] = terminal
+            observePanelTitle(terminal, workspaceID: workspaceID)
+        case .browser:
+            guard let browser = transfer.panel as? BrowserPanel else { return nil }
+            browserPanels[transfer.panelID] = browser
+        case .markdown:
+            guard let markdown = transfer.panel as? MarkdownPanel else { return nil }
+            markdownPanels[transfer.panelID] = markdown
+        }
+
+        // Restore pinned state.
+        if transfer.isPinned {
+            pinnedPanelIDs.insert(transfer.panelID)
+        }
+
+        // Add to the Bonsplit engine. createTab always allocates a new TabID, so we
+        // create a new tab and register the mapping from that TabID → panel UUID.
+        let targetPane = paneID ?? eng.focusedPaneID
+        guard let tabID = eng.controller.createTab(
+            title: transfer.title,
+            hasCustomTitle: transfer.customTitle != nil,
+            kind: transfer.tabKind,
+            isPinned: transfer.isPinned,
+            inPane: targetPane
+        ) else { return nil }
+
+        eng.registerMapping(tabID: tabID, panelID: transfer.panelID)
+
+        if focus {
+            eng.controller.selectTab(tabID)
+        }
+
+        objectWillChange.send()
+        return transfer.panelID
+    }
+
+    /// Move a panel to a different pane within the same workspace.
+    /// Returns true on success.
+    @discardableResult
+    func moveSurface(
+        panelID: UUID,
+        toPaneID: Bonsplit.PaneID,
+        inWorkspace workspaceID: UUID,
+        atIndex: Int? = nil,
+        focus: Bool = true
+    ) -> Bool {
+        let eng = engine(for: workspaceID)
+        guard let tabID = eng.tabID(for: panelID) else { return false }
+        guard eng.moveTab(tabID, toPane: toPaneID, atIndex: atIndex) else { return false }
+        if focus {
+            eng.controller.selectTab(tabID)
+        }
+        objectWillChange.send()
+        return true
+    }
+
+    /// Reorder a panel within its current pane.
+    /// Returns true on success.
+    @discardableResult
+    func reorderSurface(panelID: UUID, inWorkspace workspaceID: UUID, toIndex: Int) -> Bool {
+        let eng = engine(for: workspaceID)
+        guard let tabID = eng.tabID(for: panelID) else { return false }
+        let result = eng.reorderTab(tabID, toIndex: toIndex)
+        if result { objectWillChange.send() }
+        return result
     }
 
     /// Close the active panel in the selected workspace.
@@ -721,6 +883,46 @@ final class PanelManager: ObservableObject {
         return nil
     }
 
+    /// Find which pane (within a workspace) contains a given panel.
+    func paneIDForPanel(_ panelID: UUID, inWorkspace workspaceID: UUID) -> Bonsplit.PaneID? {
+        let eng = engine(for: workspaceID)
+        guard let tabID = eng.tabID(for: panelID) else { return nil }
+        for paneID in eng.allPaneIDs {
+            let tabs = eng.controller.tabs(inPane: paneID)
+            if tabs.contains(where: { $0.id == tabID }) {
+                return paneID
+            }
+        }
+        return nil
+    }
+
+    /// Swap the pane positions of two panels within the same workspace.
+    /// Each panel moves into the other's pane. Returns true on success.
+    @discardableResult
+    func swapPanels(
+        panelID: UUID,
+        targetPanelID: UUID,
+        inWorkspace workspaceID: UUID,
+        focus: Bool = true
+    ) -> Bool {
+        guard let sourcePaneID = paneIDForPanel(panelID, inWorkspace: workspaceID),
+              let targetPaneID = paneIDForPanel(targetPanelID, inWorkspace: workspaceID) else {
+            return false
+        }
+        // Move source panel into target's pane, then target panel into source's pane.
+        guard moveSurface(panelID: panelID, toPaneID: targetPaneID, inWorkspace: workspaceID, focus: false) else {
+            return false
+        }
+        guard moveSurface(panelID: targetPanelID, toPaneID: sourcePaneID, inWorkspace: workspaceID, focus: false) else {
+            return false
+        }
+        if focus {
+            activatePanel(id: panelID)
+        }
+        objectWillChange.send()
+        return true
+    }
+
     // MARK: - Workspace migration
 
     /// Move a workspace's engine and all its panels from this PanelManager to a target PanelManager.
@@ -842,6 +1044,36 @@ final class PanelManager: ObservableObject {
             } else if markdownPanels[panelID] != nil {
                 // Markdown panels don't use FocusIntent but intent is tracked.
                 let _ : PanelFocusIntent = .markdown
+            }
+        }
+    }
+
+    // MARK: - Remote proxy endpoint observation
+
+    /// M10: Subscribe to proxy endpoint changes and push them to all existing browser
+    /// panels so that reconnects use the new SOCKS5 address. Call this once after
+    /// `remoteSessionService` is assigned.
+    func observeRemoteSessionService(_ service: RemoteSessionService) {
+        proxyEndpointCancellable = service.$proxyEndpoints
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] endpoints in
+                guard let self else { return }
+                self.updateBrowserProxyEndpoints(endpoints)
+            }
+    }
+
+    /// Update all live browser panels with their workspace's current proxy endpoint.
+    private func updateBrowserProxyEndpoints(_ endpoints: [UUID: RemoteProxyEndpoint]) {
+        // Walk each engine to find which workspace each browser panel belongs to.
+        for (workspaceID, engine) in engines {
+            let endpoint = endpoints[workspaceID]
+            for paneID in engine.allPaneIDs {
+                for tab in engine.controller.tabs(inPane: paneID) {
+                    if let panelID = engine.panelID(for: tab.id),
+                       let panel = browserPanels[panelID] {
+                        panel.proxyEndpoint = endpoint
+                    }
+                }
             }
         }
     }

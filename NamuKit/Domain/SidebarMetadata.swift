@@ -137,3 +137,28 @@ struct PortInfo: Equatable {
 }
 
 // ShellState is defined in NamuKit/Terminal/ShellIntegration.swift
+
+// MARK: - RemoteSessionService integration
+
+extension SidebarMetadata {
+    /// Populates remote fields from the current state held by RemoteSessionService.
+    ///
+    /// Existing field types (String?) are preserved for backward IPC/serialization compatibility.
+    @MainActor
+    mutating func updateRemoteState(from service: RemoteSessionService, workspaceID: UUID) {
+        if let state = service.connectionStates[workspaceID] {
+            remoteConnectionState = state.rawValue
+            isRemoteSSH = (state == .connected || state == .connecting)
+        }
+        if let status = service.daemonStatuses[workspaceID] {
+            remoteDaemonStatus = status.state.rawValue
+        }
+        if let endpoint = service.proxyEndpoints[workspaceID] {
+            remoteProxyEndpoint = "\(endpoint.host):\(endpoint.port)"
+        }
+        if let heartbeat = service.heartbeats[workspaceID] {
+            remoteHeartbeatCount = heartbeat.count
+            remoteLastHeartbeatAt = heartbeat.lastSeenAt
+        }
+    }
+}

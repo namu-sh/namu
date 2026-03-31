@@ -16,6 +16,7 @@ final class ServiceContainer {
 
     let workspaceManager: WorkspaceManager
     let panelManager: PanelManager
+    let remoteSessionService: RemoteSessionService
 
     // MARK: - IPC
 
@@ -60,12 +61,20 @@ final class ServiceContainer {
     // Per-panel port cache for merging into workspace-level SidebarMetadata.
     private var panelPortCache: [UUID: [PortInfo]] = [:]
 
+    // NotificationCenter observer tokens registered in start(), removed in stop().
+    private var notificationObservers: [Any] = []
+
     // MARK: - Init
 
     init(workspaceManager: WorkspaceManager, panelManager: PanelManager, sidebarViewModel: SidebarViewModel? = nil) {
         self.workspaceManager = workspaceManager
         self.panelManager = panelManager
         self.sidebarViewModelForCommands = sidebarViewModel
+        remoteSessionService = RemoteSessionService()
+        panelManager.remoteSessionService = remoteSessionService
+        // M10: Subscribe to proxy endpoint changes so existing browser panels
+        // get the updated SOCKS5 address on reconnect.
+        panelManager.observeRemoteSessionService(remoteSessionService)
 
         // IPC infrastructure
         eventBus = EventBus()
@@ -182,21 +191,43 @@ final class ServiceContainer {
         notificationService.requestAuthorization()
 
         // Wire auto-reorder: move notified workspace to top of unpinned list.
-        NotificationCenter.default.addObserver(
-            forName: .namuWorkspaceAutoReorderRequested,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let wsID = notification.userInfo?["workspace_id"] as? UUID else { return }
-            self?.workspaceManager.moveWorkspaceToTop(id: wsID)
-        }
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: .namuWorkspaceAutoReorderRequested,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let wsID = notification.userInfo?["workspace_id"] as? UUID else { return }
+                self?.workspaceManager.moveWorkspaceToTop(id: wsID)
+            }
+        )
+
+        // Clean up remote session state when a workspace is deleted.
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: .namuWorkspaceDidDelete,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self, let wsID = notification.userInfo?["workspace_id"] as? UUID else { return }
+                self.remoteSessionService.workspaceDidDelete(wsID)
+                // M11: Also clean up in secondary window contexts so that
+                // multi-window setups don't leave stale remote session state.
+                if let contexts = AppDelegate.shared?.windowContexts.values {
+                    for ctx in contexts {
+                        ctx.remoteSessionService.workspaceDidDelete(wsID)
+                    }
+                }
+            }
+        )
 
         // Listen for shell exit → close the panel/workspace
-        NotificationCenter.default.addObserver(
-            forName: .ghosttySurfaceDidClose,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: .ghosttySurfaceDidClose,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
             guard let self,
                   let userdata = notification.userInfo?["userdata"] as? UnsafeMutableRawPointer else { return }
             let session = Unmanaged<TerminalSession>.fromOpaque(userdata).takeUnretainedValue()
@@ -227,24 +258,26 @@ final class ServiceContainer {
                     }
                 }
             }
-        }
+        })
 
         // Route terminal OSC notifications through NotificationService
         // (handles Claude session suppression, sound, and desktop notification).
-        NotificationCenter.default.addObserver(
-            forName: .namuTerminalNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let self else { return }
-            let title = notification.userInfo?["title"] as? String ?? ""
-            let body = notification.userInfo?["body"] as? String ?? ""
-            self.notificationService.handleTerminalNotification(
-                title: title,
-                body: body,
-                workspaceManager: self.workspaceManager
-            )
-        }
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: .namuTerminalNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self else { return }
+                let title = notification.userInfo?["title"] as? String ?? ""
+                let body = notification.userInfo?["body"] as? String ?? ""
+                self.notificationService.handleTerminalNotification(
+                    title: title,
+                    body: body,
+                    workspaceManager: self.workspaceManager
+                )
+            }
+        )
 
         logger.info("ServiceContainer started")
     }
@@ -259,6 +292,16 @@ final class ServiceContainer {
 
         socketServer?.stop()
         alertEngine.stop()
+
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+
+        // Disconnect all active remote sessions.
+        for workspaceID in workspaceManager.workspaces.map(\.id) {
+            remoteSessionService.disconnectRemoteConnection(workspaceID: workspaceID)
+        }
 
         logger.info("ServiceContainer stopped")
     }
@@ -278,7 +321,7 @@ final class ServiceContainer {
     // MARK: - Private
 
     private func registerCommands() {
-        let wc = WorkspaceCommands(workspaceManager: workspaceManager, panelManager: panelManager)
+        let wc = WorkspaceCommands(workspaceManager: workspaceManager, panelManager: panelManager, remoteSessionService: remoteSessionService)
         wc.register(in: commandRegistry)
         workspaceCommands = wc
 

@@ -9,6 +9,7 @@ struct WindowContext {
     let windowID: UUID
     let workspaceManager: WorkspaceManager
     let panelManager: PanelManager
+    let remoteSessionService: RemoteSessionService
 
     /// Window frame in screen coordinates. Populated just before session save so
     /// SessionPersistence can serialize it without needing an AppKit import.

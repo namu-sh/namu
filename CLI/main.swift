@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Security
 
 // MARK: - Errors
 
@@ -541,6 +542,503 @@ func run() throws {
                 prettyPrint(display)
             }
         }
+    }
+}
+
+// MARK: - SSH Subcommand
+
+/// Generate a random hex string of `byteCount` random bytes.
+private func randomHex(_ byteCount: Int) -> String {
+    var bytes = [UInt8](repeating: 0, count: byteCount)
+    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+    return bytes.map { String(format: "%02x", $0) }.joined()
+}
+
+/// Find a free TCP port by binding to port 0 on loopback and reading the assigned port.
+private func findFreePort() -> Int? {
+    let sock = socket(AF_INET, SOCK_STREAM, 0)
+    guard sock >= 0 else { return nil }
+    defer { close(sock) }
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = 0
+    addr.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian
+    var addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let bindResult = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            bind(sock, $0, addrLen)
+        }
+    }
+    guard bindResult == 0 else { return nil }
+    let getsockResult = withUnsafeMutablePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            getsockname(sock, $0, &addrLen)
+        }
+    }
+    guard getsockResult == 0 else { return nil }
+    return Int(UInt16(bigEndian: addr.sin_port))
+}
+
+/// Use infocmp to get the local xterm-ghostty terminfo source text.
+private func localXtermGhosttyTerminfoSource() -> String? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/infocmp")
+    process.arguments = ["-0", "-x", "xterm-ghostty"]
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    do {
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let source = String(data: data, encoding: .utf8), !source.isEmpty else { return nil }
+        return source.trimmingCharacters(in: .whitespacesAndNewlines)
+    } catch {
+        return nil
+    }
+}
+
+/// Build per-shell bootstrap script for remote terminals.
+/// Sets up PATH, env exports, ZDOTDIR overlay, and optional xterm-ghostty terminfo provisioning.
+private func buildInteractiveRemoteShellScript(
+    relayPort: Int,
+    terminfoSource: String?,
+    workspaceID: String
+) -> String {
+    let shellStateDir = "$HOME/.namu/relay/\(relayPort).shell"
+
+    // Common env lines applied after user dotfiles load
+    let commonLines = [
+        "export PATH=\"$HOME/.namu/bin:$PATH\"",
+        "hash -r >/dev/null 2>&1 || true",
+        "rehash >/dev/null 2>&1 || true",
+        "if [ -f \"$HOME/.namu/socket_addr\" ]; then",
+        "  export NAMU_SOCKET_PATH=\"$(cat \"$HOME/.namu/socket_addr\")\"",
+        "fi",
+        "export NAMU_WORKSPACE_ID=\"\(workspaceID)\"",
+        "export NAMU_SURFACE_ID=\"${NAMU_SURFACE_ID:-}\"",
+        "export NAMU_BUNDLED_CLI_PATH=\"$HOME/.namu/bin/namu\"",
+        "export COLORTERM=truecolor",
+        "export TERM_PROGRAM=Namu",
+        "export TERM_PROGRAM_VERSION=1.0",
+        "_namu_gsf=\"${GHOSTTY_SHELL_FEATURES:-}\"",
+        "case \"$_namu_gsf\" in *ssh-env*) ;; *) _namu_gsf=\"${_namu_gsf:+$_namu_gsf,}ssh-env\" ;; esac",
+        "case \"$_namu_gsf\" in *ssh-terminfo*) ;; *) _namu_gsf=\"${_namu_gsf:+$_namu_gsf,}ssh-terminfo\" ;; esac",
+        "export GHOSTTY_SHELL_FEATURES=\"$_namu_gsf\"",
+    ].joined(separator: "\n")
+
+    // Terminfo provisioning block — use tic to compile from source, fallback to xterm-256color
+    var terminfoBlock = ""
+    if let source = terminfoSource, !source.isEmpty {
+        terminfoBlock = """
+namu_term='xterm-256color'
+if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then
+  namu_term='xterm-ghostty'
+fi
+if [ "$namu_term" != 'xterm-ghostty' ]; then
+  (
+    command -v tic >/dev/null 2>&1 || exit 0
+    mkdir -p "$HOME/.terminfo" 2>/dev/null || exit 0
+    cat <<'NAMU_TERMINFO' | tic -x - >/dev/null 2>&1
+\(source)
+NAMU_TERMINFO
+  ) >/dev/null 2>&1 &
+  if command -v infocmp >/dev/null 2>&1 && infocmp xterm-ghostty >/dev/null 2>&1; then
+    namu_term='xterm-ghostty'
+  fi
+fi
+export TERM="$namu_term"
+"""
+    }
+
+    // Zsh .zshenv lines (chain to real ZDOTDIR .zshenv, then restore our ZDOTDIR)
+    let histfileRedirect = "if [ -z \"${HISTFILE:-}\" ] || [ \"$HISTFILE\" = \"\(shellStateDir)/.zsh_history\" ]; then export HISTFILE=\"${NAMU_REAL_ZDOTDIR:-$HOME}/.zsh_history\"; fi"
+    let zshEnvLines = [
+        "[ -f \"$NAMU_REAL_ZDOTDIR/.zshenv\" ] && source \"$NAMU_REAL_ZDOTDIR/.zshenv\"",
+        histfileRedirect,
+        "if [ -n \"${ZDOTDIR:-}\" ] && [ \"$ZDOTDIR\" != \"\(shellStateDir)\" ]; then export NAMU_REAL_ZDOTDIR=\"$ZDOTDIR\"; fi",
+        "export ZDOTDIR=\"\(shellStateDir)\"",
+    ].joined(separator: "\n")
+
+    // Zsh .zprofile lines
+    let zshProfileLines = [
+        "[ -f \"$NAMU_REAL_ZDOTDIR/.zprofile\" ] && source \"$NAMU_REAL_ZDOTDIR/.zprofile\"",
+    ].joined(separator: "\n")
+
+    // Zsh .zshrc lines (chain to real .zshrc, then apply common env)
+    let zshRCLines = [
+        "[ -f \"$NAMU_REAL_ZDOTDIR/.zshrc\" ] && source \"$NAMU_REAL_ZDOTDIR/.zshrc\"",
+        histfileRedirect,
+        commonLines,
+    ].joined(separator: "\n")
+
+    // Zsh .zlogin lines
+    let zshLoginLines = [
+        "[ -f \"$NAMU_REAL_ZDOTDIR/.zlogin\" ] && source \"$NAMU_REAL_ZDOTDIR/.zlogin\"",
+    ].joined(separator: "\n")
+
+    // Bash .bashrc lines (chain to real dotfiles, then apply common env)
+    let bashRCLines = [
+        "if [ -f \"$HOME/.bash_profile\" ]; then . \"$HOME/.bash_profile\"; elif [ -f \"$HOME/.bash_login\" ]; then . \"$HOME/.bash_login\"; elif [ -f \"$HOME/.profile\" ]; then . \"$HOME/.profile\"; fi",
+        "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
+        commonLines,
+    ].joined(separator: "\n")
+
+    var outerLines: [String] = []
+    if !terminfoBlock.isEmpty {
+        outerLines.append(terminfoBlock)
+    }
+    outerLines += [
+        "NAMU_LOGIN_SHELL=\"${SHELL:-/bin/sh}\"",
+        "case \"${NAMU_LOGIN_SHELL##*/}\" in",
+        "  zsh)",
+        "    mkdir -p \"\(shellStateDir)\"",
+        "    cat > \"\(shellStateDir)/.zshenv\" <<'NAMUZSHENV'",
+        zshEnvLines,
+        "NAMUZSHENV",
+        "    cat > \"\(shellStateDir)/.zprofile\" <<'NAMUZSHPROFILE'",
+        zshProfileLines,
+        "NAMUZSHPROFILE",
+        "    cat > \"\(shellStateDir)/.zshrc\" <<'NAMUZSHRC'",
+        zshRCLines,
+        "NAMUZSHRC",
+        "    cat > \"\(shellStateDir)/.zlogin\" <<'NAMUZSHLOGIN'",
+        zshLoginLines,
+        "NAMUZSHLOGIN",
+        "    chmod 600 \"\(shellStateDir)/.zshenv\" \"\(shellStateDir)/.zprofile\" \"\(shellStateDir)/.zshrc\" \"\(shellStateDir)/.zlogin\" >/dev/null 2>&1 || true",
+        "    export NAMU_REAL_ZDOTDIR=\"${ZDOTDIR:-$HOME}\"",
+        "    export ZDOTDIR=\"\(shellStateDir)\"",
+        "    exec \"$NAMU_LOGIN_SHELL\" -il",
+        "    ;;",
+        "  bash)",
+        "    mkdir -p \"\(shellStateDir)\"",
+        "    cat > \"\(shellStateDir)/.bashrc\" <<'NAMUBASHRC'",
+        bashRCLines,
+        "NAMUBASHRC",
+        "    chmod 600 \"\(shellStateDir)/.bashrc\" >/dev/null 2>&1 || true",
+        "    exec \"$NAMU_LOGIN_SHELL\" --rcfile \"\(shellStateDir)/.bashrc\" -i",
+        "    ;;",
+        "  *)",
+        commonLines,
+        "    exec \"$NAMU_LOGIN_SHELL\" -i",
+        "    ;;",
+        "esac",
+    ]
+
+    return outerLines.joined(separator: "\n")
+}
+
+/// Build SSH startup command that wraps the remote shell with a session-end trap.
+private func buildSSHStartupCommand(
+    workspaceID: String,
+    relayPort: Int,
+    bootstrapScript: String
+) -> String {
+    return """
+    _namu_session_ended=0
+    _namu_cleanup() {
+      [ "$_namu_session_ended" = "1" ] && return
+      _namu_session_ended=1
+      rm -f "$_namu_tmp" 2>/dev/null
+      _namu_surface_arg=""
+      [ -n "$NAMU_SURFACE_ID" ] && _namu_surface_arg="--surface $NAMU_SURFACE_ID"
+      if [ -n "$NAMU_BUNDLED_CLI_PATH" ] && [ -x "$NAMU_BUNDLED_CLI_PATH" ]; then
+        "$NAMU_BUNDLED_CLI_PATH" ssh-session-end --workspace "\(workspaceID)" --relay-port "\(relayPort)" $_namu_surface_arg 2>/dev/null || true
+      elif command -v namu >/dev/null 2>&1; then
+        namu ssh-session-end --workspace "\(workspaceID)" --relay-port "\(relayPort)" $_namu_surface_arg 2>/dev/null || true
+      fi
+    }
+    _namu_tmp="$(mktemp /tmp/namu-ssh-bootstrap.XXXXXX)"
+    cat > "$_namu_tmp" << 'NAMUBOOTSTRAP'
+    \(bootstrapScript)
+    NAMUBOOTSTRAP
+    chmod 700 "$_namu_tmp"
+    trap _namu_cleanup EXIT HUP INT TERM
+    . "$_namu_tmp"
+    _namu_exit_status=$?
+    trap - EXIT HUP INT TERM
+    _namu_cleanup
+    exit $_namu_exit_status
+    """
+}
+
+/// Handle `namu ssh [options] user@host` — create a remote workspace via IPC.
+///
+/// Options:
+///   --port <port>          SSH port (default: 22)
+///   --identity <file>      Path to identity file (private key)
+///   -o <ssh-option>        Extra SSH option (repeatable)
+///   --workspace <name>     Name for the new workspace
+///   --no-focus             Do not focus the new workspace after creation
+///   -- <args>              Extra arguments passed as remote command
+func handleSSH(_ args: [String]) throws {
+    // args[0] = executable, args[1] = "ssh"
+    let remaining = Array(args.dropFirst(2))
+
+    guard !remaining.isEmpty else {
+        throw CLIError(message: """
+        Usage: namu ssh [options] user@host [-- remote-command...]
+
+        Create a new remote workspace connected over SSH.
+
+        Options:
+          --port <port>          SSH port (default: 22)
+          --identity <file>      Path to identity file (private key)
+          -o <ssh-option>        Extra SSH option (repeatable, can appear multiple times)
+          --workspace <name>     Name for the new workspace
+          --no-focus             Do not focus the workspace after creation
+
+        Examples:
+          namu ssh user@remote.example.com
+          namu ssh --port 2222 --identity ~/.ssh/id_ed25519 user@remote.example.com
+          namu ssh -o StrictHostKeyChecking=no --workspace "Dev Remote" user@remote.example.com
+          namu ssh user@remote.example.com -- htop
+        """)
+    }
+
+    var port: Int? = nil
+    var identityFile: String? = nil
+    var sshOptions: [String] = []
+    var workspaceName: String? = nil
+    var destination: String? = nil
+    var noFocus = false
+    var extraArguments: [String] = []
+
+    var i = 0
+    var passthrough = false
+    while i < remaining.count {
+        let arg = remaining[i]
+        if passthrough {
+            extraArguments.append(arg)
+            i += 1
+            continue
+        }
+        switch arg {
+        case "--":
+            passthrough = true
+        case "--port":
+            i += 1
+            guard i < remaining.count, let p = Int(remaining[i]) else {
+                throw CLIError(message: "--port requires a numeric port number")
+            }
+            guard (1...65535).contains(p) else {
+                throw CLIError(message: "--port must be between 1 and 65535")
+            }
+            port = p
+        case "--identity":
+            i += 1
+            guard i < remaining.count else {
+                throw CLIError(message: "--identity requires a file path")
+            }
+            identityFile = remaining[i]
+        case "-o":
+            i += 1
+            guard i < remaining.count else {
+                throw CLIError(message: "-o requires an SSH option string")
+            }
+            sshOptions.append(remaining[i])
+        case "--workspace":
+            i += 1
+            guard i < remaining.count else {
+                throw CLIError(message: "--workspace requires a name")
+            }
+            workspaceName = remaining[i]
+        case "--no-focus":
+            noFocus = true
+        default:
+            if arg.hasPrefix("-") {
+                throw CLIError(message: "Unknown option '\(arg)'. Run 'namu ssh' with no arguments for usage.")
+            }
+            if destination != nil {
+                throw CLIError(message: "Unexpected extra argument '\(arg)'. Only one destination is allowed.")
+            }
+            destination = arg
+        }
+        i += 1
+    }
+
+    guard let dest = destination else {
+        throw CLIError(message: "Missing destination. Usage: namu ssh [options] user@host")
+    }
+
+    // Generate relay credentials.
+    let relayID = randomHex(16)
+    let relayToken = randomHex(32)
+    let relayPort = findFreePort() ?? 0
+    let localSocketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+
+    let client = SocketClient(path: localSocketPath)
+    defer { client.close() }
+
+    do {
+        try client.connect()
+    } catch let error as CLIError {
+        if error.message.contains("not running") || error.message.contains("No such file") {
+            throw CLIError(message: "Namu is not running")
+        }
+        throw error
+    }
+
+    // Step 1: create workspace.
+    let createParams: [String: Any] = ["title": workspaceName ?? dest]
+    let createResponse = try client.sendRequest(method: "workspace.create", params: createParams, timeout: 15)
+    guard let createResult = createResponse["result"] as? [String: Any],
+          let wsID = createResult["id"] as? String, !wsID.isEmpty else {
+        throw CLIError(message: "workspace.create did not return an id")
+    }
+
+    // Build SSH ControlSocket defaults for connection multiplexing.
+    var effectiveSSHOptions = sshOptions
+    let hasControlMaster = sshOptions.contains { $0.lowercased().hasPrefix("controlmaster") }
+    let hasControlPersist = sshOptions.contains { $0.lowercased().hasPrefix("controlpersist") }
+    let hasControlPath = sshOptions.contains { $0.lowercased().hasPrefix("controlpath") }
+    if !hasControlMaster { effectiveSSHOptions.append("ControlMaster=auto") }
+    if !hasControlPersist { effectiveSSHOptions.append("ControlPersist=600") }
+    if !hasControlPath {
+        let uid = getuid()
+        effectiveSSHOptions.append("ControlPath=/tmp/namu-ssh-\(uid)-\(relayPort)-%C")
+    }
+    // Belt-and-suspenders: set env vars on SSH command line so they're available
+    // even before the bootstrap script runs (for AcceptEnv-configured servers).
+    effectiveSSHOptions.append("SetEnv COLORTERM=truecolor")
+    effectiveSSHOptions.append("SendEnv TERM_PROGRAM TERM_PROGRAM_VERSION")
+
+    // Build bootstrap and startup scripts (now that we have wsID).
+    let terminfoSource = localXtermGhosttyTerminfoSource()
+    let bootstrapScript = buildInteractiveRemoteShellScript(
+        relayPort: relayPort,
+        terminfoSource: terminfoSource,
+        workspaceID: wsID
+    )
+    let startupCommand = buildSSHStartupCommand(
+        workspaceID: wsID,
+        relayPort: relayPort,
+        bootstrapScript: bootstrapScript
+    )
+
+    // Step 2: configure remote — rollback on failure.
+    var configParams: [String: Any] = [
+        "workspace_id": wsID,
+        "destination": dest,
+        "auto_connect": true,
+        "relay_port": relayPort,
+        "relay_id": relayID,
+        "relay_token": relayToken,
+        "local_socket_path": localSocketPath,
+    ]
+    if let p = port { configParams["port"] = p }
+    if let id = identityFile { configParams["identity_file"] = id }
+    if !effectiveSSHOptions.isEmpty { configParams["ssh_options"] = effectiveSSHOptions }
+    if !extraArguments.isEmpty {
+        configParams["terminal_startup_command"] = extraArguments.joined(separator: " ")
+    } else {
+        configParams["terminal_startup_command"] = startupCommand
+    }
+
+    let configResponse: [String: Any]
+    do {
+        configResponse = try client.sendRequest(method: "workspace.remote.configure", params: configParams, timeout: 30)
+    } catch {
+        // Rollback: close the workspace we just created.
+        let _ = try? client.sendRequest(method: "workspace.close", params: ["workspace_id": wsID], timeout: 10)
+        throw error
+    }
+
+    // Step 3: optionally focus the workspace.
+    if !noFocus {
+        let _ = try? client.sendRequest(method: "workspace.select", params: ["id": wsID], timeout: 10)
+    }
+
+    if let result = configResponse["result"] as? [String: Any] {
+        if result.isEmpty {
+            print("OK workspace=\(wsID) target=\(dest)")
+        } else {
+            prettyPrint(result)
+        }
+    } else {
+        var display = configResponse
+        display.removeValue(forKey: "jsonrpc")
+        display.removeValue(forKey: "id")
+        prettyPrint(display)
+    }
+}
+
+// MARK: - SSH Session End Subcommand
+
+/// Handle `namu ssh-session-end` — notify namu that a remote SSH terminal session has ended.
+/// Called automatically by the trap installed in the terminal startup command.
+func handleSSHSessionEnd(remaining: [String]) {
+    var workspaceID: String?
+    var relayPort: Int?
+    var surfaceID: String?
+
+    var i = 0
+    while i < remaining.count {
+        switch remaining[i] {
+        case "--workspace":
+            i += 1
+            guard i < remaining.count else {
+                FileHandle.standardError.write(Data("--workspace requires a value\n".utf8))
+                exit(1)
+            }
+            workspaceID = remaining[i]
+        case "--relay-port":
+            i += 1
+            guard i < remaining.count, let p = Int(remaining[i]) else {
+                FileHandle.standardError.write(Data("--relay-port requires a number\n".utf8))
+                exit(1)
+            }
+            relayPort = p
+        case "--surface":
+            i += 1
+            guard i < remaining.count else {
+                FileHandle.standardError.write(Data("--surface requires a value\n".utf8))
+                exit(1)
+            }
+            surfaceID = remaining[i]
+        default:
+            break
+        }
+        i += 1
+    }
+
+    guard let wsID = workspaceID else {
+        FileHandle.standardError.write(Data("--workspace is required\n".utf8))
+        exit(1)
+    }
+
+    var params: [String: Any] = ["workspace_id": wsID]
+    if let rp = relayPort { params["relay_port"] = rp }
+    if let sid = surfaceID { params["surface_id"] = sid }
+
+    // Best effort — don't fail if socket unavailable.
+    let socketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+    let client = SocketClient(path: socketPath)
+    defer { client.close() }
+    if (try? client.connect()) != nil {
+        let _ = try? client.sendRequest(
+            method: "workspace.remote.terminal_session_end",
+            params: params,
+            timeout: 5
+        )
+    }
+
+    // Best-effort ControlMaster cleanup using the known ControlPath template.
+    if let rp = relayPort {
+        let uid = getuid()
+        let controlPathPattern = "/tmp/namu-ssh-\(uid)-\(rp)-*"
+        let cleanupProcess = Process()
+        cleanupProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
+        cleanupProcess.arguments = ["-c", """
+            for sock in \(controlPathPattern); do
+                [ -S "$sock" ] && ssh -O exit -o ControlPath="$sock" dummy 2>/dev/null || true
+            done
+        """]
+        cleanupProcess.standardOutput = FileHandle.nullDevice
+        cleanupProcess.standardError = FileHandle.nullDevice
+        try? cleanupProcess.run()
+        cleanupProcess.waitUntilExit()
     }
 }
 
@@ -2414,6 +2912,24 @@ if CommandLine.arguments[1] == "__tmux-compat" {
         FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
         exit(1)
     }
+    exit(0)
+}
+
+if CommandLine.arguments[1] == "ssh" {
+    do {
+        try handleSSH(CommandLine.arguments)
+    } catch let error as CLIError {
+        FileHandle.standardError.write(Data("Error: \(error.message)\n".utf8))
+        exit(1)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
+if CommandLine.arguments[1] == "ssh-session-end" {
+    handleSSHSessionEnd(remaining: Array(CommandLine.arguments.dropFirst(2)))
     exit(0)
 }
 

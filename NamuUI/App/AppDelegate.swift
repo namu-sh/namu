@@ -443,7 +443,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let windowID = UUID()
         let wm = WorkspaceManager()
         let pm = PanelManager(workspaceManager: wm)
-        let context = WindowContext(windowID: windowID, workspaceManager: wm, panelManager: pm)
+        let rss = RemoteSessionService()
+        let context = WindowContext(windowID: windowID, workspaceManager: wm, panelManager: pm, remoteSessionService: rss)
 
         let contentView = ContentView(appDelegate: self, windowContext: context)
         let hostingController = NSHostingController(rootView: contentView)

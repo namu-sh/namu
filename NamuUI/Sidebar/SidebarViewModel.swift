@@ -94,6 +94,10 @@ final class SidebarViewModel: ObservableObject {
     /// Set by ContentView to delegate to AppDelegate.
     var onMoveWorkspaceToWindow: ((UUID, UUID) -> Void)? // (workspaceID, targetWindowID)
 
+    /// Remote session service for SSH reconnect/disconnect actions.
+    /// Set by the owning view/container after init.
+    weak var remoteSessionService: RemoteSessionService?
+
     init(workspaceManager: WorkspaceManager, panelManager: PanelManager? = nil) {
         self.workspaceManager = workspaceManager
         self.panelManager = panelManager
@@ -160,6 +164,16 @@ final class SidebarViewModel: ObservableObject {
 
     func createWorkspace() {
         panelManager?.createWorkspace()
+    }
+
+    /// Tear down and restart the SSH connection for a remote workspace.
+    func reconnectSSH(workspaceID: UUID) {
+        remoteSessionService?.reconnectRemoteConnection(workspaceID: workspaceID)
+    }
+
+    /// Disconnect (but do not remove) the SSH session for a remote workspace.
+    func disconnectSSH(workspaceID: UUID) {
+        remoteSessionService?.disconnectRemoteConnection(workspaceID: workspaceID)
     }
 
     func moveWorkspace(from source: IndexSet, to destination: Int) {

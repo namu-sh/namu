@@ -73,6 +73,12 @@ final class WorkspaceManager: ObservableObject {
             let newIdx = min(idx, workspaces.count - 1)
             selectedWorkspaceID = workspaces[newIdx].id
         }
+
+        NotificationCenter.default.post(
+            name: .namuWorkspaceDidDelete,
+            object: nil,
+            userInfo: ["workspace_id": id]
+        )
     }
 
     /// Select the workspace with the given ID.

@@ -52,13 +52,33 @@ final class BrowserPanel: Panel, ObservableObject {
 
     // MARK: - Init
 
+    /// Optional SOCKS5 proxy endpoint for remote workspaces. When non-nil, the browser
+    /// will route all traffic through this proxy.
+    var proxyEndpoint: RemoteProxyEndpoint? {
+        didSet {
+            guard oldValue != proxyEndpoint else { return }
+            // Rebuild the webview so the new proxy config takes effect.
+            if _webView != nil {
+                let newView = makeWebView(dataStore: currentDataStore)
+                if let currentURL = url {
+                    newView.load(URLRequest(url: currentURL))
+                }
+                _webView?.stopLoading()
+                _webView?.removeFromSuperview()
+                _webView?.namuDelegate = nil
+                _webView = newView
+            }
+        }
+    }
+
     init(id: UUID = UUID(), url: URL? = nil, profile: BrowserProfile? = nil,
-         dataStore: WKWebsiteDataStore? = nil) {
+         dataStore: WKWebsiteDataStore? = nil, proxyEndpoint: RemoteProxyEndpoint? = nil) {
         let resolvedProfile = profile ?? BrowserProfile(name: "Default", isDefault: true)
         self.id = id
         self.url = url
         self.title = String(localized: "browser.panel.default.title", defaultValue: "Browser")
         self.profile = resolvedProfile
+        self.proxyEndpoint = proxyEndpoint
         // Use the explicitly provided data store, or default for the default profile,
         // or non-persistent for named profiles (caller should pass the correct store).
         if let ds = dataStore {
@@ -79,6 +99,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private func makeWebView(dataStore: WKWebsiteDataStore) -> NamuWebView {
         var config = NamuWebView.Config()
         config.websiteDataStore = dataStore
+        if let endpoint = proxyEndpoint {
+            config.proxyHost = endpoint.host
+            config.proxyPort = endpoint.port
+        }
         let view = NamuWebView(frame: .zero, namuConfig: config)
         view.namuDelegate = self
         return view

@@ -46,14 +46,11 @@ jobs:
           path: build/Namu.xcarchive
           retention-days: 30
 
-  build-daemon:
-    name: Build Daemon (multi-arch)
+  build-daemon-and-inject-manifest:
+    name: Build Daemon (all platforms) + Inject Manifest
     runs-on: macos-15
-    timeout-minutes: 15
-    strategy:
-      matrix:
-        goos: [darwin]
-        goarch: [arm64, amd64]
+    timeout-minutes: 20
+    needs: [build-app]
     steps:
       - uses: actions/checkout@v4
 
@@ -62,24 +59,44 @@ jobs:
         with:
           go-version: '1.22'
 
-      - name: Build
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          cd daemon/remote
-          go build -o namud-remote-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/namud-remote/
+      - name: Download app archive
+        uses: actions/download-artifact@v4
+        with:
+          name: namu-archive
+          path: build
 
-      - name: Upload Binary
+      - name: Build remote daemon (all platforms) and generate manifest
+        run: |
+          APP_PLIST="build/Namu.xcarchive/Products/Applications/Namu.app/Contents/Info.plist"
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
+          ./scripts/build_remote_daemon.sh "$APP_VERSION"
+
+      - name: Inject manifest into app Info.plist
+        run: |
+          APP_PLIST="build/Namu.xcarchive/Products/Applications/Namu.app/Contents/Info.plist"
+          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",",":")))' build/remote-daemon/manifest.json)"
+          plutil -remove NamuRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
+          plutil -insert NamuRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
+
+      - name: Upload daemon binaries
         uses: actions/upload-artifact@v4
         with:
-          name: namud-remote-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: daemon/remote/namud-remote-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: namud-remote-binaries
+          path: build/remote-daemon/
+          if-no-files-found: error
+
+      - name: Upload updated app archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: namu-archive
+          path: build/Namu.xcarchive
+          overwrite: true
+          retention-days: 30
 
   create-release:
     name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: [build-app, build-daemon]
+    needs: [build-app, build-daemon-and-inject-manifest]
     permissions:
       contents: write
     steps:
@@ -95,5 +112,6 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/namud-remote-*/namud-remote-*
+            artifacts/namu-archive/**
+            artifacts/namud-remote-binaries/**
           draft: true

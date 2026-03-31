@@ -71,7 +71,9 @@ struct SidebarView: View {
                                     availableWindows: viewModel.availableWindows,
                                     onMoveToWindow: viewModel.availableWindows.isEmpty ? nil : { windowID in
                                         viewModel.moveWorkspaceToWindow(workspaceID: item.id, targetWindowID: windowID)
-                                    }
+                                    },
+                                    onReconnectSSH: item.isRemoteSSH ? { viewModel.reconnectSSH(workspaceID: item.id) } : nil,
+                                    onDisconnectSSH: item.isRemoteSSH ? { viewModel.disconnectSSH(workspaceID: item.id) } : nil
                                 )
                                 // Note: .equatable() removed — live isSelected from viewModel.selection
                                 // ensures sidebar always reflects current selection state.

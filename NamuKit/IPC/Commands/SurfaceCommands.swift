@@ -1,4 +1,5 @@
 import Foundation
+import Bonsplit
 
 /// Handlers for the surface.* command namespace.
 /// Surfaces map to panels in Namu's domain model.
@@ -37,6 +38,12 @@ final class SurfaceCommands {
             handler: { [weak self] req in try await self?.reportTTY(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "ports_kick", execution: .mainActor, safety: .safe,
             handler: { [weak self] req in try await self?.portsKick(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "surface.reorder", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.reorder(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "surface.drag_to_split", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.dragToSplit(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "surface.move", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.move(req) ?? .notAvailable(req) }))
     }
 
     // MARK: - Helpers
@@ -359,6 +366,219 @@ final class SurfaceCommands {
         return .success(id: req.id, result: .object([
             "surface_id":   .string(panelID.uuidString),
             "workspace_id": .string(workspaceID.uuidString)
+        ]))
+    }
+
+    // MARK: - surface.reorder
+
+    private func reorder(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        guard let surfaceValue = params["surface_id"], case .string(let surfStr) = surfaceValue,
+              let surfaceID = UUID(uuidString: surfStr) else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: surface_id")
+        }
+
+        guard let workspaceID = panelManager.workspaceIDForPanel(surfaceID) else {
+            throw JSONRPCError(code: -32001, message: "Surface not found")
+        }
+
+        let index: Int?
+        if let idxValue = params["index"], case .int(let i) = idxValue {
+            index = i
+        } else {
+            index = nil
+        }
+
+        let beforeID: UUID?
+        if let bValue = params["before_surface_id"], case .string(let bStr) = bValue {
+            beforeID = UUID(uuidString: bStr)
+        } else {
+            beforeID = nil
+        }
+
+        let afterID: UUID?
+        if let aValue = params["after_surface_id"], case .string(let aStr) = aValue {
+            afterID = UUID(uuidString: aStr)
+        } else {
+            afterID = nil
+        }
+
+        let posCount = [index != nil, beforeID != nil, afterID != nil].filter { $0 }.count
+        guard posCount == 1 else {
+            throw JSONRPCError(code: -32602, message: "Exactly one of index, before_surface_id, or after_surface_id required")
+        }
+
+        let targetIndex: Int
+        if let i = index {
+            targetIndex = i
+        } else if let bid = beforeID {
+            let allPanels = panelManager.allPanelIDs(in: workspaceID)
+            guard let beforeIdx = allPanels.firstIndex(of: bid) else {
+                throw JSONRPCError(code: -32001, message: "before_surface_id not found in workspace")
+            }
+            targetIndex = beforeIdx
+        } else if let aid = afterID {
+            let allPanels = panelManager.allPanelIDs(in: workspaceID)
+            guard let afterIdx = allPanels.firstIndex(of: aid) else {
+                throw JSONRPCError(code: -32001, message: "after_surface_id not found in workspace")
+            }
+            targetIndex = afterIdx + 1
+        } else {
+            throw JSONRPCError(code: -32602, message: "No position specified")
+        }
+
+        guard panelManager.reorderSurface(panelID: surfaceID, inWorkspace: workspaceID, toIndex: targetIndex) else {
+            throw JSONRPCError(code: -32001, message: "Failed to reorder surface")
+        }
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(surfaceID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "index":        .int(targetIndex),
+        ]))
+    }
+
+    // MARK: - surface.drag_to_split
+
+    private func dragToSplit(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        guard let surfaceValue = params["surface_id"], case .string(let surfStr) = surfaceValue,
+              let surfaceID = UUID(uuidString: surfStr) else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: surface_id")
+        }
+
+        guard let dirValue = params["direction"], case .string(let dirStr) = dirValue else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: direction (left|right|up|down)")
+        }
+
+        let splitDirection: SplitDirection
+        let insertFirst: Bool
+        switch dirStr.lowercased() {
+        case "left":
+            splitDirection = .horizontal
+            insertFirst = true
+        case "right":
+            splitDirection = .horizontal
+            insertFirst = false
+        case "up":
+            splitDirection = .vertical
+            insertFirst = true
+        case "down":
+            splitDirection = .vertical
+            insertFirst = false
+        default:
+            throw JSONRPCError(code: -32602, message: "Invalid direction: \(dirStr). Must be left|right|up|down")
+        }
+
+        guard let workspaceID = panelManager.workspaceIDForPanel(surfaceID) else {
+            throw JSONRPCError(code: -32001, message: "Surface not found")
+        }
+
+        let engine = panelManager.engine(for: workspaceID)
+        guard let newPaneID = engine.splitPaneWithMovingTab(id: surfaceID, direction: splitDirection, insertFirst: insertFirst) else {
+            throw JSONRPCError(code: -32001, message: "Failed to drag surface to split")
+        }
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(surfaceID.uuidString),
+            "pane_id":      .string(newPaneID.id.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "direction":    .string(dirStr),
+        ]))
+    }
+
+    // MARK: - surface.move
+
+    private func move(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        // Required: surface_id
+        guard let surfValue = params["surface_id"], case .string(let surfStr) = surfValue,
+              let surfaceID = UUID(uuidString: surfStr) else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: surface_id")
+        }
+
+        guard let sourceWorkspaceID = panelManager.workspaceIDForPanel(surfaceID) else {
+            throw JSONRPCError(code: -32001, message: "Surface not found")
+        }
+
+        // Optional: pane_id (split container UUID), workspace_id, index, focus
+        let targetPaneID: Bonsplit.PaneID?
+        if let pValue = params["pane_id"], case .string(let pStr) = pValue, let uuid = UUID(uuidString: pStr) {
+            targetPaneID = Bonsplit.PaneID(id: uuid)
+        } else {
+            targetPaneID = nil
+        }
+
+        let targetWorkspaceID: UUID?
+        if let wValue = params["workspace_id"], case .string(let wStr) = wValue {
+            targetWorkspaceID = UUID(uuidString: wStr)
+        } else {
+            targetWorkspaceID = nil
+        }
+
+        // TODO: cross-window moves require finding the target window's PanelManager
+        // via AppDelegate.shared?.windowContexts — not yet implemented.
+
+        let index: Int?
+        if let iValue = params["index"], case .int(let i) = iValue {
+            index = i
+        } else {
+            index = nil
+        }
+
+        let focus: Bool
+        if let fValue = params["focus"], case .bool(let f) = fValue {
+            focus = f
+        } else {
+            focus = true
+        }
+
+        // Determine destination workspace: explicit workspace_id > pane_id's workspace > source workspace
+        let destWorkspaceID: UUID
+        if let twid = targetWorkspaceID {
+            destWorkspaceID = twid
+        } else if let tpid = targetPaneID {
+            // Find which workspace contains this pane
+            let found = panelManager.engines.first { _, eng in eng.allPaneIDs.contains(tpid) }
+            destWorkspaceID = found?.key ?? sourceWorkspaceID
+        } else {
+            destWorkspaceID = sourceWorkspaceID
+        }
+
+        // Code path 1: Same-workspace move (reorder or move between panes)
+        if destWorkspaceID == sourceWorkspaceID {
+            if let tpid = targetPaneID {
+                guard panelManager.moveSurface(panelID: surfaceID, toPaneID: tpid, inWorkspace: destWorkspaceID, atIndex: index, focus: focus) else {
+                    throw JSONRPCError(code: -32001, message: "Failed to move surface within workspace")
+                }
+            } else if let idx = index {
+                guard panelManager.reorderSurface(panelID: surfaceID, inWorkspace: destWorkspaceID, toIndex: idx) else {
+                    throw JSONRPCError(code: -32001, message: "Failed to reorder surface")
+                }
+            }
+            return .success(id: req.id, result: .object([
+                "surface_id":   .string(surfaceID.uuidString),
+                "workspace_id": .string(destWorkspaceID.uuidString),
+            ]))
+        }
+
+        // Code path 2: Cross-workspace move (detach + attach)
+        guard let transfer = panelManager.detachPanel(id: surfaceID) else {
+            throw JSONRPCError(code: -32001, message: "Failed to detach surface")
+        }
+
+        guard let attached = panelManager.attachPanel(transfer, inWorkspace: destWorkspaceID, paneID: targetPaneID, atIndex: index, focus: focus) else {
+            // Rollback: reattach to source workspace
+            panelManager.attachPanel(transfer, inWorkspace: sourceWorkspaceID)
+            throw JSONRPCError(code: -32001, message: "Failed to attach surface to target workspace")
+        }
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(attached.uuidString),
+            "workspace_id": .string(destWorkspaceID.uuidString),
         ]))
     }
 }

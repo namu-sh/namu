@@ -131,6 +131,16 @@ final class NamuWebView: WKWebView {
             customUserAgent = ua
         }
 
+        // Apply SOCKS5 proxy configuration when a proxy host/port is specified.
+        if let proxyHost = namuConfig.proxyHost, let proxyPort = namuConfig.proxyPort {
+            let proxyConfig: [AnyHashable: Any] = [
+                kCFNetworkProxiesSOCKSEnable: true,
+                kCFNetworkProxiesSOCKSProxy: proxyHost,
+                kCFNetworkProxiesSOCKSPort: proxyPort,
+            ]
+            wkConfig.websiteDataStore.setValue(proxyConfig, forKey: "_proxyConfiguration")
+        }
+
         navigationDelegate = self
         uiDelegate = self
     }

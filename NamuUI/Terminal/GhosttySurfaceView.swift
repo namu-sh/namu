@@ -253,8 +253,9 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     private var attentionObserver: Any?
     private var lastScrollEventTime: CFTimeInterval = 0
 
-    /// Text accumulated during a single keyDown → interpretKeyEvents round trip.
-    private var keyTextAccumulator: [String]?
+    /// Accumulates text produced by `insertText` during a `keyDown` → `interpretKeyEvents` cycle.
+    /// Non-nil only while inside a `keyDown` handler. Used to batch IME commits.
+    private var keyTextAccumulator: String?
     /// Whether insertText was called during the current interpretKeyEvents cycle.
     private var didInsertText: Bool = false
     private var markedText = NSMutableAttributedString()
@@ -676,7 +677,10 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         }
 
         // Phase 3: IME / full key routing via interpretKeyEvents.
-        keyTextAccumulator = []
+        let markedTextBefore = markedText.length > 0
+        let keyboardIDBefore: String? = markedTextBefore ? nil : KeyboardLayout.id
+
+        keyTextAccumulator = ""
         defer { keyTextAccumulator = nil }
 
         // Translate mods for macos-option-as-alt support
@@ -711,15 +715,40 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         interpretKeyEvents([eventForInterpret])
         TypingTiming.logExit(label: "interpretKeyEvents", startTime: interpretStart)
 
-        // If interpretKeyEvents didn't produce any text (e.g. Enter, Backspace, arrows,
-        // Tab, Escape), send the raw key event directly to Ghostty.
+        let accumulatedText = keyTextAccumulator ?? ""
+        keyTextAccumulator = nil  // prevent defer double-nil, safe to nil again
+
+        // Keyboard layout changed during non-composition — sync preedit and return.
+        if !markedTextBefore, let kbBefore = keyboardIDBefore, kbBefore != KeyboardLayout.id {
+            GhosttyKeyboard.sendPreedit(to: surface, text: markedText.string.isEmpty ? nil : markedText.string)
+            return
+        }
+
+        // If interpretKeyEvents produced accumulated text, send it to Ghostty.
+        if !accumulatedText.isEmpty {
+            TypingTiming.logEntry(label: "ghostty_surface_text_batched")
+            let textSendStart = CACurrentMediaTime()
+            GhosttyKeyboard.sendText(to: surface, text: accumulatedText)
+            TypingTiming.logExit(label: "ghostty_surface_text_batched", startTime: textSendStart)
+            let keyDownTotal = CACurrentMediaTime() - keyDownStart
+            TypingTiming.logBreakdown(phases: [
+                ("mod_trans", CACurrentMediaTime() - modTransStart - keyDownTotal),
+                ("interpret", CACurrentMediaTime() - interpretStart),
+                ("keyDown_total", keyDownTotal)
+            ])
+            return
+        }
+
+        // No text produced — send raw key event with composing flag.
+        // composing = true while in composition OR entering composition this keystroke.
         if !didInsertText {
             let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
             var keyEvent = GhosttyKeyboard.makeKeyInput(
                 action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS,
                 mods: mods,
                 keycode: UInt32(event.keyCode),
-                unshiftedCodepoint: unshiftedCodepoint(from: event)
+                unshiftedCodepoint: unshiftedCodepoint(from: event),
+                composing: markedText.length > 0 || markedTextBefore
             )
             let text = event.characters ?? ""
             TypingTiming.logEntry(label: "ghostty_surface_key")
@@ -785,6 +814,10 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     func insertText(_ string: Any, replacementRange: NSRange) {
         TypingTiming.logEntry(label: "insertText")
         let insertTextStart = CACurrentMediaTime()
+
+        // Clear composition state since we're inserting committed text.
+        unmarkText()
+
         let text: String
         if let attributed = string as? NSAttributedString {
             text = attributed.string
@@ -796,60 +829,49 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         guard !text.isEmpty else { return }
         didInsertText = true
 
+        // If inside a keyDown cycle, accumulate text for batched delivery.
         if keyTextAccumulator != nil {
-            keyTextAccumulator?.append(text)
-        } else {
-            // Committed text outside a keyDown round-trip (e.g. voice input).
-            guard let surface else { return }
-            TypingTiming.logEntry(label: "ghostty_surface_text")
-            let textSendStart = CACurrentMediaTime()
-            GhosttyKeyboard.sendText(to: surface, text: text)
-            TypingTiming.logExit(label: "ghostty_surface_text", startTime: textSendStart)
+            keyTextAccumulator! += text
+            TypingTiming.logExit(label: "insertText", startTime: insertTextStart)
+            return
         }
 
-        // Flush accumulated text to Ghostty at the end of each keyDown cycle.
-        flushKeyTextAccumulatorIfReady()
+        // Committed text outside a keyDown round-trip (e.g. voice input).
+        guard let surface else { return }
+        TypingTiming.logEntry(label: "ghostty_surface_text")
+        let textSendStart = CACurrentMediaTime()
+        GhosttyKeyboard.sendText(to: surface, text: text)
+        TypingTiming.logExit(label: "ghostty_surface_text", startTime: textSendStart)
         TypingTiming.logExit(label: "insertText", startTime: insertTextStart)
-    }
-
-    private func flushKeyTextAccumulatorIfReady() {
-        guard let accumulator = keyTextAccumulator,
-              let surface else { return }
-        for text in accumulator {
-            let action = GHOSTTY_ACTION_PRESS
-            let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue)
-            var keyEvent = GhosttyKeyboard.makeKeyInput(
-                action: action,
-                mods: mods,
-                keycode: 0
-            )
-            text.withCString { ptr in
-                keyEvent.text = ptr
-                _ = GhosttyKeyboard.sendKey(to: surface, key: keyEvent)
-            }
-        }
-        keyTextAccumulator = []
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         TypingTiming.logEntry(label: "preedit_setMarkedText")
         let preeditStart = CACurrentMediaTime()
-        markedText = NSMutableAttributedString()
-        if let attributed = string as? NSAttributedString {
-            markedText.append(attributed)
-        } else if let plain = string as? String {
-            markedText.append(NSAttributedString(string: plain))
+        switch string {
+        case let v as NSAttributedString:
+            markedText = NSMutableAttributedString(attributedString: v)
+        case let v as String:
+            markedText = NSMutableAttributedString(string: v)
+        default:
+            markedText = NSMutableAttributedString()
         }
-        let text = markedText.string.isEmpty ? nil : markedText.string
-        guard let surface else { return }
-        GhosttyKeyboard.sendPreedit(to: surface, text: text)
+        // If not inside a keyDown cycle, sync preedit immediately.
+        // This handles external events like changing keyboard layouts while composing.
+        if keyTextAccumulator == nil {
+            guard let surface else { return }
+            GhosttyKeyboard.sendPreedit(to: surface, text: markedText.string.isEmpty ? nil : markedText.string)
+            inputContext?.invalidateCharacterCoordinates()
+        }
         TypingTiming.logExit(label: "preedit_setMarkedText", startTime: preeditStart)
     }
 
     func unmarkText() {
-        markedText = NSMutableAttributedString()
+        guard markedText.length > 0 else { return }
+        markedText.mutableString.setString("")
         guard let surface else { return }
         GhosttyKeyboard.sendPreedit(to: surface, text: nil)
+        inputContext?.invalidateCharacterCoordinates()
     }
 
     func hasMarkedText() -> Bool {
@@ -863,7 +885,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
 
     func selectedRange() -> NSRange {
-        NSRange(location: NSNotFound, length: 0)
+        NSRange(location: 0, length: 0)
     }
 
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
@@ -874,7 +896,9 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
 
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
         guard let surface else { return .zero }
-        let (x, y, w, h) = GhosttyKeyboard.imePoint(surface: surface)
+        let (x, y, imeW, h) = GhosttyKeyboard.imePoint(surface: surface)
+        // Dictation expects a zero-width caret rect for insertion points.
+        let w: CGFloat = (range.length == 0 && imeW > 0) ? 0 : imeW
         // Ghostty returns top-origin Y; convert to screen coordinates.
         let viewRect = NSRect(x: x, y: bounds.height - y, width: w, height: h)
         guard let window else { return viewRect }
@@ -1032,6 +1056,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             super.otherMouseDown(with: event)
             return
         }
+        onActivate?()
         let _ = window?.makeFirstResponder(self)
         guard let surface else { return }
         let point = convert(event.locationInWindow, from: nil)
@@ -1078,6 +1103,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
 
     override func mouseExited(with event: NSEvent) {
+        // Don't send mouse-exit during drags — it breaks selection tracking.
+        guard NSEvent.pressedMouseButtons == 0 else { return }
         guard let surface else { return }
         let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
         // Send (-1, -1) to signal mouse left the surface.
@@ -1125,12 +1152,29 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
 
     @objc func paste(_ sender: Any?) {
         NamuDebug.log("[Namu] paste called on session=\(session?.id.uuidString.prefix(8) ?? "nil") isFirstResponder=\(window?.firstResponder === self)")
-        let pb = NSPasteboard.general
+        let pasteboard = NSPasteboard.general
 
-        // If the clipboard has an image, route through ImageTransfer
-        if pb.canReadObject(forClasses: [NSImage.self], options: nil),
+        // If the clipboard has usable text, let Ghostty handle it natively.
+        if PasteboardHelper.stringContents(from: pasteboard) != nil {
+            guard let surface else { return }
+            ghostty_surface_binding_action(surface, "paste_from_clipboard", UInt("paste_from_clipboard".utf8.count))
+            return
+        }
+
+        // If the clipboard has image-only content, encode and transfer via ImageTransfer.
+        if PasteboardHelper.hasImageData(from: pasteboard),
+           let pngData = PasteboardHelper.imageAsPNG(from: pasteboard),
            let sess = session {
-            ImageTransfer.transferClipboardImage(session: sess) { [weak self] result in
+            let tempURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("namu-clipboard-\(UUID().uuidString).png")
+            do {
+                try pngData.write(to: tempURL)
+            } catch {
+                NamuDebug.log("[Namu] Failed to write clipboard image to temp file: \(error)")
+                return
+            }
+            ImageTransfer.transfer(url: tempURL, session: sess) { [weak self] result in
+                try? FileManager.default.removeItem(at: tempURL)
                 guard let self, let surface = self.surface else { return }
                 switch result {
                 case .kittyInline(let seq):
@@ -1144,10 +1188,9 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             return
         }
 
-        // Default: let Ghostty handle text paste via its own binding
-        if let surface {
-            ghostty_surface_binding_action(surface, "paste_from_clipboard", UInt("paste_from_clipboard".utf8.count))
-        }
+        // Fallback: let Ghostty handle paste anyway.
+        guard let surface else { return }
+        ghostty_surface_binding_action(surface, "paste_from_clipboard", UInt("paste_from_clipboard".utf8.count))
     }
 
     // MARK: - Drag and drop
@@ -1192,6 +1235,57 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             return true
         }
         return false
+    }
+
+    // MARK: - Accessibility
+
+    override func isAccessibilityElement() -> Bool { true }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .textArea }
+
+    override func accessibilityRoleDescription() -> String? {
+        NSAccessibility.Role.textArea.description(with: nil)
+    }
+
+    override func accessibilityHelp() -> String? {
+        "Terminal content area"
+    }
+
+    override func accessibilityValue() -> Any? {
+        // Return the current selection text, or empty string for dictation compatibility.
+        guard let surface else { return "" }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return "" }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return "" }
+        return String(cString: ptr)
+    }
+
+    override func setAccessibilityValue(_ value: Any?) {
+        // Allow dictation and VoiceOver to inject text into the terminal.
+        let text: String
+        if let attributed = value as? NSAttributedString {
+            text = attributed.string
+        } else if let str = value as? String {
+            text = str
+        } else {
+            return
+        }
+        guard !text.isEmpty else { return }
+        insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
+    override func accessibilitySelectedTextRange() -> NSRange {
+        selectedRange()
+    }
+
+    override func accessibilitySelectedText() -> String? {
+        guard let surface else { return nil }
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_selection(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        return String(cString: ptr)
     }
 }
 

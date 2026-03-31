@@ -197,6 +197,8 @@ struct ContentView: View {
                 }
                 // Secondary windows don't start services — they share the singleton ServiceContainer.
                 servicesStarted = true
+                sidebarViewModel.remoteSessionService = ctx.remoteSessionService
+                ctx.panelManager.remoteSessionService = ctx.remoteSessionService
                 if let selectedID = workspaceManager.selectedWorkspaceID {
                     sidebarViewModel.selectWorkspace(id: selectedID)
                 } else if let firstID = workspaceManager.workspaces.first?.id {
@@ -231,6 +233,7 @@ struct ContentView: View {
                     appDelegate.serviceContainer = container
                     aiChatViewModel = AIChatViewModel(namuAI: container.namuAI)
                     sidebarViewModel.setNotificationService(container.notificationService)
+                    sidebarViewModel.remoteSessionService = container.remoteSessionService
                     servicesStarted = true
 
                     // Restore window frame from session (best-effort: window must exist).

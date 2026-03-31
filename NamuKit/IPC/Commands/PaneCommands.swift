@@ -43,6 +43,10 @@ final class PaneCommands {
             handler: { [weak self] req in try await self?.pinPane(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "pane.unpin", execution: .mainActor, safety: .normal,
             handler: { [weak self] req in try await self?.unpinPane(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "pane.break", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.breakPane(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "pane.swap", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.swap(req) ?? .notAvailable(req) }))
 
         // Dangerous commands → .mainActor + .dangerous
         registry.register(HandlerRegistration(method: "pane.send_keys", execution: .mainActor, safety: .dangerous,
@@ -471,6 +475,122 @@ final class PaneCommands {
             "file":         .string(fileURL?.path ?? "")
         ]))
     }
+
+    // MARK: - pane.break
+
+    private func breakPane(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        // Resolve source panel (optional pane_id or surface_id, defaults to focused)
+        let panelID: UUID
+        if let pValue = params["pane_id"], case .string(let pStr) = pValue, let pid = UUID(uuidString: pStr) {
+            panelID = pid
+        } else if let sValue = params["surface_id"], case .string(let sStr) = sValue, let sid = UUID(uuidString: sStr) {
+            panelID = sid
+        } else {
+            guard let wsID = workspaceManager.selectedWorkspaceID,
+                  let focused = panelManager.focusedPanelID(in: wsID) else {
+                throw JSONRPCError(code: -32001, message: "No focused panel")
+            }
+            panelID = focused
+        }
+
+        guard let sourceWorkspaceID = panelManager.workspaceIDForPanel(panelID) else {
+            throw JSONRPCError(code: -32001, message: "Panel not found")
+        }
+
+        // Don't break the last panel in a workspace
+        let panelCount = panelManager.allPanelIDs(in: sourceWorkspaceID).count
+        guard panelCount > 1 else {
+            throw JSONRPCError(code: -32001, message: "Cannot break the only panel in a workspace")
+        }
+
+        let focus: Bool
+        if let fValue = params["focus"], case .bool(let f) = fValue {
+            focus = f
+        } else {
+            focus = true
+        }
+
+        // Step 1: Detach the panel
+        guard let transfer = panelManager.detachPanel(id: panelID) else {
+            throw JSONRPCError(code: -32001, message: "Failed to detach panel")
+        }
+
+        // Step 2: Create new workspace (bootstrapped with a default terminal)
+        let newWorkspace = panelManager.createWorkspace(title: transfer.title)
+
+        // Step 3: Close the default terminal bootstrapped into the new workspace
+        let defaultPanels = panelManager.allPanelIDs(in: newWorkspace.id)
+        for defaultID in defaultPanels {
+            panelManager.closePanel(id: defaultID)
+        }
+
+        // Step 4: Attach our panel to the new workspace
+        guard let attached = panelManager.attachPanel(transfer, inWorkspace: newWorkspace.id, focus: true) else {
+            // Rollback: reattach to source workspace and delete the empty new workspace
+            panelManager.attachPanel(transfer, inWorkspace: sourceWorkspaceID)
+            panelManager.deleteWorkspace(id: newWorkspace.id)
+            throw JSONRPCError(code: -32001, message: "Failed to attach panel to new workspace")
+        }
+
+        if focus {
+            workspaceManager.selectWorkspace(id: newWorkspace.id)
+        }
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(attached.uuidString),
+            "workspace_id": .string(newWorkspace.id.uuidString),
+            "title":        .string(newWorkspace.title),
+        ]))
+    }
+
+    // MARK: - pane.swap
+
+    private func swap(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        guard let paneValue = params["pane_id"], case .string(let paneStr) = paneValue,
+              let paneID = UUID(uuidString: paneStr) else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: pane_id")
+        }
+
+        guard let targetValue = params["target_pane_id"], case .string(let targetStr) = targetValue,
+              let targetPaneID = UUID(uuidString: targetStr) else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: target_pane_id")
+        }
+
+        guard paneID != targetPaneID else {
+            throw JSONRPCError(code: -32602, message: "Cannot swap a pane with itself")
+        }
+
+        let focus: Bool
+        if let fValue = params["focus"], case .bool(let f) = fValue {
+            focus = f
+        } else {
+            focus = true
+        }
+
+        guard let wsID = panelManager.workspaceIDForPanel(paneID) else {
+            throw JSONRPCError(code: -32001, message: "Source pane not found")
+        }
+        guard let targetWsID = panelManager.workspaceIDForPanel(targetPaneID),
+              targetWsID == wsID else {
+            throw JSONRPCError(code: -32001, message: "Target pane not found or in different workspace")
+        }
+
+        guard panelManager.swapPanels(panelID: paneID, targetPanelID: targetPaneID, inWorkspace: wsID, focus: focus) else {
+            throw JSONRPCError(code: -32001, message: "Failed to swap panes")
+        }
+
+        return .success(id: req.id, result: .object([
+            "pane_id":        .string(paneID.uuidString),
+            "target_pane_id": .string(targetPaneID.uuidString),
+            "workspace_id":   .string(wsID.uuidString),
+            "swapped":        .bool(true),
+        ]))
+    }
+
 }
 
 // MARK: - Helpers

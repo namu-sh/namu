@@ -85,6 +85,32 @@ final class BonsplitLayoutEngine: LayoutEngine, BonsplitDelegate {
         controller.closeTab(tabID)
     }
 
+    /// Move a tab to a different pane (or reorder within the same pane).
+    @discardableResult
+    func moveTab(_ tabID: Bonsplit.TabID, toPane paneID: Bonsplit.PaneID, atIndex index: Int? = nil) -> Bool {
+        controller.moveTab(tabID, toPane: paneID, atIndex: index)
+    }
+
+    /// Reorder a tab within its current pane.
+    @discardableResult
+    func reorderTab(_ tabID: Bonsplit.TabID, toIndex: Int) -> Bool {
+        controller.reorderTab(tabID, toIndex: toIndex)
+    }
+
+    /// Split a pane by moving an existing tab into the new pane.
+    /// Mirrors the drag-to-edge interaction: the tab is removed from its source pane
+    /// and placed into the newly created pane on the chosen side.
+    @discardableResult
+    func splitPaneWithMovingTab(
+        id panelID: UUID,
+        direction: SplitDirection,
+        insertFirst: Bool
+    ) -> Bonsplit.PaneID? {
+        guard let tabID = panelIDToTab[panelID] else { return nil }
+        let orientation: Bonsplit.SplitOrientation = direction == .horizontal ? .horizontal : .vertical
+        return controller.splitPane(nil, orientation: orientation, movingTab: tabID, insertFirst: insertFirst)
+    }
+
     func focusPane(_ paneID: Bonsplit.PaneID) {
         controller.focusPane(paneID)
     }
