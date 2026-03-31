@@ -23,23 +23,87 @@ enum KeyboardShortcutSettings {
         // App UI
         case toggleSidebar
 
+        // Windows
+        case newWindow
+        case closeWindow
+
+        // Notifications
+        case showNotifications
+        case jumpToUnread
+
+        // Panel utilities
+        case equalizeSplits
+
+        // Browser
+        case openBrowser
+        case toggleBrowserDevTools
+        case showBrowserConsole
+
+        // Surface navigation
+        case nextSurface
+        case prevSurface
+
+        // Workspace by number
+        case selectWorkspaceByNumber
+
+        // Surface by number
+        case selectSurfaceByNumber
+
+        // Pane flash
+        case triggerFlash
+
+        // File system
+        case openFolder
+
+        // Feedback
+        case sendFeedback
+
+        // Browser splits
+        case splitBrowserRight
+        case splitBrowserDown
+
+        // Tab management
+        case renameTab
+
+        // Terminal copy mode
+        case toggleTerminalCopyMode
+
         var id: String { rawValue }
 
         var label: String {
             switch self {
-            case .newWorkspace:     return "New Workspace"
-            case .closeWorkspace:   return "Close Workspace"
-            case .renameWorkspace:  return "Rename Workspace"
-            case .nextWorkspace:    return "Next Workspace"
-            case .prevWorkspace:    return "Previous Workspace"
-            case .splitRight:       return "Split Right"
-            case .splitDown:        return "Split Down"
-            case .toggleSplitZoom:  return "Toggle Pane Zoom"
-            case .focusLeft:        return "Focus Pane Left"
-            case .focusRight:       return "Focus Pane Right"
-            case .focusUp:          return "Focus Pane Up"
-            case .focusDown:        return "Focus Pane Down"
-            case .toggleSidebar:    return "Toggle Sidebar"
+            case .newWorkspace:     return String(localized: "keyboard.action.newWorkspace", defaultValue: "New Workspace")
+            case .closeWorkspace:   return String(localized: "keyboard.action.closeWorkspace", defaultValue: "Close Workspace")
+            case .renameWorkspace:  return String(localized: "keyboard.action.renameWorkspace", defaultValue: "Rename Workspace")
+            case .nextWorkspace:    return String(localized: "keyboard.action.nextWorkspace", defaultValue: "Next Workspace")
+            case .prevWorkspace:    return String(localized: "keyboard.action.prevWorkspace", defaultValue: "Previous Workspace")
+            case .splitRight:       return String(localized: "keyboard.action.splitRight", defaultValue: "Split Right")
+            case .splitDown:        return String(localized: "keyboard.action.splitDown", defaultValue: "Split Down")
+            case .toggleSplitZoom:  return String(localized: "keyboard.action.toggleSplitZoom", defaultValue: "Toggle Pane Zoom")
+            case .focusLeft:        return String(localized: "keyboard.action.focusLeft", defaultValue: "Focus Pane Left")
+            case .focusRight:       return String(localized: "keyboard.action.focusRight", defaultValue: "Focus Pane Right")
+            case .focusUp:          return String(localized: "keyboard.action.focusUp", defaultValue: "Focus Pane Up")
+            case .focusDown:        return String(localized: "keyboard.action.focusDown", defaultValue: "Focus Pane Down")
+            case .toggleSidebar:         return String(localized: "keyboard.action.toggleSidebar", defaultValue: "Toggle Sidebar")
+            case .newWindow:             return String(localized: "keyboard.action.newWindow", defaultValue: "New Window")
+            case .closeWindow:           return String(localized: "keyboard.action.closeWindow", defaultValue: "Close Window")
+            case .showNotifications:     return String(localized: "keyboard.action.showNotifications", defaultValue: "Show Notifications")
+            case .jumpToUnread:          return String(localized: "keyboard.action.jumpToUnread", defaultValue: "Jump to Unread")
+            case .equalizeSplits:        return String(localized: "keyboard.action.equalizeSplits", defaultValue: "Equalize Splits")
+            case .openBrowser:           return String(localized: "keyboard.action.openBrowser", defaultValue: "Open Browser")
+            case .toggleBrowserDevTools: return String(localized: "keyboard.action.toggleBrowserDevTools", defaultValue: "Toggle Browser Dev Tools")
+            case .showBrowserConsole:    return String(localized: "keyboard.action.showBrowserConsole", defaultValue: "Show Browser Console")
+            case .nextSurface:               return String(localized: "keyboard.action.nextSurface", defaultValue: "Next Surface")
+            case .prevSurface:               return String(localized: "keyboard.action.prevSurface", defaultValue: "Previous Surface")
+            case .selectWorkspaceByNumber:   return String(localized: "keyboard.action.selectWorkspaceByNumber", defaultValue: "Select Workspace by Number")
+            case .selectSurfaceByNumber:     return String(localized: "keyboard.action.selectSurfaceByNumber", defaultValue: "Select Surface by Number")
+            case .triggerFlash:              return String(localized: "keyboard.action.triggerFlash", defaultValue: "Trigger Pane Flash")
+            case .openFolder:               return String(localized: "keyboard.action.openFolder", defaultValue: "Open Folder")
+            case .sendFeedback:             return String(localized: "keyboard.action.sendFeedback", defaultValue: "Send Feedback")
+            case .splitBrowserRight:        return String(localized: "keyboard.action.splitBrowserRight", defaultValue: "Split Browser Right")
+            case .splitBrowserDown:         return String(localized: "keyboard.action.splitBrowserDown", defaultValue: "Split Browser Down")
+            case .renameTab:               return String(localized: "keyboard.action.renameTab", defaultValue: "Rename Tab")
+            case .toggleTerminalCopyMode:   return String(localized: "keyboard.action.toggleTerminalCopyMode", defaultValue: "Toggle Terminal Copy Mode")
             }
         }
 
@@ -47,12 +111,22 @@ enum KeyboardShortcutSettings {
             switch self {
             case .newWorkspace, .closeWorkspace, .renameWorkspace,
                  .nextWorkspace, .prevWorkspace:
-                return "Workspaces"
+                return String(localized: "keyboard.category.workspaces", defaultValue: "Workspaces")
             case .splitRight, .splitDown, .toggleSplitZoom,
-                 .focusLeft, .focusRight, .focusUp, .focusDown:
-                return "Panels"
-            case .toggleSidebar:
-                return "App"
+                 .focusLeft, .focusRight, .focusUp, .focusDown,
+                 .equalizeSplits:
+                return String(localized: "keyboard.category.panels", defaultValue: "Panels")
+            case .toggleSidebar, .newWindow, .closeWindow,
+                 .showNotifications, .jumpToUnread, .nextSurface, .prevSurface,
+                 .selectWorkspaceByNumber, .selectSurfaceByNumber,
+                 .triggerFlash, .openFolder, .sendFeedback,
+                 .toggleTerminalCopyMode:
+                return String(localized: "keyboard.category.app", defaultValue: "App")
+            case .openBrowser, .toggleBrowserDevTools, .showBrowserConsole,
+                 .splitBrowserRight, .splitBrowserDown:
+                return String(localized: "keyboard.category.browser", defaultValue: "Browser")
+            case .renameTab:
+                return String(localized: "keyboard.category.panels", defaultValue: "Panels")
             }
         }
 
@@ -86,6 +160,44 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↓", command: true, shift: false, option: true, control: false)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            case .newWindow:
+                return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
+            case .closeWindow:
+                return StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+            case .showNotifications:
+                return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+            case .jumpToUnread:
+                return StoredShortcut(key: "u", command: true, shift: true, option: false, control: false)
+            case .equalizeSplits:
+                return StoredShortcut(key: "=", command: true, shift: true, option: false, control: false)
+            case .openBrowser:
+                return StoredShortcut(key: "o", command: true, shift: true, option: false, control: false)
+            case .toggleBrowserDevTools:
+                return StoredShortcut(key: "i", command: true, shift: false, option: true, control: false)
+            case .showBrowserConsole:
+                return StoredShortcut(key: "j", command: true, shift: false, option: true, control: false)
+            case .nextSurface:
+                return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
+            case .prevSurface:
+                return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
+            case .selectWorkspaceByNumber:
+                return StoredShortcut(key: "1", command: true, shift: false, option: true, control: false)
+            case .selectSurfaceByNumber:
+                return StoredShortcut(key: "1", command: true, shift: true, option: true, control: false)
+            case .triggerFlash:
+                return StoredShortcut(key: "f", command: true, shift: true, option: true, control: false)
+            case .openFolder:
+                return StoredShortcut(key: "o", command: true, shift: false, option: true, control: false)
+            case .sendFeedback:
+                return StoredShortcut(key: "/", command: true, shift: true, option: false, control: false)
+            case .splitBrowserRight:
+                return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
+            case .splitBrowserDown:
+                return StoredShortcut(key: "d", command: true, shift: true, option: true, control: false)
+            case .renameTab:
+                return StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
+            case .toggleTerminalCopyMode:
+                return StoredShortcut(key: "c", command: true, shift: true, option: true, control: false)
             }
         }
     }
@@ -129,7 +241,7 @@ enum KeyboardShortcutSettings {
 // MARK: - StoredShortcut
 
 /// A keyboard shortcut that can be stored in UserDefaults.
-struct StoredShortcut: Codable, Equatable {
+struct StoredShortcut: Codable, Equatable, Hashable {
     var key: String
     var command: Bool
     var shift: Bool
@@ -204,6 +316,10 @@ struct StoredShortcut: Codable, Equatable {
         return shortcut
     }
 
+    static func storedKeyFromEvent(_ event: NSEvent) -> String? {
+        storedKey(from: event)
+    }
+
     private static func storedKey(from event: NSEvent) -> String? {
         switch event.keyCode {
         case 123: return "←"
@@ -276,7 +392,7 @@ struct KeyboardShortcutSettingsView: View {
 
             HStack {
                 Spacer()
-                Button("Restore Defaults") {
+                Button(String(localized: "keyboard.restoreDefaults.button", defaultValue: "Restore Defaults")) {
                     KeyboardShortcutSettings.resetAll()
                     reloadAll()
                     conflict = nil
@@ -313,11 +429,11 @@ struct KeyboardShortcutSettingsView: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(.orange)
-            Text("\"\(c.action.label)\" conflicts with \"\(c.existing.label)\". Choose a different shortcut.")
+            Text(String(format: String(localized: "keyboard.conflict.message", defaultValue: "\"%@\" conflicts with \"%@\". Choose a different shortcut."), c.action.label, c.existing.label))
                 .font(.callout)
                 .foregroundColor(.primary)
             Spacer()
-            Button("Dismiss") { conflict = nil }
+            Button(String(localized: "keyboard.conflict.dismiss", defaultValue: "Dismiss")) { conflict = nil }
                 .buttonStyle(.borderless)
         }
         .padding(10)
@@ -392,7 +508,7 @@ private final class ShortcutRecorderNSButton: NSButton {
     }
 
     func updateTitle() {
-        title = isRecording ? "Press shortcut…" : shortcut.displayString
+        title = isRecording ? String(localized: "keyboard.recorder.pressShortcut", defaultValue: "Press shortcut…") : shortcut.displayString
     }
 
     @objc private func buttonClicked() {

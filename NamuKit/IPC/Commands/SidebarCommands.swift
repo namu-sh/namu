@@ -52,9 +52,9 @@ final class SidebarCommands {
             throw JSONRPCError(code: -32602, message: "Missing required param: branch")
         }
 
-        let checksStatus: String?
+        let checksStatus: PRChecksStatus?
         if let checksValue = params["checks"], case .string(let checks) = checksValue, !checks.isEmpty {
-            checksStatus = checks
+            checksStatus = PRChecksStatus(rawValue: checks) ?? .none
         } else {
             checksStatus = nil
         }

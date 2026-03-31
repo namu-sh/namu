@@ -120,6 +120,9 @@ final class TerminalPanel: Panel, ObservableObject {
         id: UUID = UUID(),
         workingDirectory: String? = nil,
         environmentVariables: [String: String] = [:],
+        waitAfterCommand: Bool = false,
+        initialInput: String? = nil,
+        fontSizeOverride: Float? = nil,
         session: TerminalSession? = nil
     ) {
         self.id = id
@@ -128,7 +131,10 @@ final class TerminalPanel: Panel, ObservableObject {
         let sess = session ?? TerminalSession(
             id: id,
             workingDirectory: workingDirectory,
-            environmentVariables: environmentVariables
+            environmentVariables: environmentVariables,
+            waitAfterCommand: waitAfterCommand,
+            initialInput: initialInput,
+            fontSizeOverride: fontSizeOverride
         )
         self.session = sess
         self.title = sess.title.isEmpty ? "Terminal" : sess.title

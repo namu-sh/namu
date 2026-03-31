@@ -1,7 +1,7 @@
 import Foundation
 
 /// Direction of a split in the pane tree.
-enum SplitDirection: String, Codable {
+public enum SplitDirection: String, Codable {
     case horizontal
     case vertical
 }
@@ -186,4 +186,5 @@ struct PaneSplit: Identifiable, Equatable, Codable {
 enum PanelType: String, Codable {
     case terminal
     case browser
+    case markdown
 }

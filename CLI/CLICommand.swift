@@ -48,6 +48,8 @@ struct CLICommandRegistry {
 // MARK: - Global Registry
 
 /// The shared registry used by handleTmuxCompat dispatch.
+/// Only commands with dedicated CLICommand implementations are registered here.
+/// The remaining 33+ tmux-compat commands are handled in handleTmuxCompat's switch statement.
 var tmuxCommandRegistry: CLICommandRegistry = {
     var registry = CLICommandRegistry()
     registry.register(SplitWindowCommand.self)

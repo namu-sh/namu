@@ -7,9 +7,11 @@ struct DiscordChannel: AlertChannel, Sendable {
 
     private static let isoFormatter = ISO8601DateFormatter()
     private let webhookURL: String
+    private let session: URLSession
 
-    init(webhookURL: String) {
+    init(webhookURL: String, session: URLSession = .shared) {
         self.webhookURL = webhookURL
+        self.session = session
     }
 
     func send(_ payload: AlertPayload) async throws {
@@ -39,7 +41,7 @@ struct DiscordChannel: AlertChannel, Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 10
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             throw AlertChannelError.sendFailed("Discord", underlyingError: nil)

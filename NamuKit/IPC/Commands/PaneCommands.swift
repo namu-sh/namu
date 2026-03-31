@@ -33,6 +33,16 @@ final class PaneCommands {
             handler: { [weak self] req in try await self?.join(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "pane.last", execution: .mainActor, safety: .normal,
             handler: { [weak self] req in try await self?.lastPane(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "pane.equalize", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.equalize(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "pane.new_browser_tab", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.newBrowserTab(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "pane.new_markdown_tab", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.newMarkdownTab(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "pane.pin", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.pinPane(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "pane.unpin", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.unpinPane(req) ?? .notAvailable(req) }))
 
         // Dangerous commands → .mainActor + .dangerous
         registry.register(HandlerRegistration(method: "pane.send_keys", execution: .mainActor, safety: .dangerous,
@@ -168,7 +178,22 @@ final class PaneCommands {
             ]))
         }
 
-        // No direction-based resize in new model — return success silently
+        // Directional resize: direction + amount (pixels)
+        if let dirValue = params["direction"], case .string(let dirStr) = dirValue {
+            let amount: CGFloat
+            switch params["amount"] {
+            case .some(.double(let d)): amount = CGFloat(d)
+            case .some(.int(let i)):    amount = CGFloat(i)
+            default:                   amount = 20.0  // default 20 pixels per step
+            }
+            let moved = panelManager.resizeSplitDirectional(in: wsID, direction: dirStr, amount: amount)
+            return .success(id: req.id, result: .object([
+                "direction": .string(dirStr),
+                "amount":    .double(Double(amount)),
+                "moved":     .bool(moved)
+            ]))
+        }
+
         return .success(id: req.id, result: .object([:]))
     }
 
@@ -318,6 +343,39 @@ final class PaneCommands {
         ]))
     }
 
+    // MARK: - pane.equalize
+
+    private func equalize(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        let wsID: UUID
+        if let wsValue = params["workspace_id"], case .string(let wsStr) = wsValue,
+           let requestedWsID = UUID(uuidString: wsStr) {
+            guard workspaceManager.workspaces.contains(where: { $0.id == requestedWsID }) else {
+                throw JSONRPCError(code: -32001, message: "Workspace not found")
+            }
+            wsID = requestedWsID
+        } else {
+            wsID = try requireWorkspaceID()
+        }
+
+        let orientation: String?
+        if let oriValue = params["orientation"], case .string(let oriStr) = oriValue {
+            guard oriStr == "vertical" || oriStr == "horizontal" else {
+                throw JSONRPCError(code: -32602, message: "orientation must be 'vertical' or 'horizontal'")
+            }
+            orientation = oriStr
+        } else {
+            orientation = nil
+        }
+
+        let changed = panelManager.equalizeSplits(in: wsID, orientation: orientation)
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(wsID.uuidString),
+            "changed":      .bool(changed)
+        ]))
+    }
+
     // MARK: - pane.last
 
     private func lastPane(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
@@ -332,6 +390,85 @@ final class PaneCommands {
         return .success(id: req.id, result: .object([
             "pane_id":      .string(previousID.uuidString),
             "workspace_id": .string(wsID.uuidString)
+        ]))
+    }
+
+    // MARK: - pane.pin
+
+    private func pinPane(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+        let wsID = try requireWorkspaceID()
+        let panelID = try resolvePanel(params: params, wsID: wsID)
+
+        if !panelManager.isPanelPinned(id: panelID) {
+            panelManager.togglePanelPin(id: panelID)
+        }
+        return .success(id: req.id, result: .object([
+            "pane_id": .string(panelID.uuidString),
+            "pinned":  .bool(true)
+        ]))
+    }
+
+    // MARK: - pane.unpin
+
+    private func unpinPane(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+        let wsID = try requireWorkspaceID()
+        let panelID = try resolvePanel(params: params, wsID: wsID)
+
+        if panelManager.isPanelPinned(id: panelID) {
+            panelManager.togglePanelPin(id: panelID)
+        }
+        return .success(id: req.id, result: .object([
+            "pane_id": .string(panelID.uuidString),
+            "pinned":  .bool(false)
+        ]))
+    }
+
+    // MARK: - pane.new_browser_tab
+
+    private func newBrowserTab(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+        let wsID = try requireWorkspaceID()
+
+        let url: URL?
+        if let urlValue = params["url"], case .string(let urlStr) = urlValue {
+            url = URL(string: urlStr)
+        } else {
+            url = nil
+        }
+
+        panelManager.createBrowserTabInFocusedPane(url: url)
+
+        let newPanelID = panelManager.focusedPanelID(in: wsID)
+        return .success(id: req.id, result: .object([
+            "pane_id":      .string(newPanelID?.uuidString ?? ""),
+            "workspace_id": .string(wsID.uuidString),
+            "type":         .string("browser")
+        ]))
+    }
+
+    // MARK: - pane.new_markdown_tab
+
+    private func newMarkdownTab(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+        let wsID = try requireWorkspaceID()
+
+        let fileURL: URL?
+        if let fileValue = params["file"], case .string(let filePath) = fileValue, !filePath.isEmpty {
+            fileURL = URL(fileURLWithPath: filePath)
+        } else {
+            fileURL = nil
+        }
+
+        panelManager.createMarkdownTabInFocusedPane(fileURL: fileURL)
+
+        let newPanelID = panelManager.focusedPanelID(in: wsID)
+        return .success(id: req.id, result: .object([
+            "pane_id":      .string(newPanelID?.uuidString ?? ""),
+            "workspace_id": .string(wsID.uuidString),
+            "type":         .string("markdown"),
+            "file":         .string(fileURL?.path ?? "")
         ]))
     }
 }

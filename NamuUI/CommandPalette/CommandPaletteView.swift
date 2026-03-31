@@ -41,28 +41,28 @@ struct CommandPaletteView: View {
 
     private var builtInCommands: [PaletteCommand] {
         [
-            PaletteCommand(title: "New Workspace", icon: "plus.rectangle") {
+            PaletteCommand(title: String(localized: "palette.command.newWorkspace", defaultValue: "New Workspace"), icon: "plus.rectangle") {
                 panelManager.createWorkspace()
             },
-            PaletteCommand(title: "Split Horizontal", icon: "rectangle.split.2x1") {
+            PaletteCommand(title: String(localized: "palette.command.splitHorizontal", defaultValue: "Split Horizontal"), icon: "rectangle.split.2x1") {
                 panelManager.splitActivePanel(direction: .horizontal)
             },
-            PaletteCommand(title: "Split Vertical", icon: "rectangle.split.1x2") {
+            PaletteCommand(title: String(localized: "palette.command.splitVertical", defaultValue: "Split Vertical"), icon: "rectangle.split.1x2") {
                 panelManager.splitActivePanel(direction: .vertical)
             },
-            PaletteCommand(title: "Close Pane", icon: "xmark.rectangle") {
+            PaletteCommand(title: String(localized: "palette.command.closePane", defaultValue: "Close Pane"), icon: "xmark.rectangle") {
                 panelManager.closeActivePanel()
             },
-            PaletteCommand(title: "Toggle Sidebar", icon: "sidebar.left") {
+            PaletteCommand(title: String(localized: "palette.command.toggleSidebar", defaultValue: "Toggle Sidebar"), icon: "sidebar.left") {
                 NotificationCenter.default.post(name: .toggleSidebar, object: nil)
             },
-            PaletteCommand(title: "Open Browser", icon: "globe") {
+            PaletteCommand(title: String(localized: "palette.command.openBrowser", defaultValue: "Open Browser"), icon: "globe") {
                 NotificationCenter.default.post(name: .openBrowserPanel, object: nil)
             },
-            PaletteCommand(title: "Find in Terminal", icon: "magnifyingglass") {
+            PaletteCommand(title: String(localized: "palette.command.findInTerminal", defaultValue: "Find in Terminal"), icon: "magnifyingglass") {
                 NotificationCenter.default.post(name: .toggleFindOverlay, object: nil)
             },
-            PaletteCommand(title: "Toggle Minimal Mode", icon: "rectangle.compress.vertical") {
+            PaletteCommand(title: String(localized: "palette.command.toggleMinimalMode", defaultValue: "Toggle Minimal Mode"), icon: "rectangle.compress.vertical") {
                 NotificationCenter.default.post(name: .toggleMinimalMode, object: nil)
             },
         ]
@@ -140,7 +140,7 @@ struct CommandPaletteView: View {
                                 .font(.system(size: 14))
                                 .foregroundStyle(.tertiary)
                         }
-                        TextField("Search commands and workspaces…", text: $query)
+                        TextField(String(localized: "palette.search.placeholder", defaultValue: "Search commands and workspaces…"), text: $query)
                             .textFieldStyle(.plain)
                             .font(.system(size: 14))
                             .focused($fieldFocused)
@@ -351,4 +351,19 @@ extension Notification.Name {
     static let toggleFindOverlay = Notification.Name("namu.toggleFindOverlay")
     static let openBrowserPanel = Notification.Name("namu.openBrowserPanel")
     static let toggleMinimalMode = Notification.Name("namu.toggleMinimalMode")
+    static let toggleNotificationPanel = Notification.Name("namu.toggleNotificationPanel")
+    static let renameWorkspace = Notification.Name("namu.renameWorkspace")
+    static let toggleSplitZoom = Notification.Name("namu.toggleSplitZoom")
+    static let toggleBrowserDevTools = Notification.Name("namu.browser.devtools.toggle")
+    static let showBrowserConsole = Notification.Name("namu.browser.devtools.console")
+    static let nextSurface = Notification.Name("namu.nextSurface")
+    static let prevSurface = Notification.Name("namu.prevSurface")
+    static let openBrowser = Notification.Name("namu.openBrowser")
+    static let triggerFlash = Notification.Name("namu.triggerFlash")
+    static let openFolder = Notification.Name("namu.openFolder")
+    static let sendFeedback = Notification.Name("namu.sendFeedback")
+    static let splitBrowserRight = Notification.Name("namu.browser.split.right")
+    static let splitBrowserDown = Notification.Name("namu.browser.split.down")
+    static let renameTab = Notification.Name("namu.renameTab")
+    static let toggleTerminalCopyMode = Notification.Name("namu.toggleTerminalCopyMode")
 }

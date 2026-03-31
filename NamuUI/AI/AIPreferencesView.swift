@@ -12,9 +12,9 @@ enum AIProvider: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
-        case .anthropic:  return "Anthropic"
-        case .openAI:     return "OpenAI"
-        case .openRouter: return "OpenRouter"
+        case .anthropic:  return String(localized: "ai.provider.anthropic", defaultValue: "Anthropic")
+        case .openAI:     return String(localized: "ai.provider.openai", defaultValue: "OpenAI")
+        case .openRouter: return String(localized: "ai.provider.openrouter", defaultValue: "OpenRouter")
         }
     }
 
@@ -44,17 +44,17 @@ enum AISafetyLevel: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
-        case .low:    return "Low"
-        case .medium: return "Medium (Recommended)"
-        case .high:   return "High"
+        case .low:    return String(localized: "ai.safety.level.low", defaultValue: "Low")
+        case .medium: return String(localized: "ai.safety.level.medium", defaultValue: "Medium (Recommended)")
+        case .high:   return String(localized: "ai.safety.level.high", defaultValue: "High")
         }
     }
 
     var description: String {
         switch self {
-        case .low:    return "Minimal filtering. Allow all commands."
-        case .medium: return "Block destructive commands. Confirm risky operations."
-        case .high:   return "Strict allowlist. Approve every command before execution."
+        case .low:    return String(localized: "ai.safety.level.low.description", defaultValue: "Minimal filtering. Allow all commands.")
+        case .medium: return String(localized: "ai.safety.level.medium.description", defaultValue: "Block destructive commands. Confirm risky operations.")
+        case .high:   return String(localized: "ai.safety.level.high.description", defaultValue: "Strict allowlist. Approve every command before execution.")
         }
     }
 }
@@ -246,14 +246,22 @@ struct AIPreferencesView: View {
         case gateway = "Gateway"
         case alertRules = "Alert Rules"
         var id: String { rawValue }
+
+        var localizedLabel: String {
+            switch self {
+            case .general:    return String(localized: "ai.prefs.tab.general", defaultValue: "General")
+            case .gateway:    return String(localized: "ai.prefs.tab.gateway", defaultValue: "Gateway")
+            case .alertRules: return String(localized: "ai.prefs.tab.alertRules", defaultValue: "Alert Rules")
+            }
+        }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Tab bar
-            Picker("Tab", selection: $selectedTab) {
+            Picker(String(localized: "ai.prefs.tab.picker", defaultValue: "Tab"), selection: $selectedTab) {
                 ForEach(PrefsTab.allCases) { tab in
-                    Text(tab.rawValue).tag(tab)
+                    Text(tab.localizedLabel).tag(tab)
                 }
             }
             .pickerStyle(.segmented)
@@ -292,14 +300,14 @@ struct AIPreferencesView: View {
     private var generalTab: some View {
         Form {
             // Provider
-            Section("Provider") {
-                Picker("Provider", selection: $store.provider) {
+            Section(String(localized: "ai.prefs.section.provider", defaultValue: "Provider")) {
+                Picker(String(localized: "ai.prefs.provider.picker", defaultValue: "Provider"), selection: $store.provider) {
                     ForEach(AIProvider.allCases) { provider in
                         Text(provider.displayName).tag(provider)
                     }
                 }
 
-                Picker("Model", selection: $store.selectedModel) {
+                Picker(String(localized: "ai.prefs.model.picker", defaultValue: "Model"), selection: $store.selectedModel) {
                     ForEach(store.provider.defaultModels, id: \.self) { model in
                         Text(model).tag(model)
                     }
@@ -307,13 +315,13 @@ struct AIPreferencesView: View {
             }
 
             // API Key
-            Section("API Key") {
+            Section(String(localized: "ai.prefs.section.apiKey", defaultValue: "API Key")) {
                 HStack {
                     Group {
                         if showAPIKey {
-                            TextField("Paste API key…", text: $apiKeyInput)
+                            TextField(String(localized: "ai.prefs.apiKey.placeholder", defaultValue: "Paste API key…"), text: $apiKeyInput)
                         } else {
-                            SecureField("Paste API key…", text: $apiKeyInput)
+                            SecureField(String(localized: "ai.prefs.apiKey.placeholder", defaultValue: "Paste API key…"), text: $apiKeyInput)
                         }
                     }
                     .textFieldStyle(.roundedBorder)
@@ -326,17 +334,17 @@ struct AIPreferencesView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
-                    .help(showAPIKey ? "Hide key" : "Show key")
+                    .help(showAPIKey ? String(localized: "ai.prefs.apiKey.hide", defaultValue: "Hide key") : String(localized: "ai.prefs.apiKey.show", defaultValue: "Show key"))
                 }
 
                 HStack(spacing: 10) {
-                    Button("Save Key") {
+                    Button(String(localized: "ai.prefs.apiKey.saveButton", defaultValue: "Save Key")) {
                         store.saveAPIKey(apiKeyInput, for: store.provider)
                         connectionStatus = .idle
                     }
                     .disabled(apiKeyInput.isEmpty)
 
-                    Button("Test Connection") {
+                    Button(String(localized: "ai.prefs.apiKey.testButton", defaultValue: "Test Connection")) {
                         testConnection()
                     }
                     .disabled(apiKeyInput.isEmpty)
@@ -346,15 +354,15 @@ struct AIPreferencesView: View {
                 }
 
                 if store.hasAPIKey(for: store.provider) {
-                    Label("Key stored in Keychain", systemImage: "lock.fill")
+                    Label(String(localized: "ai.prefs.apiKey.storedInKeychain", defaultValue: "Key stored in Keychain"), systemImage: "lock.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             // Safety
-            Section("Safety Level") {
-                Picker("Safety", selection: $store.safetyLevel) {
+            Section(String(localized: "ai.prefs.section.safetyLevel", defaultValue: "Safety Level")) {
+                Picker(String(localized: "ai.prefs.safety.picker", defaultValue: "Safety"), selection: $store.safetyLevel) {
                     ForEach(AISafetyLevel.allCases) { level in
                         Text(level.displayName).tag(level)
                     }
@@ -367,11 +375,11 @@ struct AIPreferencesView: View {
             }
 
             // Advanced
-            Section("Advanced") {
-                Toggle("Stream responses", isOn: $store.streamResponses)
+            Section(String(localized: "ai.prefs.section.advanced", defaultValue: "Advanced")) {
+                Toggle(String(localized: "ai.prefs.advanced.streamResponses", defaultValue: "Stream responses"), isOn: $store.streamResponses)
 
                 HStack {
-                    Text("Max tokens")
+                    Text(String(localized: "ai.prefs.advanced.maxTokens", defaultValue: "Max tokens"))
                     Spacer()
                     TextField("", value: $store.maxTokens, format: .number)
                         .textFieldStyle(.roundedBorder)
@@ -383,7 +391,7 @@ struct AIPreferencesView: View {
             // Save button
             HStack {
                 Spacer()
-                Button("Save Settings") { store.save() }
+                Button(String(localized: "ai.prefs.saveSettings.button", defaultValue: "Save Settings")) { store.save() }
                     .buttonStyle(.borderedProminent)
             }
             .padding(.top, 4)
@@ -397,9 +405,9 @@ struct AIPreferencesView: View {
     private var gatewayTab: some View {
         Form {
             // Connection
-            Section("Gateway Connection") {
+            Section(String(localized: "ai.prefs.section.gatewayConnection", defaultValue: "Gateway Connection")) {
                 HStack {
-                    Text("URL")
+                    Text(String(localized: "ai.prefs.gateway.urlLabel", defaultValue: "URL"))
                     Spacer()
                     TextField("http://localhost:8080", text: $gatewayStore.gatewayURL)
                         .textFieldStyle(.roundedBorder)
@@ -408,7 +416,7 @@ struct AIPreferencesView: View {
                 }
 
                 HStack(spacing: 10) {
-                    Button("Check Connection") {
+                    Button(String(localized: "ai.prefs.gateway.checkButton", defaultValue: "Check Connection")) {
                         gatewayStore.checkConnection()
                     }
 
@@ -418,13 +426,13 @@ struct AIPreferencesView: View {
             }
 
             // Pairing Token
-            Section("Pairing Token") {
+            Section(String(localized: "ai.prefs.section.pairingToken", defaultValue: "Pairing Token")) {
                 HStack {
                     Group {
                         if showPairingToken {
-                            TextField("No token generated", text: $gatewayStore.pairingToken)
+                            TextField(String(localized: "ai.prefs.pairingToken.placeholder", defaultValue: "No token generated"), text: $gatewayStore.pairingToken)
                         } else {
-                            SecureField("No token generated", text: $gatewayStore.pairingToken)
+                            SecureField(String(localized: "ai.prefs.pairingToken.placeholder", defaultValue: "No token generated"), text: $gatewayStore.pairingToken)
                         }
                     }
                     .textFieldStyle(.roundedBorder)
@@ -438,16 +446,16 @@ struct AIPreferencesView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
-                    .help(showPairingToken ? "Hide token" : "Show token")
+                    .help(showPairingToken ? String(localized: "ai.prefs.token.hide", defaultValue: "Hide token") : String(localized: "ai.prefs.token.show", defaultValue: "Show token"))
                 }
 
                 HStack(spacing: 10) {
-                    Button("Generate Pairing Token") {
+                    Button(String(localized: "ai.prefs.pairingToken.generateButton", defaultValue: "Generate Pairing Token")) {
                         gatewayStore.generatePairingToken()
                     }
 
                     if !gatewayStore.pairingToken.isEmpty {
-                        Button("Copy") {
+                        Button(String(localized: "ai.prefs.pairingToken.copyButton", defaultValue: "Copy")) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(gatewayStore.pairingToken, forType: .string)
                         }
@@ -457,33 +465,33 @@ struct AIPreferencesView: View {
                 }
 
                 if !gatewayStore.pairingToken.isEmpty {
-                    Label("Token saved to preferences", systemImage: "checkmark.seal.fill")
+                    Label(String(localized: "ai.prefs.pairingToken.savedLabel", defaultValue: "Token saved to preferences"), systemImage: "checkmark.seal.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             // Telegram Link Instructions
-            Section("Link Telegram") {
+            Section(String(localized: "ai.prefs.section.linkTelegram", defaultValue: "Link Telegram")) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("How to link your Telegram account:")
+                    Text(String(localized: "ai.prefs.telegram.howTo", defaultValue: "How to link your Telegram account:"))
                         .font(.subheadline)
                         .fontWeight(.medium)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Label("1. Start the Namu Gateway with your Telegram bot token", systemImage: "terminal")
-                        Label("2. Send /start to your Telegram bot", systemImage: "paperplane")
-                        Label("3. The bot sends you a 6-digit pairing code (valid 5 min)", systemImage: "number")
-                        Label("4. Generate a pairing token above (or use existing)", systemImage: "key")
-                        Label("5. POST { code, pairingToken } to \(gatewayStore.gatewayURL)/link", systemImage: "link")
-                        Label("6. Your Telegram is now linked — send commands via the bot", systemImage: "checkmark.circle")
+                        Label(String(localized: "ai.prefs.telegram.step1", defaultValue: "1. Start the Namu Gateway with your Telegram bot token"), systemImage: "terminal")
+                        Label(String(localized: "ai.prefs.telegram.step2", defaultValue: "2. Send /start to your Telegram bot"), systemImage: "paperplane")
+                        Label(String(localized: "ai.prefs.telegram.step3", defaultValue: "3. The bot sends you a 6-digit pairing code (valid 5 min)"), systemImage: "number")
+                        Label(String(localized: "ai.prefs.telegram.step4", defaultValue: "4. Generate a pairing token above (or use existing)"), systemImage: "key")
+                        Label(String(format: String(localized: "ai.prefs.telegram.step5", defaultValue: "5. POST { code, pairingToken } to %@/link"), gatewayStore.gatewayURL), systemImage: "link")
+                        Label(String(localized: "ai.prefs.telegram.step6", defaultValue: "6. Your Telegram is now linked — send commands via the bot"), systemImage: "checkmark.circle")
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                     if !gatewayStore.pairingToken.isEmpty {
                         Divider()
-                        Text("Quick link command:")
+                        Text(String(localized: "ai.prefs.telegram.quickLinkLabel", defaultValue: "Quick link command:"))
                             .font(.caption)
                             .fontWeight(.medium)
                         Text("""
@@ -500,8 +508,8 @@ struct AIPreferencesView: View {
             }
 
             // Unlink Instructions
-            Section("Unlink") {
-                Text("To unlink your Telegram account, send /unlink to the bot. This removes the connection between your Telegram chat and Namu.")
+            Section(String(localized: "ai.prefs.section.unlink", defaultValue: "Unlink")) {
+                Text(String(localized: "ai.prefs.unlink.description", defaultValue: "To unlink your Telegram account, send /unlink to the bot. This removes the connection between your Telegram chat and Namu."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -509,7 +517,7 @@ struct AIPreferencesView: View {
             // Save
             HStack {
                 Spacer()
-                Button("Save Settings") { gatewayStore.save() }
+                Button(String(localized: "ai.prefs.saveSettings.button", defaultValue: "Save Settings")) { gatewayStore.save() }
                     .buttonStyle(.borderedProminent)
             }
             .padding(.top, 4)
@@ -526,7 +534,7 @@ struct AIPreferencesView: View {
         case .checking:
             ProgressView().scaleEffect(0.7)
         case .connected:
-            Label("Connected", systemImage: "checkmark.circle.fill")
+            Label(String(localized: "ai.prefs.gateway.connected", defaultValue: "Connected"), systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .font(.callout)
         case .failed(let msg):
@@ -546,7 +554,7 @@ struct AIPreferencesView: View {
         case .testing:
             ProgressView().scaleEffect(0.7)
         case .success:
-            Label("Connected", systemImage: "checkmark.circle.fill")
+            Label(String(localized: "ai.prefs.connection.connected", defaultValue: "Connected"), systemImage: "checkmark.circle.fill")
                 .foregroundStyle(.green)
                 .font(.callout)
         case .failure(let msg):
@@ -603,7 +611,7 @@ final class AlertRulesEditorStore: ObservableObject {
 
     func addRule() {
         rules.append(AlertRule(
-            name: "New Rule",
+            name: String(localized: "ai.alert.newRule.defaultName", defaultValue: "New Rule"),
             trigger: .outputMatch(pattern: "", caseSensitive: false)
         ))
     }
@@ -632,10 +640,10 @@ struct AlertRulesEditorView: View {
             Divider()
 
             HStack {
-                Button("Add Rule") { store.addRule() }
+                Button(String(localized: "ai.alert.addRule.button", defaultValue: "Add Rule")) { store.addRule() }
                     .buttonStyle(.borderless)
                 Spacer()
-                Button("Save Rules") { store.save() }
+                Button(String(localized: "ai.alert.saveRules.button", defaultValue: "Save Rules")) { store.save() }
                     .buttonStyle(.borderedProminent)
             }
             .padding(.horizontal, 16)
@@ -685,15 +693,27 @@ private struct AlertRuleRow: View {
     private var triggerSummary: String {
         switch rule.trigger {
         case .processExit(let code):
-            if let code { return "Exit code \(code)" }
-            return "Any exit"
+            if let code {
+                let fmt = String(localized: "ai.alert.trigger.exitCode", defaultValue: "Exit code %d")
+                return String(format: fmt, code)
+            }
+            return String(localized: "ai.alert.trigger.anyExit", defaultValue: "Any exit")
         case .outputMatch(let pattern, _):
-            return "Output contains \"\(pattern)\""
+            let fmt = String(localized: "ai.alert.trigger.outputContains", defaultValue: "Output contains \"%@\"")
+            return String(format: fmt, pattern)
         case .portChange(let ports):
-            return "Port change: \(ports.map(String.init).joined(separator: ", "))"
+            let portStr = ports.map(String.init).joined(separator: ", ")
+            let fmt = String(localized: "ai.alert.trigger.portChange", defaultValue: "Port change: %@")
+            return String(format: fmt, portStr)
         case .shellIdle(let seconds):
             let mins = Int(seconds / 60)
-            return mins > 0 ? "Idle \(mins)m" : "Idle \(Int(seconds))s"
+            if mins > 0 {
+                let fmt = String(localized: "ai.alert.trigger.idleMinutes", defaultValue: "Idle %dm")
+                return String(format: fmt, mins)
+            } else {
+                let fmt = String(localized: "ai.alert.trigger.idleSeconds", defaultValue: "Idle %ds")
+                return String(format: fmt, Int(seconds))
+            }
         }
     }
 }
@@ -720,6 +740,15 @@ struct AlertRuleEditView: View {
         case portChange   = "Port Change"
         case shellIdle    = "Shell Idle"
         var id: String { rawValue }
+
+        var localizedLabel: String {
+            switch self {
+            case .processExit: return String(localized: "ai.alert.triggerType.processExit", defaultValue: "Process Exit")
+            case .outputMatch: return String(localized: "ai.alert.triggerType.outputMatch", defaultValue: "Output Match")
+            case .portChange:  return String(localized: "ai.alert.triggerType.portChange", defaultValue: "Port Change")
+            case .shellIdle:   return String(localized: "ai.alert.triggerType.shellIdle", defaultValue: "Shell Idle")
+            }
+        }
     }
 
     // Per-trigger state
@@ -732,37 +761,37 @@ struct AlertRuleEditView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Edit Alert Rule")
+            Text(String(localized: "ai.alert.editRule.title", defaultValue: "Edit Alert Rule"))
                 .font(.headline)
                 .padding(.top, 4)
 
             Form {
-                Section("Rule") {
-                    TextField("Name", text: $rule.name)
-                    Toggle("Enabled", isOn: $rule.isEnabled)
+                Section(String(localized: "ai.alert.editRule.section.rule", defaultValue: "Rule")) {
+                    TextField(String(localized: "ai.alert.editRule.namePlaceholder", defaultValue: "Name"), text: $rule.name)
+                    Toggle(String(localized: "ai.alert.editRule.enabledToggle", defaultValue: "Enabled"), isOn: $rule.isEnabled)
                 }
 
-                Section("Trigger") {
-                    Picker("Type", selection: $triggerType) {
+                Section(String(localized: "ai.alert.editRule.section.trigger", defaultValue: "Trigger")) {
+                    Picker(String(localized: "ai.alert.editRule.typePicker", defaultValue: "Type"), selection: $triggerType) {
                         ForEach(TriggerType.allCases) { t in
-                            Text(t.rawValue).tag(t)
+                            Text(t.localizedLabel).tag(t)
                         }
                     }
 
                     Group {
                         switch triggerType {
                         case .processExit:
-                            Toggle("Match any exit code", isOn: $anyExitCode)
+                            Toggle(String(localized: "ai.alert.editRule.matchAnyExit", defaultValue: "Match any exit code"), isOn: $anyExitCode)
                             if !anyExitCode {
-                                TextField("Exit code", text: $exitCode)
+                                TextField(String(localized: "ai.alert.editRule.exitCodePlaceholder", defaultValue: "Exit code"), text: $exitCode)
                             }
                         case .outputMatch:
-                            TextField("Pattern", text: $outputPattern)
-                            Toggle("Case sensitive", isOn: $caseSensitive)
+                            TextField(String(localized: "ai.alert.editRule.patternPlaceholder", defaultValue: "Pattern"), text: $outputPattern)
+                            Toggle(String(localized: "ai.alert.editRule.caseSensitive", defaultValue: "Case sensitive"), isOn: $caseSensitive)
                         case .portChange:
-                            TextField("Ports (comma-separated)", text: $portList)
+                            TextField(String(localized: "ai.alert.editRule.portsPlaceholder", defaultValue: "Ports (comma-separated)"), text: $portList)
                         case .shellIdle:
-                            TextField("Idle seconds", text: $idleSeconds)
+                            TextField(String(localized: "ai.alert.editRule.idleSecondsPlaceholder", defaultValue: "Idle seconds"), text: $idleSeconds)
                         }
                     }
                 }
@@ -770,10 +799,10 @@ struct AlertRuleEditView: View {
             .formStyle(.grouped)
 
             HStack {
-                Button("Cancel", action: onCancel)
+                Button(String(localized: "ai.alert.editRule.cancelButton", defaultValue: "Cancel"), action: onCancel)
                     .keyboardShortcut(.escape, modifiers: [])
                 Spacer()
-                Button("Save") { commitAndSave() }
+                Button(String(localized: "ai.alert.editRule.saveButton", defaultValue: "Save")) { commitAndSave() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: [])
             }

@@ -78,7 +78,7 @@ struct ContentView: View {
                 ZStack {
                     ForEach(workspaceManager.workspaces) { workspace in
                         let isSelectedWorkspace = workspace.id == workspaceManager.selectedWorkspaceID
-                        let isWorkspaceMode = sidebarViewModel.selection != .settings
+                        let isWorkspaceMode = sidebarViewModel.selection != .settings && sidebarViewModel.selection != .notifications
                         let active = isSelectedWorkspace && isWorkspaceMode
                         WorkspaceView(workspaceID: workspace.id, panelManager: panelManager, isActive: active)
                             .opacity(active ? 1 : 0)
@@ -92,22 +92,36 @@ struct ContentView: View {
                             .accessibilityIdentifier("namu-settings")
                     }
 
-                    // Find overlay — floats in top-right corner
-                    if isFindOverlayVisible {
-                        VStack {
-                            HStack {
-                                Spacer()
-                                FindOverlayView(
-                                    isVisible: $isFindOverlayVisible,
-                                    searchText: $findSearchText,
-                                    matchIndex: nil,
-                                    matchTotal: nil,
-                                    onNext: { findNavigate(forward: true) },
-                                    onPrevious: { findNavigate(forward: false) }
-                                )
+                    if sidebarViewModel.selection == .notifications,
+                       let ns = appDelegate.serviceContainer?.notificationService {
+                        NotificationPanelView(
+                            notificationService: ns,
+                            workspaceManager: workspaceManager,
+                            onSelectWorkspace: { wsID in
+                                sidebarViewModel.selectWorkspace(id: wsID)
+                            },
+                            onJumpToUnread: {
+                                appDelegate.jumpToLatestUnread()
+                                sidebarViewModel.selection = .workspace(sidebarViewModel.lastWorkspaceID)
                             }
-                            Spacer()
-                        }
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("namu-notifications")
+                    }
+
+                    // Find overlay — draggable, snaps to nearest corner
+                    if isFindOverlayVisible {
+                        FindOverlayView(
+                            isVisible: $isFindOverlayVisible,
+                            searchText: $findSearchText,
+                            matchIndex: nil,
+                            matchTotal: nil,
+                            onNext: { findNavigate(forward: true) },
+                            onPrevious: { findNavigate(forward: false) },
+                            onDismiss: { restoreFocusToTerminal() }
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .zIndex(50)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
@@ -149,7 +163,7 @@ struct ContentView: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 9))
                             .foregroundStyle(.tertiary)
-                        Text("Search...")
+                        Text(String(localized: "toolbar.search.placeholder", defaultValue: "Search..."))
                             .font(.system(size: 10))
                             .foregroundStyle(.tertiary)
                     }
@@ -216,6 +230,7 @@ struct ContentView: View {
                     container.start()
                     appDelegate.serviceContainer = container
                     aiChatViewModel = AIChatViewModel(namuAI: container.namuAI)
+                    sidebarViewModel.setNotificationService(container.notificationService)
                     servicesStarted = true
 
                     // Restore window frame from session (best-effort: window must exist).
@@ -233,6 +248,18 @@ struct ContentView: View {
                         sidebarViewModel.selectWorkspace(id: firstID)
                     }
                 }
+            }
+
+            // Wire cross-window move callbacks for the "Move to Window" context menu.
+            sidebarViewModel.availableWindows = appDelegate.windowContexts.values
+                .filter { $0.workspaceManager !== workspaceManager }
+                .enumerated()
+                .map { idx, ctx in
+                    let title = String(localized: "sidebar.window.label", defaultValue: "Window \(idx + 2)")
+                    return (id: ctx.windowID, title: title)
+                }
+            sidebarViewModel.onMoveWorkspaceToWindow = { [weak appDelegate] wsID, targetWindowID in
+                appDelegate?.moveWorkspaceToWindow(workspaceId: wsID, targetWindowId: targetWindowID)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
@@ -255,6 +282,8 @@ struct ContentView: View {
                 isMinimalMode.toggle()
             }
         }
+        // Notification panel toggle is handled by SidebarViewModel's NotificationCenter subscriber.
+        // Do NOT add a duplicate .onReceive here — it would double-toggle and cancel itself out.
         .keyboardShortcut("m", modifiers: [.command, .shift])
         .keyboardHintOverlay()
         // Note: .selectWorkspace and .openSettings notifications are handled
@@ -270,6 +299,22 @@ struct ContentView: View {
               let surface = panel.session.surface else { return }
         let action = forward ? "search_forward" : "search_backward"
         ghostty_surface_binding_action(surface, action, UInt(action.utf8.count))
+    }
+
+    /// Restore first responder to the focused terminal surface after the find
+    /// overlay is dismissed. Runs on the next runloop tick so SwiftUI can
+    /// finish removing the overlay before we steal focus.
+    private func restoreFocusToTerminal() {
+        guard let wsID = workspaceManager.selectedWorkspaceID,
+              let focusedID = panelManager.focusedPanelID(in: wsID),
+              let panel = panelManager.panel(for: focusedID) else { return }
+        let surfaceView = panel.surfaceView
+        DispatchQueue.main.async {
+            surfaceView.window?.makeFirstResponder(surfaceView)
+            // Arm escape suppression so the Escape keyDown that dismissed the
+            // overlay is not forwarded to the terminal (Task 4.5 pattern).
+            surfaceView.beginFindEscapeSuppression()
+        }
     }
 }
 

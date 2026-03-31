@@ -11,6 +11,12 @@ struct BrowserPanelView: View {
 
     @StateObject private var viewModel = BrowserViewModel()
     @State private var showSearch: Bool = false
+    @State private var suggestions: [String] = []
+    @State private var showSuggestions: Bool = false
+    @State private var suggestTask: Task<Void, Never>? = nil
+
+    /// History store for the panel's profile — resolved lazily on first use.
+    @StateObject private var historyStore = BrowserHistoryStore(profileID: UUID())
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -33,6 +39,47 @@ struct BrowserPanelView: View {
             .background(Color.black)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("namu-browser-panel")
+
+            // Suggestion dropdown overlay
+            if showSuggestions && !suggestions.isEmpty {
+                VStack(spacing: 0) {
+                    // Offset to align below omnibar (~44 pts for padding + field)
+                    Color.clear.frame(height: 44)
+                    VStack(spacing: 0) {
+                        ForEach(suggestions, id: \.self) { suggestion in
+                            Button(action: {
+                                viewModel.urlText = suggestion
+                                viewModel.navigate(to: suggestion)
+                                showSuggestions = false
+                                suggestions = []
+                            }) {
+                                Text(suggestion)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                            }
+                            .buttonStyle(.plain)
+                            .background(Color.white.opacity(0.04))
+                            if suggestion != suggestions.last {
+                                Divider().opacity(0.2)
+                            }
+                        }
+                    }
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+                            .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(.horizontal, 10)
+                    Spacer()
+                }
+                .zIndex(20)
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.12), value: showSuggestions)
+            }
 
             // Find-in-page overlay
             if showSearch, let wv = viewModel.namuWebView {
@@ -64,7 +111,8 @@ struct BrowserPanelView: View {
             .buttonStyle(.plain)
             .foregroundStyle(viewModel.canGoBack ? .primary : .tertiary)
             .disabled(!viewModel.canGoBack)
-            .help("Back")
+            .help(String(localized: "browser.back.tooltip", defaultValue: "Back"))
+            .accessibilityLabel(String(localized: "browser.back.accessibility", defaultValue: "Go Back"))
 
             Button(action: { viewModel.goForward() }) {
                 Image(systemName: "chevron.right")
@@ -73,7 +121,8 @@ struct BrowserPanelView: View {
             .buttonStyle(.plain)
             .foregroundStyle(viewModel.canGoForward ? .primary : .tertiary)
             .disabled(!viewModel.canGoForward)
-            .help("Forward")
+            .help(String(localized: "browser.forward.tooltip", defaultValue: "Forward"))
+            .accessibilityLabel(String(localized: "browser.forward.accessibility", defaultValue: "Go Forward"))
 
             Button(action: { viewModel.reload() }) {
                 Image(systemName: viewModel.isLoading ? "xmark" : "arrow.clockwise")
@@ -81,9 +130,10 @@ struct BrowserPanelView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help(viewModel.isLoading ? "Stop" : "Reload")
+            .help(viewModel.isLoading ? String(localized: "browser.stop.tooltip", defaultValue: "Stop") : String(localized: "browser.reload.tooltip", defaultValue: "Reload"))
+            .accessibilityLabel(viewModel.isLoading ? String(localized: "browser.stop.accessibility", defaultValue: "Stop Loading") : String(localized: "browser.reload.accessibility", defaultValue: "Reload Page"))
 
-            TextField("Enter URL...", text: $viewModel.urlText)
+            TextField(String(localized: "browser.urlbar.placeholder", defaultValue: "Enter URL..."), text: $viewModel.urlText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, design: .monospaced))
                 .padding(.horizontal, 8)
@@ -92,7 +142,17 @@ struct BrowserPanelView: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color.white.opacity(0.06))
                 )
-                .onSubmit { viewModel.navigate() }
+                .onSubmit {
+                    viewModel.navigate()
+                    showSuggestions = false
+                    suggestions = []
+                }
+                .onChange(of: viewModel.urlText) { _, newValue in
+                    fetchSuggestions(for: newValue)
+                }
+                .onAppear {
+                    showSuggestions = false
+                }
 
             // Find button
             Button(action: {
@@ -103,8 +163,111 @@ struct BrowserPanelView: View {
                     .foregroundStyle(showSearch ? .primary : .secondary)
             }
             .buttonStyle(.plain)
-            .help("Find in Page")
+            .help(String(localized: "browser.findInPage.tooltip", defaultValue: "Find in Page"))
+            .accessibilityLabel(String(localized: "browser.findInPage.accessibility", defaultValue: "Find in Page"))
         }
+    }
+
+    // MARK: - Suggestion fetching
+
+    private func fetchSuggestions(for query: String) {
+        suggestTask?.cancel()
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        // Only suggest for plain text queries (not full URLs already being navigated).
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("http://"),
+              !trimmed.hasPrefix("https://") else {
+            suggestions = []
+            showSuggestions = false
+            return
+        }
+
+        // Local history matches — scored and sorted by relevance.
+        let localEntries = historyStore.search(query: trimmed)
+        let scoredLocal = localEntries
+            .map { entry -> (String, Double) in
+                let url = entry.url.absoluteString
+                let score = suggestionScore(query: trimmed, url: url,
+                                            title: entry.title ?? "",
+                                            visitDate: entry.visitDate)
+                return (url, score)
+            }
+            .sorted { $0.1 > $1.1 }
+            .prefix(4)
+            .map { $0.0 }
+
+        // Collect suggest URLs for Google, DuckDuckGo, and Bing in parallel.
+        let suggestEngines: [BrowserSearchEngine] = [.google, .duckduckgo, .bing]
+        let suggestURLs = suggestEngines.compactMap { $0.suggestURL(for: trimmed) }
+
+        guard !suggestURLs.isEmpty else {
+            suggestions = Array(scoredLocal)
+            showSuggestions = !suggestions.isEmpty
+            return
+        }
+
+        let localMatches = Array(scoredLocal)
+
+        suggestTask = Task { @MainActor in
+            // 150 ms debounce
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+
+            // Race: fetch all suggest APIs in parallel, return first non-empty result.
+            let remoteItems: [String] = await withTaskGroup(of: [String].self) { group in
+                for url in suggestURLs {
+                    group.addTask {
+                        guard let (data, _) = try? await URLSession.shared.data(from: url) else {
+                            return []
+                        }
+                        if let root = try? JSONSerialization.jsonObject(with: data) as? [Any],
+                           root.count >= 2,
+                           let items = root[1] as? [String],
+                           !items.isEmpty {
+                            return Array(items.prefix(8))
+                        }
+                        return []
+                    }
+                }
+                for await result in group {
+                    if !result.isEmpty {
+                        group.cancelAll()
+                        return result
+                    }
+                }
+                return []
+            }
+
+            guard !Task.isCancelled else { return }
+
+            // Merge: local first, then remote items not already present in local.
+            let localSet = Set(localMatches)
+            let merged = localMatches + remoteItems.filter { !localSet.contains($0) }
+            suggestions = Array(merged.prefix(8))
+            showSuggestions = !suggestions.isEmpty
+        }
+    }
+
+    /// Relevance score for a local history entry against the current query.
+    private func suggestionScore(query: String, url: String, title: String, visitDate: Date) -> Double {
+        let q = query.lowercased()
+        let urlLower = url.lowercased()
+        let titleLower = title.lowercased()
+        var score: Double = 0
+
+        // Exact URL prefix match
+        if urlLower.hasPrefix(q) { score += 100 }
+        // Title contains query
+        if titleLower.contains(q) { score += 50 }
+        // URL contains query (but not prefix — already counted above)
+        if urlLower.contains(q) { score += 30 }
+
+        // Recency bonus: +20 scaled linearly over 30 days, capped at 0 minimum
+        let daysSince = Date().timeIntervalSince(visitDate) / 86_400
+        let recency = max(0.0, 1.0 - daysSince / 30.0)
+        score += 20.0 * recency
+
+        return score
     }
 }
 
@@ -158,8 +321,9 @@ final class BrowserViewModel: ObservableObject, BrowserControlling {
             if resolved.contains(".") && !resolved.contains(" ") {
                 resolved = "https://\(resolved)"
             } else {
+                let engine = BrowserSearchSettings.shared.selectedEngine
                 let encoded = resolved.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? resolved
-                resolved = "https://www.google.com/search?q=\(encoded)"
+                resolved = engine.searchURLTemplate.replacingOccurrences(of: "%s", with: encoded)
             }
         }
         urlText = resolved
@@ -351,6 +515,189 @@ final class BrowserViewModel: ObservableObject, BrowserControlling {
 
     func addInitStyle(_ css: String) {
         namuWebView?.addInitStyle(css)
+    }
+
+    // MARK: - Developer tools transition queueing
+
+    /// True while a devtools toggle is in-flight; a second call queues one pending toggle.
+    private var devToolsTransitionInFlight: Bool = false
+    /// Whether a second toggle was requested while a transition was in-flight.
+    private var devToolsTransitionPending: Bool = false
+
+    func toggleDeveloperTools() {
+        guard !devToolsTransitionInFlight else {
+            // Queue at most one pending toggle; discard extras.
+            devToolsTransitionPending = true
+            return
+        }
+        devToolsTransitionInFlight = true
+        namuWebView?.toggleDeveloperTools()
+        // Allow a short settle window before accepting another toggle.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard let self else { return }
+            self.devToolsTransitionInFlight = false
+            if self.devToolsTransitionPending {
+                self.devToolsTransitionPending = false
+                self.toggleDeveloperTools()
+            }
+        }
+    }
+
+    func showDeveloperToolsConsole() {
+        namuWebView?.showDeveloperToolsConsole()
+    }
+
+    // MARK: - BrowserControlling V3 methods (US-017)
+
+    func dblclick(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.dblclick(selector: selector)
+    }
+
+    func fill(selector: String, text: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.fill(selector: selector, text: text)
+    }
+
+    func keydown(selector: String, key: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.keydown(selector: selector, key: key)
+    }
+
+    func keyup(selector: String, key: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.keyup(selector: selector, key: key)
+    }
+
+    func getInnerHTML(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.getInnerHTML(selector: selector)
+    }
+
+    func getInputValue(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.getInputValue(selector: selector)
+    }
+
+    func countElements(selector: String) async throws -> Int {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.countElements(selector: selector)
+    }
+
+    func getBoundingBox(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.getBoundingBox(selector: selector)
+    }
+
+    func getComputedStyles(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.getComputedStyles(selector: selector)
+    }
+
+    func isVisible(selector: String) async throws -> Bool {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.isVisible(selector: selector)
+    }
+
+    func isEnabled(selector: String) async throws -> Bool {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.isEnabled(selector: selector)
+    }
+
+    func isChecked(selector: String) async throws -> Bool {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.isChecked(selector: selector)
+    }
+
+    func findByRole(_ role: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findByRole(role)
+    }
+
+    func findByText(_ text: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findByText(text)
+    }
+
+    func findByLabel(_ text: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findByLabel(text)
+    }
+
+    func findByPlaceholder(_ text: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findByPlaceholder(text)
+    }
+
+    func findByAlt(_ text: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findByAlt(text)
+    }
+
+    func findByTitle(_ text: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findByTitle(text)
+    }
+
+    func findByTestId(_ testId: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findByTestId(testId)
+    }
+
+    func findFirst(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findFirst(selector: selector)
+    }
+
+    func findLast(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findLast(selector: selector)
+    }
+
+    func findNth(selector: String, index: Int) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.findNth(selector: selector, index: index)
+    }
+
+    func acceptDialog(text: String?) async throws {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        wv.acceptDialog(text: text)
+    }
+
+    func clearAllCookies() async throws {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        await wv.clearAllCookies()
+    }
+
+    func highlight(selector: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.highlight(selector: selector)
+    }
+
+    func savePageState() async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.savePageState()
+    }
+
+    func loadPageState(_ state: String) async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.loadPageState(state)
+    }
+
+    func networkRequests() async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.networkRequests()
+    }
+
+    func startNetworkTrace() async throws {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        try await wv.startNetworkTrace()
+    }
+
+    func stopNetworkTrace() async throws -> String {
+        guard let wv = namuWebView else { throw BrowserError.javascriptError("No web view") }
+        return try await wv.stopNetworkTrace()
     }
 
     // MARK: - Automation access

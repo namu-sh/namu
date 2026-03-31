@@ -33,6 +33,10 @@ final class SurfaceCommands {
             handler: { [weak self] req in try await self?.readText(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "report_shell_state", execution: .mainActor, safety: .safe,
             handler: { [weak self] req in try await self?.reportShellState(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "report_tty", execution: .mainActor, safety: .safe,
+            handler: { [weak self] req in try await self?.reportTTY(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "ports_kick", execution: .mainActor, safety: .safe,
+            handler: { [weak self] req in try await self?.portsKick(req) ?? .notAvailable(req) }))
     }
 
     // MARK: - Helpers
@@ -314,6 +318,47 @@ final class SurfaceCommands {
             "surface_id":   .string(panelID.uuidString),
             "workspace_id": .string(workspaceID.uuidString),
             "state":        .string(stateStr)
+        ]))
+    }
+
+    // MARK: - report_tty
+
+    /// Register the TTY name for a panel so PortScanner can scope ps/lsof to it.
+    /// Params:
+    ///   tty         (string, required) — TTY device name e.g. "s004"
+    ///   surface_id  (string, optional) — panel UUID; defaults to focused panel
+    private func reportTTY(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        guard let ttyValue = params["tty"], case .string(let ttyName) = ttyValue, !ttyName.isEmpty else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: tty")
+        }
+
+        let (panelID, workspaceID) = try resolveTarget(params: params)
+
+        PortScanner.shared.registerTTY(workspaceID: workspaceID, panelID: panelID, ttyName: ttyName)
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(panelID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "tty":          .string(ttyName)
+        ]))
+    }
+
+    // MARK: - ports_kick
+
+    /// Trigger a port scan burst for a panel after a command completes.
+    /// Params:
+    ///   surface_id  (string, optional) — panel UUID; defaults to focused panel
+    private func portsKick(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+        let (panelID, workspaceID) = try resolveTarget(params: params)
+
+        PortScanner.shared.kick(workspaceID: workspaceID, panelID: panelID)
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(panelID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString)
         ]))
     }
 }

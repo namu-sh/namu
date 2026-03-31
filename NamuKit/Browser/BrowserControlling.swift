@@ -84,6 +84,75 @@ protocol BrowserControlling: AnyObject {
     func addInitScript(_ script: String)
     /// Inject a CSS stylesheet at document start.
     func addInitStyle(_ css: String)
+
+    // MARK: Developer Tools
+    /// Toggle the Web Inspector panel.
+    func toggleDeveloperTools()
+    /// Show the Web Inspector console tab.
+    func showDeveloperToolsConsole()
+
+    // MARK: Browser V3 automation (US-017)
+
+    /// Double-click the element matching `selector`.
+    func dblclick(selector: String) async throws -> String
+    /// Clear + type into the element matching `selector` (Playwright fill).
+    func fill(selector: String, text: String) async throws -> String
+    /// Dispatch a keydown event on the element matching `selector`.
+    func keydown(selector: String, key: String) async throws -> String
+    /// Dispatch a keyup event on the element matching `selector`.
+    func keyup(selector: String, key: String) async throws -> String
+    /// Get the innerHTML of the element matching `selector`.
+    func getInnerHTML(selector: String) async throws -> String
+    /// Get the value property of the input matching `selector`.
+    func getInputValue(selector: String) async throws -> String
+    /// Count elements matching `selector`.
+    func countElements(selector: String) async throws -> Int
+    /// Get the bounding box of the element matching `selector` as JSON.
+    func getBoundingBox(selector: String) async throws -> String
+    /// Get the computed styles of the element matching `selector` as JSON.
+    func getComputedStyles(selector: String) async throws -> String
+    /// Check if the element matching `selector` is visible.
+    func isVisible(selector: String) async throws -> Bool
+    /// Check if the element matching `selector` is enabled.
+    func isEnabled(selector: String) async throws -> Bool
+    /// Check if the checkbox matching `selector` is checked.
+    func isChecked(selector: String) async throws -> Bool
+    /// Find elements by ARIA role.
+    func findByRole(_ role: String) async throws -> String
+    /// Find elements by text content.
+    func findByText(_ text: String) async throws -> String
+    /// Find elements by label text.
+    func findByLabel(_ text: String) async throws -> String
+    /// Find elements by placeholder attribute.
+    func findByPlaceholder(_ text: String) async throws -> String
+    /// Find elements by alt attribute.
+    func findByAlt(_ text: String) async throws -> String
+    /// Find elements by title attribute.
+    func findByTitle(_ text: String) async throws -> String
+    /// Find elements by data-testid attribute.
+    func findByTestId(_ testId: String) async throws -> String
+    /// Return the first element matching `selector`.
+    func findFirst(selector: String) async throws -> String
+    /// Return the last element matching `selector`.
+    func findLast(selector: String) async throws -> String
+    /// Return the nth element matching `selector`.
+    func findNth(selector: String, index: Int) async throws -> String
+    /// Accept the front-most pending dialog.
+    func acceptDialog(text: String?) async throws
+    /// Clear all cookies.
+    func clearAllCookies() async throws
+    /// Highlight the element matching `selector` visually.
+    func highlight(selector: String) async throws -> String
+    /// Save the current page scroll/form state as JSON.
+    func savePageState() async throws -> String
+    /// Restore page state from previously saved JSON.
+    func loadPageState(_ state: String) async throws -> String
+    /// Return recently intercepted network requests as JSON.
+    func networkRequests() async throws -> String
+    /// Inject fetch/XHR interceptors and reset the trace buffer.
+    func startNetworkTrace() async throws
+    /// Read the trace buffer, restore original fetch/XHR, and return entries as JSON.
+    func stopNetworkTrace() async throws -> String
 }
 
 // MARK: - BrowserRegistry
@@ -113,4 +182,20 @@ final class BrowserRegistry {
         if let id = paneID { return controllers[id] }
         return controllers.values.first
     }
+
+    /// Return all registered controllers.
+    func allControllers() -> [any BrowserControlling] {
+        Array(controllers.values)
+    }
+}
+
+// MARK: - Notification names for tab management
+
+extension Notification.Name {
+    /// Posted when the IPC layer requests a new browser tab.
+    static let browserTabNew    = Notification.Name("namu.browser.tab.new")
+    /// Posted when the IPC layer requests switching to a tab by surface_id.
+    static let browserTabSwitch = Notification.Name("namu.browser.tab.switch")
+    /// Posted when the IPC layer requests closing a tab by surface_id.
+    static let browserTabClose  = Notification.Name("namu.browser.tab.close")
 }

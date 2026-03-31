@@ -11,6 +11,10 @@ final class WorkspaceManager: ObservableObject {
     @Published var workspaces: [Workspace] = []
     @Published var selectedWorkspaceID: UUID?
 
+    /// Incremented after each toggleZoom call to force SwiftUI subtree recreation
+    /// via the `.id()` modifier, discarding any stale portal bindings.
+    @Published var splitZoomRenderIdentity: Int = 0
+
     // MARK: - Computed
 
     var selectedWorkspace: Workspace? {
@@ -28,14 +32,31 @@ final class WorkspaceManager: ObservableObject {
 
     // MARK: - CRUD
 
-    /// Create a new workspace and append it to the list.
+    /// Create a new workspace and insert it according to the given placement.
+    /// If `placement` is nil, the value from `WorkspacePlacementSettings` is used.
     @discardableResult
     func createWorkspace(
-        title: String = String(localized: "workspace.default.title", defaultValue: "New Workspace")
+        title: String = String(localized: "workspace.default.title", defaultValue: "New Workspace"),
+        placement: WorkspacePlacement? = nil
     ) -> Workspace {
-        let order = workspaces.map(\.order).max().map { $0 + 1 } ?? 0
-        let workspace = Workspace(title: title, order: order)
-        workspaces.append(workspace)
+        let resolvedPlacement = placement ?? WorkspacePlacementSettings.current()
+        let pinnedCount = workspaces.filter(\.isPinned).count
+        let selectedIndex = selectedWorkspaceID.flatMap { id in
+            workspaces.firstIndex(where: { $0.id == id })
+        }
+        let selectedIsPinned = selectedWorkspaceID.flatMap { id in
+            workspaces.first(where: { $0.id == id })
+        }?.isPinned ?? false
+        let insertIndex = WorkspacePlacementSettings.insertionIndex(
+            placement: resolvedPlacement,
+            selectedIndex: selectedIndex,
+            pinnedCount: pinnedCount,
+            totalCount: workspaces.count,
+            selectedIsPinned: selectedIsPinned
+        )
+        let workspace = Workspace(title: title, order: insertIndex)
+        workspaces.insert(workspace, at: insertIndex)
+        reindex()
         return workspace
     }
 
@@ -58,6 +79,10 @@ final class WorkspaceManager: ObservableObject {
     func selectWorkspace(id: UUID) {
         guard workspaces.contains(where: { $0.id == id }) else { return }
         selectedWorkspaceID = id
+        // Reap stale agent PIDs on selection change so dead processes don't block notifications.
+        for idx in workspaces.indices {
+            workspaces[idx].reapStaleAgentPIDs()
+        }
     }
 
     /// Move a workspace from one position to another (for drag reordering).
@@ -83,6 +108,25 @@ final class WorkspaceManager: ObservableObject {
     func setWorkspaceColor(id: UUID, color: String?) {
         guard let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
         workspaces[idx].customColor = color
+    }
+
+    // MARK: - Auto-reorder
+
+    /// Move the workspace with the given ID to the top of the unpinned section
+    /// (i.e. immediately after all pinned workspaces). No-op if the workspace is pinned
+    /// or already at the top of the unpinned section.
+    func moveWorkspaceToTop(id: UUID) {
+        guard let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
+        let workspace = workspaces[idx]
+        guard !workspace.isPinned else { return }
+
+        let pinnedCount = workspaces.filter(\.isPinned).count
+        // Already at the top of the unpinned section — nothing to do.
+        guard idx != pinnedCount else { return }
+
+        workspaces.remove(at: idx)
+        workspaces.insert(workspace, at: pinnedCount)
+        reindex()
     }
 
     // MARK: - Internal mutations (used by PanelManager)

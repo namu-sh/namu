@@ -174,6 +174,67 @@ final class GhosttyConfig {
         return String(cString: value)
     }
 
+    var cursorText: NSColor? {
+        var color = ghostty_config_color_s()
+        guard get("cursor-text", into: &color) else { return nil }
+        return NSColor(
+            red: CGFloat(color.r) / 255,
+            green: CGFloat(color.g) / 255,
+            blue: CGFloat(color.b) / 255,
+            alpha: 1.0
+        )
+    }
+
+    var selectionBackground: NSColor? {
+        var color = ghostty_config_color_s()
+        guard get("selection-background", into: &color) else { return nil }
+        return NSColor(
+            red: CGFloat(color.r) / 255,
+            green: CGFloat(color.g) / 255,
+            blue: CGFloat(color.b) / 255,
+            alpha: 1.0
+        )
+    }
+
+    var selectionForeground: NSColor? {
+        var color = ghostty_config_color_s()
+        guard get("selection-foreground", into: &color) else { return nil }
+        return NSColor(
+            red: CGFloat(color.r) / 255,
+            green: CGFloat(color.g) / 255,
+            blue: CGFloat(color.b) / 255,
+            alpha: 1.0
+        )
+    }
+
+    /// Opacity of the dimmed (unfocused) split pane, clamped to [0, 1].
+    var unfocusedSplitOpacity: Double {
+        var value: Double = 0.7
+        get("unfocused-split-opacity", into: &value)
+        return min(1.0, max(0.0, value))
+    }
+
+    /// Fill color key for unfocused split pane ("background" or a hex color string).
+    var unfocusedSplitFill: String {
+        var value: UnsafePointer<Int8>?
+        guard get("unfocused-split-fill", into: &value), let value else { return "background" }
+        return String(cString: value)
+    }
+
+    /// Color of the divider between split panes (hex string or named color).
+    var splitDividerColor: String {
+        var value: UnsafePointer<Int8>?
+        guard get("split-divider-color", into: &value), let value else { return "" }
+        return String(cString: value)
+    }
+
+    /// Whether AppleScript support is enabled for this terminal.
+    var macosApplescript: Bool {
+        var value = false
+        get("macos-applescript", into: &value)
+        return value
+    }
+
     // MARK: - Color palette access
 
     /// Read all 256 palette colors at once.
@@ -233,6 +294,127 @@ final class GhosttyConfig {
         }
     }
 
+    // MARK: - Theme resolution
+
+    /// The raw `theme` config value (e.g. "Dracula" or "light:SolarizedLight dark:SolarizedDark").
+    var themeRawValue: String? {
+        var value: UnsafePointer<Int8>?
+        guard get("theme", into: &value), let value else { return nil }
+        let s = String(cString: value)
+        return s.isEmpty ? nil : s
+    }
+
+    /// Parse `theme` for light/dark conditional syntax.
+    /// Supports: `light:ThemeName dark:OtherTheme` in any order.
+    /// Returns the theme name for the given colorScheme ("light" or "dark"),
+    /// or the raw value if no conditional prefix is present.
+    func resolveThemeName(for colorScheme: String) -> String? {
+        guard let raw = themeRawValue else { return nil }
+        // Check for conditional syntax: tokens containing "light:" or "dark:" prefixes.
+        let tokens = raw.split(separator: " ").map(String.init)
+        var lightTheme: String?
+        var darkTheme: String?
+        for token in tokens {
+            if token.lowercased().hasPrefix("light:") {
+                lightTheme = String(token.dropFirst("light:".count))
+            } else if token.lowercased().hasPrefix("dark:") {
+                darkTheme = String(token.dropFirst("dark:".count))
+            }
+        }
+        // If conditional syntax found, pick by scheme.
+        if lightTheme != nil || darkTheme != nil {
+            if colorScheme.lowercased() == "dark" {
+                return darkTheme ?? lightTheme
+            } else {
+                return lightTheme ?? darkTheme
+            }
+        }
+        // No conditional syntax — single theme name applies to both schemes.
+        return raw
+    }
+
+    /// Candidate directories where Ghostty theme files may live.
+    /// Mirrors the 6-path search order used by Namu/Ghostty config resolution.
+    func themeSearchPaths() -> [URL] {
+        var paths: [URL] = []
+
+        // 1. Ghostty XDG config dir: ~/.config/ghostty/themes/
+        if let xdgConfig = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].map(URL.init(fileURLWithPath:))
+                           ?? URL(string: "file://\(NSHomeDirectory())/.config") {
+            paths.append(xdgConfig.appendingPathComponent("ghostty/themes"))
+        }
+
+        // 2. ~/.config/ghostty/themes/ (explicit fallback for XDG_CONFIG_HOME absence)
+        let dotConfig = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/ghostty/themes")
+        if !paths.contains(dotConfig) {
+            paths.append(dotConfig)
+        }
+
+        // 3. XDG data dirs: ~/.local/share/ghostty/themes/
+        let xdgDataHome = ProcessInfo.processInfo.environment["XDG_DATA_HOME"]
+            .map(URL.init(fileURLWithPath:))
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/share")
+        paths.append(xdgDataHome.appendingPathComponent("ghostty/themes"))
+
+        // 4. System XDG data dirs (/usr/local/share, /usr/share)
+        let systemDataDirs = ProcessInfo.processInfo.environment["XDG_DATA_DIRS"]?
+            .split(separator: ":").map { URL(fileURLWithPath: String($0)) }
+            ?? [
+                URL(fileURLWithPath: "/usr/local/share"),
+                URL(fileURLWithPath: "/usr/share"),
+            ]
+        for dir in systemDataDirs {
+            paths.append(dir.appendingPathComponent("ghostty/themes"))
+        }
+
+        // 5. App bundle resources (bundled themes shipped with Namu)
+        if let bundleURL = Bundle.main.resourceURL {
+            paths.append(bundleURL.appendingPathComponent("ghostty/themes"))
+        }
+
+        return paths
+    }
+
+    /// Read a theme file by name from the search paths and return its
+    /// `background` and `foreground` color hex strings.
+    /// Returns nil if the theme file is not found or cannot be parsed.
+    func loadThemeColors(named themeName: String) -> (background: String?, foreground: String?)? {
+        let searchPaths = themeSearchPaths()
+        var themeURL: URL?
+        let fm = FileManager.default
+        for dir in searchPaths {
+            let candidate = dir.appendingPathComponent(themeName)
+            if fm.fileExists(atPath: candidate.path) {
+                themeURL = candidate
+                break
+            }
+        }
+        guard let url = themeURL,
+              let contents = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+
+        var background: String?
+        var foreground: String?
+        for line in contents.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Skip comments and blank lines.
+            guard !trimmed.hasPrefix("#"), !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            let value = parts[1]
+            if key == "background" {
+                background = value
+            } else if key == "foreground" {
+                foreground = value
+            }
+        }
+        // Return nil if we found neither color — file exists but had no relevant keys.
+        if background == nil, foreground == nil { return nil }
+        return (background: background, foreground: foreground)
+    }
+
     // MARK: - SurfaceConfig factory
 
     /// Build a ghostty_surface_config_s and call the provided closure with it.
@@ -255,6 +437,8 @@ final class GhosttyConfig {
         command: String? = nil,
         envVars: [String: String] = [:],
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_WINDOW,
+        waitAfterCommand: Bool = false,
+        initialInput: String? = nil,
         body: (inout ghostty_surface_config_s) -> R
     ) -> R {
         var cfg = ghostty_surface_config_new()
@@ -267,6 +451,7 @@ final class GhosttyConfig {
         cfg.userdata = userdata
         cfg.scale_factor = scaleFactor
         cfg.context = context
+        cfg.wait_after_command = waitAfterCommand
 
         // Build C env var array — strdup keeps pointers alive for the body closure.
         var cEnvVars = envVars.map { key, value in
@@ -292,13 +477,16 @@ final class GhosttyConfig {
             cfg.working_directory = wdPtr
             return withOptionalCString(command) { cmdPtr in
                 cfg.command = cmdPtr
-                if cEnvVars.isEmpty {
-                    return body(&cfg)
-                }
-                return cEnvVars.withUnsafeMutableBufferPointer { buf in
-                    cfg.env_vars = buf.baseAddress
-                    cfg.env_var_count = buf.count
-                    return body(&cfg)
+                return withOptionalCString(initialInput) { inputPtr in
+                    cfg.initial_input = inputPtr
+                    if cEnvVars.isEmpty {
+                        return body(&cfg)
+                    }
+                    return cEnvVars.withUnsafeMutableBufferPointer { buf in
+                        cfg.env_vars = buf.baseAddress
+                        cfg.env_var_count = buf.count
+                        return body(&cfg)
+                    }
                 }
             }
         }

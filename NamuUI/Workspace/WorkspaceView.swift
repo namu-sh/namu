@@ -8,6 +8,15 @@ struct WorkspaceView: View {
     let panelManager: PanelManager
     var isActive: Bool = true
 
+    @ObservedObject private var workspaceManager: WorkspaceManager
+
+    init(workspaceID: UUID, panelManager: PanelManager, isActive: Bool = true) {
+        self.workspaceID = workspaceID
+        self.panelManager = panelManager
+        self.isActive = isActive
+        self.workspaceManager = panelManager.workspaceManager
+    }
+
     var body: some View {
         let controller = panelManager.controller(for: workspaceID)
         let engine = panelManager.engine(for: workspaceID)
@@ -45,12 +54,13 @@ struct WorkspaceView: View {
                 .onAppear {
                     let eng = panelManager.engine(for: workspaceID)
                     let panel = panelManager.createTerminalPanel(workspaceID: workspaceID)
-                    if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: paneId) {
+                    if let tabID = eng.createTab(title: String(localized: "workspace.defaultTab.terminal", defaultValue: "Terminal"), kind: "terminal", inPane: paneId) {
                         eng.registerMapping(tabID: tabID, panelID: panel.id)
                     }
 
                 }
         }
+        .id(workspaceManager.splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
         .accessibilityElement(children: .contain)

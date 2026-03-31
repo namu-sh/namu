@@ -13,23 +13,23 @@ struct KeyboardHintOverlay: View {
     }
 
     private let hints: [Hint] = [
-        Hint(keys: "⌘K / ⌘P",   description: "Command Palette"),
-        Hint(keys: "⌘\\",        description: "Split Horizontal"),
-        Hint(keys: "⌘⇧\\",      description: "Split Vertical"),
-        Hint(keys: "⌘W",         description: "Close Pane"),
-        Hint(keys: "⌘[",         description: "Focus Previous Pane"),
-        Hint(keys: "⌘]",         description: "Focus Next Pane"),
-        Hint(keys: "⌘T",         description: "New Workspace"),
-        Hint(keys: "⌘⇧M",       description: "Toggle Minimal Mode"),
-        Hint(keys: "⌘⇧F",       description: "Toggle Find"),
-        Hint(keys: "⌘I",         description: "Toggle AI Chat"),
-        Hint(keys: "⌘⇧S",       description: "Toggle Sidebar"),
-        Hint(keys: "⌘Z",         description: "Zoom Focused Pane"),
+        Hint(keys: "⌘K / ⌘P",   description: String(localized: "hint.commandPalette", defaultValue: "Command Palette")),
+        Hint(keys: "⌘\\",        description: String(localized: "hint.splitHorizontal", defaultValue: "Split Horizontal")),
+        Hint(keys: "⌘⇧\\",      description: String(localized: "hint.splitVertical", defaultValue: "Split Vertical")),
+        Hint(keys: "⌘W",         description: String(localized: "hint.closePane", defaultValue: "Close Pane")),
+        Hint(keys: "⌘[",         description: String(localized: "hint.focusPrevious", defaultValue: "Focus Previous Pane")),
+        Hint(keys: "⌘]",         description: String(localized: "hint.focusNext", defaultValue: "Focus Next Pane")),
+        Hint(keys: "⌘T",         description: String(localized: "hint.newWorkspace", defaultValue: "New Workspace")),
+        Hint(keys: "⌘⇧M",       description: String(localized: "hint.toggleMinimalMode", defaultValue: "Toggle Minimal Mode")),
+        Hint(keys: "⌘⇧F",       description: String(localized: "hint.toggleFind", defaultValue: "Toggle Find")),
+        Hint(keys: "⌘I",         description: String(localized: "hint.toggleAIChat", defaultValue: "Toggle AI Chat")),
+        Hint(keys: "⌘⇧S",       description: String(localized: "hint.toggleSidebar", defaultValue: "Toggle Sidebar")),
+        Hint(keys: "⌘Z",         description: String(localized: "hint.zoomFocusedPane", defaultValue: "Zoom Focused Pane")),
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Keyboard Shortcuts")
+            Text(String(localized: "hint.overlay.title", defaultValue: "Keyboard Shortcuts"))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 8)

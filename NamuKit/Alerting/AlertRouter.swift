@@ -84,4 +84,9 @@ actor AlertRouter {
     var enabledChannelIDs: [String] {
         channels.map(\.id)
     }
+
+    /// Replace the active channel list directly. Intended for testing only.
+    func setChannels(_ newChannels: [any AlertChannel]) {
+        channels = newChannels
+    }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Bonsplit
+import UniformTypeIdentifiers
 
 /// Concrete LayoutEngine implementation backed by BonsplitController.
 /// Owns one BonsplitController per workspace and conforms to BonsplitDelegate
@@ -38,6 +39,19 @@ final class BonsplitLayoutEngine: LayoutEngine, BonsplitDelegate {
         controller.onTabCloseRequest = { [weak self] tabId, paneId in
             guard let self else { return }
             self.handleTabCloseRequest(tabId: tabId, paneId: paneId)
+        }
+
+        // Attach namuPaneTab payload to tab drags so the sidebar WorkspaceDropDelegate
+        // can receive them as cross-workspace drops.
+        controller.onCreateAdditionalDragPayload = { [weak self] tabId in
+            guard let self,
+                  let panelID = self.tabToPanelID[tabId] else { return [] }
+            let payload = PaneTabDragPayload(
+                panelID: panelID,
+                sourceWorkspaceID: self.workspaceID
+            )
+            guard let data = try? JSONEncoder().encode(payload) else { return [] }
+            return [(typeIdentifier: UTType.namuPaneTab.identifier, data: data)]
         }
     }
 

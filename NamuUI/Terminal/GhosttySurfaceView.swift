@@ -1,6 +1,16 @@
 import AppKit
 import QuartzCore
 
+// MARK: - NotificationAttentionAnimationDelegate
+
+/// CAAnimationDelegate that fires a completion closure when an animation stops.
+/// Used to decrement the class-level notification attention counter.
+private final class NotificationAttentionAnimationDelegate: NSObject, CAAnimationDelegate {
+    private let onStop: () -> Void
+    init(_ onStop: @escaping () -> Void) { self.onStop = onStop }
+    func animationDidStop(_ anim: CAAnimation, finished flag: Bool) { onStop() }
+}
+
 // MARK: - GhosttySurfaceView
 
 /// NSView subclass that hosts a Metal-rendered Ghostty terminal surface.
@@ -31,6 +41,116 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     // requiring the panel to become key first (avoids focus race conditions).
     override var needsPanelToBecomeKey: Bool { false }
 
+    // MARK: - AttentionReason
+
+    /// Classifies why attention is being requested, allowing different visual styles
+    /// and suppression rules per reason.
+    enum AttentionReason {
+        /// A navigation event targeted this pane (subtle blue ring, suppressed when notification attention is active elsewhere).
+        case navigation
+        /// A new notification arrived for this pane (brighter ring + flash).
+        case notificationArrival
+        /// A notification was dismissed from this pane (brief dim flash).
+        case notificationDismiss
+        /// Debug / development purpose (amber ring).
+        case debug
+        /// User manually marked a notification as read from the notification panel.
+        case manualUnreadDismiss
+
+        /// Ring stroke color for this reason.
+        var ringColor: CGColor {
+            switch self {
+            case .navigation:           return NSColor.systemBlue.withAlphaComponent(0.55).cgColor
+            case .notificationArrival:  return NSColor.systemOrange.cgColor
+            case .notificationDismiss:  return NSColor.systemGray.cgColor
+            case .debug:                return NSColor.systemYellow.cgColor
+            case .manualUnreadDismiss:  return NSColor.systemGray.withAlphaComponent(0.6).cgColor
+            }
+        }
+
+        /// Ring opacity peak for the keyframe animation.
+        var ringPeakOpacity: Float {
+            switch self {
+            case .navigation:           return 0.55
+            case .notificationArrival:  return 0.9
+            case .notificationDismiss:  return 0.35
+            case .debug:                return 0.8
+            case .manualUnreadDismiss:  return 0.25
+            }
+        }
+
+        /// Flash peak opacity (0 = no flash).
+        var flashPeakOpacity: Float {
+            switch self {
+            case .navigation:           return 0.0
+            case .notificationArrival:  return 0.25
+            case .notificationDismiss:  return 0.10
+            case .debug:                return 0.15
+            case .manualUnreadDismiss:  return 0.0
+            }
+        }
+
+        /// Animation duration in seconds.
+        var duration: Double {
+            switch self {
+            case .navigation:           return 0.6
+            case .notificationArrival:  return 0.8
+            case .notificationDismiss:  return 0.4
+            case .debug:                return 1.0
+            case .manualUnreadDismiss:  return 0.3
+            }
+        }
+    }
+
+    // MARK: - WorkspaceAttentionPersistentState
+
+    /// Tracks per-workspace attention state for the 5-reason attention coordinator.
+    /// Replaces the simple `notificationAttentionCount` counter with formal state.
+    struct WorkspaceAttentionPersistentState {
+        /// Panel IDs that currently have unread notifications (ring active).
+        var unreadPanelIDs: Set<UUID> = []
+        /// The panel ID that is currently focused and whose notification was read by focus.
+        var focusedReadPanelID: UUID? = nil
+        /// Panel IDs where the user explicitly dismissed unread state via the notification panel.
+        var manualUnreadPanelIDs: Set<UUID> = []
+    }
+
+    // MARK: - FlashDecision
+
+    /// Result of `decideFlash(reason:persistentState:)`.
+    enum FlashDecision {
+        /// Show the flash animation for this reason.
+        case show
+        /// Suppress the flash (another attention signal takes priority or state says no flash needed).
+        case suppress(reason: String)
+    }
+
+    /// Evaluate whether to show a flash given the current attention reason and persistent state.
+    /// This is the single decision point that replaces ad-hoc suppression logic scattered
+    /// across `requestAttention` and `requestFlash`.
+    static func decideFlash(
+        reason: AttentionReason,
+        persistentState: WorkspaceAttentionPersistentState
+    ) -> FlashDecision {
+        switch reason {
+        case .navigation:
+            // Suppress navigation flash when any unread panel has active notification attention.
+            if !persistentState.unreadPanelIDs.isEmpty {
+                return .suppress(reason: "notification attention active")
+            }
+            return .show
+        case .notificationArrival:
+            return .show
+        case .notificationDismiss:
+            return .show
+        case .manualUnreadDismiss:
+            // No flash for manual dismiss — it is a silent acknowledgement.
+            return .suppress(reason: "manual dismiss is silent")
+        case .debug:
+            return .show
+        }
+    }
+
     // MARK: - Attention layer (notification ring)
 
     private lazy var attentionLayer: CAShapeLayer = {
@@ -44,27 +164,85 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         return layer
     }()
 
-    /// Show a brief blue border ring to draw attention to this pane.
-    func requestAttention() {
+    /// Show a brief border ring to draw attention to this pane.
+    /// No-op when `NotificationPaneRingSettings` is disabled.
+    /// For `.navigation` reason: suppressed when any pane currently has active notification attention.
+    func requestAttention(reason: AttentionReason = .notificationArrival) {
+        guard NotificationPaneRingSettings.isEnabled() else { return }
+        // Suppress navigation flash when another pane has notification attention active.
+        if reason == .navigation, GhosttySurfaceView.anyPaneHasNotificationAttention { return }
+        if reason == .notificationArrival {
+            GhosttySurfaceView.notificationAttentionCount += 1
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let inset = self.bounds.insetBy(dx: 1.5, dy: 1.5)
             self.attentionLayer.path = CGPath(roundedRect: inset, cornerWidth: 4, cornerHeight: 4, transform: nil)
             self.attentionLayer.frame = self.bounds
+            self.attentionLayer.strokeColor = reason.ringColor
             self.attentionLayer.removeAllAnimations()
             self.attentionLayer.opacity = 0
 
+            let peak = reason.ringPeakOpacity
             let animation = CAKeyframeAnimation(keyPath: "opacity")
-            animation.values = [0.0, 0.8, 0.6, 0.8, 0.0]
+            animation.values = [0.0, peak, peak * 0.75, peak, 0.0]
             animation.keyTimes = [0.0, 0.15, 0.4, 0.6, 1.0]
-            animation.duration = 0.8
+            animation.duration = reason.duration
             animation.timingFunctions = [
                 CAMediaTimingFunction(name: .easeIn),
                 CAMediaTimingFunction(name: .easeOut),
                 CAMediaTimingFunction(name: .easeIn),
                 CAMediaTimingFunction(name: .easeOut),
             ]
+            if reason == .notificationArrival {
+                animation.delegate = NotificationAttentionAnimationDelegate {
+                    GhosttySurfaceView.notificationAttentionCount =
+                        max(0, GhosttySurfaceView.notificationAttentionCount - 1)
+                }
+            }
             self.attentionLayer.add(animation, forKey: "namu.attention")
+        }
+    }
+
+    // MARK: - Notification attention tracking (class-level, for suppression)
+
+    /// Counts how many panes currently have an active notification-arrival attention animation.
+    /// Used to suppress navigation flashes while notification attention is in progress.
+    private static var notificationAttentionCount: Int = 0
+    private static var anyPaneHasNotificationAttention: Bool { notificationAttentionCount > 0 }
+
+    // MARK: - Flash layer (notification opacity flash)
+
+    private lazy var flashLayer: CALayer = {
+        let layer = CALayer()
+        layer.backgroundColor = NSColor.white.withAlphaComponent(0.15).cgColor
+        layer.opacity = 0
+        self.wantsLayer = true
+        self.layer?.addSublayer(layer)
+        return layer
+    }()
+
+    /// Show a brief full-pane opacity flash to draw attention.
+    /// No-op when `NotificationPaneFlashSettings` is disabled or reason has no flash.
+    func requestFlash(reason: AttentionReason = .notificationArrival) {
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        let peak = reason.flashPeakOpacity
+        guard peak > 0 else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.flashLayer.frame = self.bounds
+            self.flashLayer.removeAllAnimations()
+            self.flashLayer.opacity = 0
+
+            let animation = CAKeyframeAnimation(keyPath: "opacity")
+            animation.values = [0.0, peak, 0.0]
+            animation.keyTimes = [0.0, 0.3, 1.0]
+            animation.duration = reason.duration
+            animation.timingFunctions = [
+                CAMediaTimingFunction(name: .easeIn),
+                CAMediaTimingFunction(name: .easeOut),
+            ]
+            self.flashLayer.add(animation, forKey: "namu.flash")
         }
     }
 
@@ -103,7 +281,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     // MARK: - CAMetalLayer backing
 
     override func makeBackingLayer() -> CALayer {
-        let metalLayer = CAMetalLayer()
+        let metalLayer = NamuMetalLayer()
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.isOpaque = false
         // framebufferOnly=false lets the macOS compositor read the drawable
@@ -111,6 +289,11 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         // background-opacity and background-blur to render correctly.
         metalLayer.framebufferOnly = false
         return metalLayer
+    }
+
+    /// Returns GPU drawable statistics from the backing NamuMetalLayer, if available.
+    var metalLayerStats: (count: Int, lastTime: CFTimeInterval)? {
+        (layer as? NamuMetalLayer)?.debugStats()
     }
 
     // MARK: - Init
@@ -217,7 +400,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
                 // Show attention ring if this pane's panel ID matches, or if no specific panel was targeted.
                 let targetID = notification.userInfo?["panel_id"] as? UUID
                 if targetID == nil || targetID == session.id {
-                    self.requestAttention()
+                    self.requestAttention(reason: .notificationArrival)
+                    self.requestFlash(reason: .notificationArrival)
                 }
             }
         }
@@ -347,6 +531,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     // MARK: - Keyboard: Phase 1 — performKeyEquivalent
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        TypingTiming.start(event: event)
+        TypingTiming.logEventDelay(event: event)
         guard let surface else { return false }
 
         // Task 4.1: IME guard — when composition is active and the key has no Cmd
@@ -366,7 +552,11 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             return handleCopyModeKeyEvent(event)
         }
 
+        TypingTiming.logEntry(label: "modifier_translation_equiv")
+        let modTransStart = CACurrentMediaTime()
         let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
+        TypingTiming.logExit(label: "modifier_translation_equiv", startTime: modTransStart)
+
         let keyEvent = GhosttyKeyboard.makeKeyInput(
             action: GHOSTTY_ACTION_PRESS,
             mods: mods,
@@ -394,7 +584,11 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             }
         }
 
-        return GhosttyKeyboard.sendKey(to: surface, key: keyEvent)
+        TypingTiming.logEntry(label: "ghostty_surface_key_equiv")
+        let sendKeyStart = CACurrentMediaTime()
+        let result = GhosttyKeyboard.sendKey(to: surface, key: keyEvent)
+        TypingTiming.logExit(label: "ghostty_surface_key_equiv", startTime: sendKeyStart)
+        return result
     }
 
     /// Handle a key event while copy mode is active. Returns true (consumed).
@@ -422,6 +616,9 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
 
     override func keyDown(with event: NSEvent) {
         NamuDebug.log("[Namu] keyDown: keyCode=\(event.keyCode), surface=\(surface != nil), isFirstResponder=\(window?.firstResponder === self)")
+        TypingTiming.start(event: event)
+        TypingTiming.logEventDelay(event: event)
+        let keyDownStart = CACurrentMediaTime()
 
         // Task 4.5: disarm suppression on any non-Escape key; consume suppressed Escape.
         if event.keyCode != 53 {
@@ -445,7 +642,10 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         // Ctrl+key fast path: bypass interpretKeyEvents (zero IME overhead).
         if isCtrlOnly && !hasMarkedText() {
             ghostty_surface_set_focus(surface, true)
+            TypingTiming.logEntry(label: "modifier_translation_ctrl")
+            let modTransStart = CACurrentMediaTime()
             let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
+            TypingTiming.logExit(label: "modifier_translation_ctrl", startTime: modTransStart)
             var keyEvent = GhosttyKeyboard.makeKeyInput(
                 action: event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS,
                 mods: mods,
@@ -454,6 +654,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             )
             let text = event.charactersIgnoringModifiers ?? event.characters ?? ""
             let handled: Bool
+            TypingTiming.logEntry(label: "ghostty_surface_key_ctrl")
+            let ctrlSendStart = CACurrentMediaTime()
             if text.isEmpty {
                 handled = GhosttyKeyboard.sendKey(to: surface, key: keyEvent)
             } else {
@@ -462,7 +664,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
                     return GhosttyKeyboard.sendKey(to: surface, key: keyEvent)
                 }
             }
-            if handled { return }
+            TypingTiming.logExit(label: "ghostty_surface_key_ctrl", startTime: ctrlSendStart)
+            if handled {
+                TypingTiming.logBreakdown(phases: [
+                    ("mod_trans", CACurrentMediaTime() - modTransStart),
+                    ("send_key", CACurrentMediaTime() - ctrlSendStart),
+                    ("keyDown_total", CACurrentMediaTime() - keyDownStart)
+                ])
+                return
+            }
         }
 
         // Phase 3: IME / full key routing via interpretKeyEvents.
@@ -470,8 +680,11 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         defer { keyTextAccumulator = nil }
 
         // Translate mods for macos-option-as-alt support
+        TypingTiming.logEntry(label: "modifier_translation_ime")
+        let modTransStart = CACurrentMediaTime()
         let translatedMods = GhosttyKeyboard.translationMods(surface: surface, mods: GhosttyKeyboard.translateMods(event.modifierFlags))
         let originalMods = GhosttyKeyboard.translateMods(event.modifierFlags)
+        TypingTiming.logExit(label: "modifier_translation_ime", startTime: modTransStart)
 
         let eventForInterpret: NSEvent
         if translatedMods != originalMods {
@@ -493,7 +706,10 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             eventForInterpret = event
         }
         didInsertText = false
+        TypingTiming.logEntry(label: "interpretKeyEvents")
+        let interpretStart = CACurrentMediaTime()
         interpretKeyEvents([eventForInterpret])
+        TypingTiming.logExit(label: "interpretKeyEvents", startTime: interpretStart)
 
         // If interpretKeyEvents didn't produce any text (e.g. Enter, Backspace, arrows,
         // Tab, Escape), send the raw key event directly to Ghostty.
@@ -506,6 +722,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
                 unshiftedCodepoint: unshiftedCodepoint(from: event)
             )
             let text = event.characters ?? ""
+            TypingTiming.logEntry(label: "ghostty_surface_key")
+            let ghosttySendStart = CACurrentMediaTime()
             if !text.isEmpty {
                 text.withCString { ptr in
                     keyEvent.text = ptr
@@ -514,8 +732,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             } else {
                 _ = GhosttyKeyboard.sendKey(to: surface, key: keyEvent)
             }
+            TypingTiming.logExit(label: "ghostty_surface_key", startTime: ghosttySendStart)
             NamuDebug.log("[Namu] keyDown: raw key sent (no text from interpretKeyEvents) keyCode=\(event.keyCode)")
         }
+        let keyDownTotal = CACurrentMediaTime() - keyDownStart
+        TypingTiming.logBreakdown(phases: [
+            ("mod_trans", CACurrentMediaTime() - modTransStart - keyDownTotal),
+            ("interpret", CACurrentMediaTime() - interpretStart),
+            ("keyDown_total", keyDownTotal)
+        ])
     }
 
     override func keyUp(with event: NSEvent) {
@@ -558,6 +783,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     // MARK: - Keyboard: Phase 3 — NSTextInputClient
 
     func insertText(_ string: Any, replacementRange: NSRange) {
+        TypingTiming.logEntry(label: "insertText")
+        let insertTextStart = CACurrentMediaTime()
         let text: String
         if let attributed = string as? NSAttributedString {
             text = attributed.string
@@ -574,11 +801,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         } else {
             // Committed text outside a keyDown round-trip (e.g. voice input).
             guard let surface else { return }
+            TypingTiming.logEntry(label: "ghostty_surface_text")
+            let textSendStart = CACurrentMediaTime()
             GhosttyKeyboard.sendText(to: surface, text: text)
+            TypingTiming.logExit(label: "ghostty_surface_text", startTime: textSendStart)
         }
 
         // Flush accumulated text to Ghostty at the end of each keyDown cycle.
         flushKeyTextAccumulatorIfReady()
+        TypingTiming.logExit(label: "insertText", startTime: insertTextStart)
     }
 
     private func flushKeyTextAccumulatorIfReady() {
@@ -601,6 +832,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
 
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        TypingTiming.logEntry(label: "preedit_setMarkedText")
+        let preeditStart = CACurrentMediaTime()
         markedText = NSMutableAttributedString()
         if let attributed = string as? NSAttributedString {
             markedText.append(attributed)
@@ -610,6 +843,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         let text = markedText.string.isEmpty ? nil : markedText.string
         guard let surface else { return }
         GhosttyKeyboard.sendPreedit(to: surface, text: text)
+        TypingTiming.logExit(label: "preedit_setMarkedText", startTime: preeditStart)
     }
 
     func unmarkText() {
@@ -653,6 +887,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     // MARK: - Mouse events
 
     override func mouseDown(with event: NSEvent) {
+        let mouseStart = CACurrentMediaTime()
+        TypingTiming.logMouseEntry(handler: "mouseDown")
         // Activate this panel via PanelManager, then claim first responder.
         onActivate?()
         let _ = window?.makeFirstResponder(self)
@@ -670,9 +906,12 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             button: GHOSTTY_MOUSE_LEFT,
             mods: mods
         )
+        TypingTiming.logMouseExit(handler: "mouseDown", startTime: mouseStart)
     }
 
     override func mouseUp(with event: NSEvent) {
+        let mouseStart = CACurrentMediaTime()
+        TypingTiming.logMouseEntry(handler: "mouseUp")
         guard let surface else { return }
         let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
         GhosttyKeyboard.sendMouseButton(
@@ -681,6 +920,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
             button: GHOSTTY_MOUSE_LEFT,
             mods: mods
         )
+        TypingTiming.logMouseExit(handler: "mouseUp", startTime: mouseStart)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -828,10 +1068,13 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        let mouseStart = CACurrentMediaTime()
+        TypingTiming.logMouseEntry(handler: "mouseDragged")
         guard let surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         let mods = GhosttyKeyboard.translateMods(event.modifierFlags)
         GhosttyKeyboard.sendMousePos(to: surface, x: point.x, y: bounds.height - point.y, mods: mods)
+        TypingTiming.logMouseExit(handler: "mouseDragged", startTime: mouseStart)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -842,6 +1085,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        let mouseStart = CACurrentMediaTime()
+        TypingTiming.logMouseEntry(handler: "scrollWheel")
         guard let surface else { return }
         lastScrollEventTime = CACurrentMediaTime()
 
@@ -873,6 +1118,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         mods |= momentum << 1
 
         GhosttyKeyboard.sendMouseScroll(to: surface, dx: dx, dy: dy, scrollMods: ghostty_input_scroll_mods_t(mods))
+        TypingTiming.logMouseExit(handler: "scrollWheel", startTime: mouseStart)
     }
 
     // MARK: - Paste (clipboard image support)

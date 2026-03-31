@@ -7,10 +7,12 @@ struct WebhookChannel: AlertChannel, Sendable {
 
     private let url: String
     private let bearerToken: String?
+    private let session: URLSession
 
-    init(url: String, bearerToken: String? = nil) {
+    init(url: String, bearerToken: String? = nil, session: URLSession = .shared) {
         self.url = url
         self.bearerToken = bearerToken
+        self.session = session
     }
 
     func send(_ payload: AlertPayload) async throws {
@@ -29,7 +31,7 @@ struct WebhookChannel: AlertChannel, Sendable {
         request.httpBody = try JSONEncoder().encode(payload)
         request.timeoutInterval = 10
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0

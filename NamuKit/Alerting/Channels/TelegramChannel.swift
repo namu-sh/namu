@@ -7,10 +7,12 @@ struct TelegramChannel: AlertChannel, Sendable {
 
     private let botToken: String
     private let chatID: String
+    private let session: URLSession
 
-    init(botToken: String, chatID: String) {
+    init(botToken: String, chatID: String, session: URLSession = .shared) {
         self.botToken = botToken
         self.chatID = chatID
+        self.session = session
     }
 
     func send(_ payload: AlertPayload) async throws {
@@ -34,7 +36,7 @@ struct TelegramChannel: AlertChannel, Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 10
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             throw AlertChannelError.sendFailed("Telegram", underlyingError: nil)

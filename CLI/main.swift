@@ -679,6 +679,396 @@ func handleClaudeHook(_ args: [String]) throws {
     }
 }
 
+// MARK: - Codex Hook
+
+/// Handle Codex CLI hook events. Gracefully no-ops when not running inside Namu.
+func handleCodexHook(_ args: [String]) throws {
+    guard args.count >= 3 else {
+        throw CLIError(message: "Usage: namu codex-hook <session-start|prompt-submit|stop>")
+    }
+    let event = args[2]
+
+    let socketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+    let surfaceID = ProcessInfo.processInfo.environment["NAMU_SURFACE_ID"] ?? ""
+
+    // Graceful no-op: if not inside namu, exit silently with valid JSON
+    guard !surfaceID.isEmpty else {
+        print("{}")
+        return
+    }
+
+    var stdinData = Data()
+    while let chunk = try? FileHandle.standardInput.availableData, !chunk.isEmpty {
+        stdinData.append(chunk)
+        if stdinData.count > 64 * 1024 { break }
+    }
+    let context = (try? JSONSerialization.jsonObject(with: stdinData)) as? [String: Any] ?? [:]
+
+    let workspaceID = ProcessInfo.processInfo.environment["NAMU_WORKSPACE_ID"] ?? ""
+
+    let client = SocketClient(path: socketPath)
+    defer { client.close() }
+
+    do {
+        try client.connect()
+    } catch {
+        // Namu not running — silently ignore hook
+        print("{}")
+        return
+    }
+
+    var params: [String: Any] = [
+        "surface_id": surfaceID,
+        "workspace_id": workspaceID,
+        "event": event,
+        "tool": "codex",
+    ]
+
+    switch event {
+    case "session-start":
+        if let sessionID = context["session_id"] as? String {
+            params["session_id"] = sessionID
+        }
+        params["status"] = "running"
+        _ = try? client.sendRequest(method: "system.claude_hook", params: params, timeout: 5)
+
+    case "prompt-submit":
+        params["status"] = "running"
+        _ = try? client.sendRequest(method: "system.claude_hook", params: params, timeout: 5)
+
+    case "stop":
+        params["status"] = "idle"
+        _ = try? client.sendRequest(method: "system.claude_hook", params: params, timeout: 5)
+
+        let stopTitle = "Codex"
+        let stopBody: String = {
+            if let msg = context["last_assistant_message"] as? String, !msg.isEmpty { return msg }
+            if let result = context["result"] as? String, !result.isEmpty { return result }
+            return "Task complete"
+        }()
+        _ = try? client.sendRequest(method: "notification.create", params: [
+            "title": stopTitle,
+            "body": stopBody,
+            "surface_id": surfaceID,
+            "workspace_id": workspaceID,
+        ], timeout: 5)
+
+    default:
+        break
+    }
+
+    print("{}")
+}
+
+// MARK: - Codex Install/Uninstall Hooks
+
+/// Handle `namu codex <install-hooks|uninstall-hooks>`.
+func handleCodex(_ args: [String]) throws {
+    guard args.count >= 3 else {
+        print("""
+        Usage: namu codex <install-hooks|uninstall-hooks>
+
+        Manage Codex CLI hooks integration.
+
+        Subcommands:
+          install-hooks     Install namu hooks into ~/.codex/hooks.json
+          uninstall-hooks   Remove namu hooks from ~/.codex/hooks.json
+        """)
+        return
+    }
+
+    let subcommand = args[2]
+    switch subcommand {
+    case "install-hooks":
+        try codexInstallHooks()
+    case "uninstall-hooks":
+        try codexUninstallHooks()
+    default:
+        throw CLIError(message: "Unknown codex subcommand '\(subcommand)'. Valid: install-hooks, uninstall-hooks")
+    }
+}
+
+private func codexHookCommand(_ event: String) -> String {
+    "[ -n \"$NAMU_SURFACE_ID\" ] && command -v namu >/dev/null 2>&1 && namu codex-hook \(event) || echo '{}'"
+}
+
+private let codexHooksJSON: [String: Any] = [
+    "hooks": [
+        "SessionStart": [[
+            "hooks": [[
+                "type": "command",
+                "command": codexHookCommand("session-start"),
+                "timeout": 10,
+            ] as [String: Any]],
+        ] as [String: Any]],
+        "UserPromptSubmit": [[
+            "hooks": [[
+                "type": "command",
+                "command": codexHookCommand("prompt-submit"),
+                "timeout": 10,
+            ] as [String: Any]],
+        ] as [String: Any]],
+        "Stop": [[
+            "hooks": [[
+                "type": "command",
+                "command": codexHookCommand("stop"),
+                "timeout": 10,
+            ] as [String: Any]],
+        ] as [String: Any]],
+    ] as [String: Any],
+]
+
+private let codexHookCommandMarker = "namu codex-hook"
+
+private func codexInstallHooks() throws {
+    let skipConfirm = CommandLine.arguments.contains("--yes") || CommandLine.arguments.contains("-y")
+    let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
+        ?? NSString(string: "~/.codex").expandingTildeInPath
+    let hooksPath = (codexHome as NSString).appendingPathComponent("hooks.json")
+    let fm = FileManager.default
+
+    try fm.createDirectory(atPath: codexHome, withIntermediateDirectories: true, attributes: nil)
+
+    let existingContent: String? = fm.fileExists(atPath: hooksPath)
+        ? (try? String(contentsOfFile: hooksPath, encoding: .utf8))
+        : nil
+
+    var existing: [String: Any] = [:]
+    if let existingContent,
+       let data = existingContent.data(using: .utf8),
+       let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        existing = parsed
+    }
+
+    var hooks = existing["hooks"] as? [String: Any] ?? [:]
+    let namuHooks = codexHooksJSON["hooks"] as! [String: Any]
+    for (eventName, namuGroups) in namuHooks {
+        guard let namuGroupArray = namuGroups as? [[String: Any]] else { continue }
+        var eventGroups = hooks[eventName] as? [[String: Any]] ?? []
+        eventGroups.removeAll { group in
+            guard let groupHooks = group["hooks"] as? [[String: Any]] else { return false }
+            return groupHooks.allSatisfy { hook in
+                (hook["command"] as? String)?.contains(codexHookCommandMarker) == true
+            }
+        }
+        eventGroups.append(contentsOf: namuGroupArray)
+        hooks[eventName] = eventGroups
+    }
+    existing["hooks"] = hooks
+
+    let newJsonData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+    let newContent = String(data: newJsonData, encoding: .utf8) ?? ""
+
+    if existingContent == newContent {
+        print("namu hooks are already installed. Nothing to change.")
+        return
+    }
+
+    print("Will write: \(hooksPath)")
+    if existingContent == nil {
+        print("  (new file)")
+    }
+
+    if !skipConfirm {
+        print("Apply these changes? [Y/n] ", terminator: "")
+        if let response = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           !response.isEmpty && response != "y" && response != "yes" {
+            print("Aborted.")
+            return
+        }
+    }
+
+    try newJsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+    print("Installed. Hooks activate inside namu and silently no-op elsewhere.")
+    print("To remove: namu codex uninstall-hooks")
+}
+
+private func codexUninstallHooks() throws {
+    let skipConfirm = CommandLine.arguments.contains("--yes") || CommandLine.arguments.contains("-y")
+    let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
+        ?? NSString(string: "~/.codex").expandingTildeInPath
+    let hooksPath = (codexHome as NSString).appendingPathComponent("hooks.json")
+    let fm = FileManager.default
+
+    guard fm.fileExists(atPath: hooksPath),
+          let data = try? Data(contentsOf: URL(fileURLWithPath: hooksPath)),
+          var parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        print("No hooks.json found at \(hooksPath)")
+        return
+    }
+
+    guard var hooks = parsed["hooks"] as? [String: Any] else {
+        print("No hooks section found in \(hooksPath)")
+        return
+    }
+
+    var removedCount = 0
+    for eventName in hooks.keys {
+        guard var eventGroups = hooks[eventName] as? [[String: Any]] else { continue }
+        let before = eventGroups.count
+        eventGroups.removeAll { group in
+            guard let groupHooks = group["hooks"] as? [[String: Any]] else { return false }
+            return groupHooks.allSatisfy { hook in
+                (hook["command"] as? String)?.contains(codexHookCommandMarker) == true
+            }
+        }
+        removedCount += before - eventGroups.count
+        if eventGroups.isEmpty {
+            hooks.removeValue(forKey: eventName)
+        } else {
+            hooks[eventName] = eventGroups
+        }
+    }
+
+    if removedCount == 0 {
+        print("No namu hooks found.")
+        return
+    }
+
+    parsed["hooks"] = hooks
+    let newJsonData = try JSONSerialization.data(withJSONObject: parsed, options: [.prettyPrinted, .sortedKeys])
+
+    print("Will remove \(removedCount) namu hook(s) from \(hooksPath)")
+
+    if !skipConfirm {
+        print("Apply these changes? [Y/n] ", terminator: "")
+        if let response = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+           !response.isEmpty && response != "y" && response != "yes" {
+            print("Aborted.")
+            return
+        }
+    }
+
+    try newJsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+    print("Removed \(removedCount) namu hook(s).")
+}
+
+// MARK: - OpenCode
+
+/// Handle `namu opencode` / `namu omo` — launches opencode via execvp.
+func handleOpenCode(_ args: [String]) throws {
+    let commandArgs = Array(args.dropFirst(2)) // drop "namu" and "opencode"/"omo"
+
+    // Find opencode on PATH
+    let pathEntries = ProcessInfo.processInfo.environment["PATH"]?
+        .split(separator: ":").map(String.init) ?? []
+    var openCodePath: String? = nil
+    for entry in pathEntries where !entry.isEmpty {
+        let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: false).path
+        if FileManager.default.isExecutableFile(atPath: candidate) {
+            openCodePath = candidate
+            break
+        }
+    }
+
+    guard openCodePath != nil || (try? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        p.arguments = ["opencode"]
+        p.standardOutput = Pipe(); p.standardError = Pipe()
+        try p.run(); p.waitUntilExit()
+        return p.terminationStatus == 0
+    }()) == true else {
+        throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: namu opencode")
+    }
+
+    // Set up shadow config directory so we don't mutate the user's ~/.config/opencode/
+    let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+    let shadowConfigDir = URL(fileURLWithPath: homePath, isDirectory: true)
+        .appendingPathComponent(".namuterm", isDirectory: true)
+        .appendingPathComponent("opencode-config", isDirectory: true)
+
+    try FileManager.default.createDirectory(at: shadowConfigDir, withIntermediateDirectories: true, attributes: nil)
+
+    let userConfigDir = URL(fileURLWithPath: homePath, isDirectory: true)
+        .appendingPathComponent(".config", isDirectory: true)
+        .appendingPathComponent("opencode", isDirectory: true)
+
+    // Copy/symlink user's opencode.json into shadow dir if present
+    let userJsonURL = userConfigDir.appendingPathComponent("opencode.json")
+    let shadowJsonURL = shadowConfigDir.appendingPathComponent("opencode.json")
+    if FileManager.default.fileExists(atPath: userJsonURL.path),
+       !FileManager.default.fileExists(atPath: shadowJsonURL.path) {
+        try? FileManager.default.createSymbolicLink(at: shadowJsonURL, withDestinationURL: userJsonURL)
+    }
+
+    // Point OpenCode at the shadow config
+    setenv("OPENCODE_CONFIG_DIR", shadowConfigDir.path, 1)
+
+    // Also expose the namu socket path
+    let socketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+    setenv("NAMU_SOCKET", socketPath, 0) // don't overwrite if already set
+
+    // --- Plugin management: ensure oh-my-openagent plugin config exists ---
+    let pluginDir = URL(fileURLWithPath: homePath, isDirectory: true)
+        .appendingPathComponent(".namuterm", isDirectory: true)
+        .appendingPathComponent("opencode-plugins", isDirectory: true)
+        .appendingPathComponent("oh-my-openagent", isDirectory: true)
+    try FileManager.default.createDirectory(at: pluginDir, withIntermediateDirectories: true, attributes: nil)
+    let pluginConfigURL = pluginDir.appendingPathComponent("config.json")
+    if !FileManager.default.fileExists(atPath: pluginConfigURL.path) {
+        let namuSocket = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+        let pluginConfig: [String: Any] = [
+            "name": "oh-my-openagent",
+            "version": "1.0.0",
+            "terminalIntegration": [
+                "namuSocket": namuSocket,
+                "shellIntegration": "namu"
+            ]
+        ]
+        if let data = try? JSONSerialization.data(withJSONObject: pluginConfig, options: .prettyPrinted) {
+            try? data.write(to: pluginConfigURL)
+        }
+    }
+
+    // --- tmux-compat shim: create a fake tmux that delegates to `namu __tmux-compat` ---
+    let shimDir = URL(fileURLWithPath: homePath, isDirectory: true)
+        .appendingPathComponent(".namuterm", isDirectory: true)
+        .appendingPathComponent("opencode-bin", isDirectory: true)
+    try FileManager.default.createDirectory(at: shimDir, withIntermediateDirectories: true, attributes: nil)
+    let shimPath = shimDir.appendingPathComponent("tmux").path
+    // Resolve our own executable for the shim callback
+    let selfExec: String = {
+        if let p = ProcessInfo.processInfo.environment["NAMU_CLI_PATH"],
+           FileManager.default.isExecutableFile(atPath: p) { return p }
+        let s = CommandLine.arguments[0]
+        if s.contains("/") && FileManager.default.isExecutableFile(atPath: s) { return s }
+        return "namu"
+    }()
+    let shimScript = """
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec "\(selfExec)" __tmux-compat "$@"
+    """
+    let existingShim = try? String(contentsOfFile: shimPath, encoding: .utf8)
+    if existingShim?.trimmingCharacters(in: .whitespacesAndNewlines)
+        != shimScript.trimmingCharacters(in: .whitespacesAndNewlines) {
+        try shimScript.write(toFile: shimPath, atomically: true, encoding: .utf8)
+        chmod(shimPath, 0o755)
+    }
+
+    // Prepend shim dir to PATH so opencode picks up our fake tmux
+    let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin"
+    setenv("PATH", "\(shimDir.path):\(currentPath)", 1)
+
+    // Signal shell integration that we are running inside opencode
+    setenv("NAMU_OPENCODE_MODE", "1", 1)
+
+    let launchPath = openCodePath ?? "opencode"
+    var argv = ([launchPath] + commandArgs).map { strdup($0) }
+    defer { argv.forEach { free($0) } }
+    argv.append(nil)
+
+    if openCodePath != nil {
+        execv(launchPath, &argv)
+    } else {
+        execvp("opencode", &argv)
+    }
+    let code = errno
+    throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))")
+}
+
 // MARK: - Claude Teams
 
 // MARK: Tmux compat helpers
@@ -1710,9 +2100,129 @@ func handleTmuxCompat(_ args: [String]) throws {
             }
         }
 
+    case "pipe-pane", "pipep":
+        // Acknowledge pipe-pane; actual piping to external commands is not supported.
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t", "-I", "-O"], boolFlags: ["-o"])
+        _ = parsed
+        return
+
+    case "swap-pane", "swapp":
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-s", "-t"], boolFlags: ["-D", "-U", "-Z", "-d"])
+        let source = try tmuxResolveSurfaceTarget(parsed.value("-s"), client: client)
+        let dest   = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+        _ = try client.sendV2(method: "surface.swap", params: [
+            "workspace_id": source.workspaceId,
+            "source_surface_id": source.surfaceId,
+            "dest_surface_id": dest.surfaceId
+        ])
+
+    case "break-pane", "breakp":
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-F", "-n", "-t"], boolFlags: ["-P", "-d"])
+        let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+        let created = try client.sendV2(method: "workspace.create", params: ["focus": !parsed.hasFlag("-d")])
+        guard let newWorkspaceId = created["workspace_id"] as? String else {
+            throw CLIError(message: "workspace.create did not return workspace_id")
+        }
+        if let title = parsed.value("-n"),
+           !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            _ = try client.sendV2(method: "workspace.rename", params: [
+                "workspace_id": newWorkspaceId,
+                "title": title
+            ])
+        }
+        _ = try client.sendV2(method: "surface.move", params: [
+            "source_workspace_id": target.workspaceId,
+            "surface_id": target.surfaceId,
+            "dest_workspace_id": newWorkspaceId
+        ])
+        if parsed.hasFlag("-P") {
+            let context = try tmuxFormatContext(workspaceId: newWorkspaceId, client: client)
+            print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: "@\(newWorkspaceId)"))
+        }
+
+    case "join-pane", "joinp":
+        let parsed = try parseTmuxArguments(
+            rawArgs,
+            valueFlags: ["-s", "-t", "-l", "-F"],
+            boolFlags: ["-b", "-d", "-h", "-v", "-P"]
+        )
+        let source = try tmuxResolveSurfaceTarget(parsed.value("-s"), client: client)
+        let dest   = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+        let direction: String
+        if parsed.hasFlag("-h") {
+            direction = parsed.hasFlag("-b") ? "left" : "right"
+        } else {
+            direction = parsed.hasFlag("-b") ? "up" : "down"
+        }
+        _ = try client.sendV2(method: "surface.move", params: [
+            "source_workspace_id": source.workspaceId,
+            "surface_id": source.surfaceId,
+            "dest_workspace_id": dest.workspaceId,
+            "dest_surface_id": dest.surfaceId,
+            "direction": direction
+        ])
+
+    case "find-window", "findw":
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t", "-F"], boolFlags: ["-C", "-N", "-r", "-Z"])
+        let query = parsed.positional.joined(separator: " ")
+        let items = try tmuxWorkspaceItems(client: client)
+        for item in items {
+            guard let workspaceId = item["id"] as? String else { continue }
+            let context = try tmuxFormatContext(workspaceId: workspaceId, client: client)
+            let title = context["window_name"] ?? workspaceId
+            let matches: Bool
+            if parsed.hasFlag("-r") {
+                matches = (title.range(of: query, options: .regularExpression) != nil)
+            } else {
+                matches = title.localizedCaseInsensitiveContains(query)
+            }
+            if matches {
+                let fallback = [context["window_index"] ?? "?", title].joined(separator: " ")
+                print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
+            }
+        }
+
+    case "clear-history", "clearhist":
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
+        let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+        _ = try client.sendV2(method: "surface.send_text", params: [
+            "workspace_id": target.workspaceId,
+            "surface_id": target.surfaceId,
+            "text": "clear\n"
+        ])
+
+    case "respawn-pane", "respawnp":
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t", "-c"], boolFlags: ["-k"])
+        let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+        _ = try client.sendV2(method: "surface.respawn", params: [
+            "workspace_id": target.workspaceId,
+            "surface_id": target.surfaceId
+        ])
+
     case "set-option", "set", "set-window-option", "setw",
          "source-file", "refresh-client", "attach-session", "detach-client", "set-hook":
         return
+
+    case "popup":
+        // No-op: popup windows are not supported; return success silently.
+        return
+
+    case "bind-key", "bind", "unbind-key", "unbind":
+        // No-op: key bindings are managed by Namu natively.
+        return
+
+    case "copy-mode":
+        // Forward to the active terminal as a no-op pass-through.
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: ["-u", "-e", "-H", "-q"])
+        _ = parsed
+        return
+
+    case "delete-buffer", "deleteb":
+        let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-b"], boolFlags: [])
+        let name = parsed.value("-b") ?? "default"
+        var store = loadTmuxCompatStore()
+        store.buffers.removeValue(forKey: name)
+        try saveTmuxCompatStore(store)
 
     default:
         FileHandle.standardError.write(Data("namu: unsupported tmux command: \(command)\n".utf8))
@@ -1913,6 +2423,86 @@ if CommandLine.arguments[1] == "claude-hook" {
     } catch let error as CLIError {
         FileHandle.standardError.write(Data("Error: \(error.message)\n".utf8))
         exit(1)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
+if CommandLine.arguments[1] == "codex-hook" {
+    do {
+        try handleCodexHook(CommandLine.arguments)
+    } catch let error as CLIError {
+        FileHandle.standardError.write(Data("Error: \(error.message)\n".utf8))
+        exit(1)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
+if CommandLine.arguments[1] == "codex" {
+    do {
+        try handleCodex(CommandLine.arguments)
+    } catch let error as CLIError {
+        FileHandle.standardError.write(Data("Error: \(error.message)\n".utf8))
+        exit(1)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
+if CommandLine.arguments[1] == "opencode" || CommandLine.arguments[1] == "omo" {
+    do {
+        try handleOpenCode(CommandLine.arguments)
+    } catch let error as CLIError {
+        FileHandle.standardError.write(Data("Error: \(error.message)\n".utf8))
+        exit(1)
+    } catch {
+        FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
+        exit(1)
+    }
+    exit(0)
+}
+
+// Flat-command aliases: bypass the namespace parser for common operations.
+// These map single-word commands to their namespace.command equivalents.
+let flatAliases: [String: (namespace: String, command: String)] = [
+    "version":          ("system", "version"),
+    "list-workspaces":  ("workspace", "list"),
+    "new-workspace":    ("workspace", "create"),
+    "list-panes":       ("pane", "list"),
+    "send":             ("surface", "send_text"),
+    "read-screen":      ("pane", "read_screen"),
+    "notify":           ("notification", "create"),
+]
+if let alias = flatAliases[CommandLine.arguments[1]] {
+    // Rewrite arguments to namespace form and fall through to run()
+    var rewritten = CommandLine.arguments
+    rewritten[1] = alias.namespace
+    rewritten.insert(alias.command, at: 2)
+    // Replace process arguments isn't possible, so just call run() directly with the mapped values
+    let socket = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+    let client = SocketClient(path: socket)
+    let method = "\(alias.namespace).\(alias.command)"
+    var params: [String: Any] = [:]
+    if CommandLine.arguments.count > 2 {
+        // Pass remaining args as positional
+        let remaining = Array(CommandLine.arguments.dropFirst(2))
+        if alias.command == "create" && !remaining.isEmpty {
+            params["title"] = remaining[0]
+            if remaining.count > 1 { params["body"] = remaining[1] }
+        } else if alias.command == "send_text" && !remaining.isEmpty {
+            params["text"] = remaining.joined(separator: " ")
+        }
+    }
+    do {
+        let response = try client.sendRequest(method: method, params: params, timeout: 5.0)
+        print(response)
     } catch {
         FileHandle.standardError.write(Data("Error: \(error)\n".utf8))
         exit(1)

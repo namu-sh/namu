@@ -23,7 +23,18 @@ struct SidebarMetadata: Equatable {
         lhs.panelBranches == rhs.panelBranches &&
         lhs.metadataEntries.count == rhs.metadataEntries.count &&
         zip(lhs.metadataEntries, rhs.metadataEntries).allSatisfy { $0.0 == $1.0 && $0.1 == $1.1 } &&
-        lhs.markdownBlocks == rhs.markdownBlocks
+        lhs.markdownBlocks == rhs.markdownBlocks &&
+        lhs.remoteConnectionState == rhs.remoteConnectionState &&
+        lhs.remoteDaemonStatus == rhs.remoteDaemonStatus &&
+        lhs.remoteForwardedPorts == rhs.remoteForwardedPorts &&
+        lhs.remoteProxyEndpoint == rhs.remoteProxyEndpoint &&
+        lhs.remoteHeartbeatCount == rhs.remoteHeartbeatCount &&
+        lhs.remoteLastHeartbeatAt == rhs.remoteLastHeartbeatAt &&
+        lhs.remoteConnectionDetail == rhs.remoteConnectionDetail &&
+        lhs.remoteDetectedPorts == rhs.remoteDetectedPorts &&
+        lhs.remotePortConflicts == rhs.remotePortConflicts &&
+        lhs.remoteConfiguration == rhs.remoteConfiguration &&
+        lhs.activeRemoteTerminalSessionCount == rhs.activeRemoteTerminalSessionCount
     }
     var workingDirectory: String?
     var gitBranch: String?
@@ -77,6 +88,46 @@ struct SidebarMetadata: Equatable {
 
     /// Markdown blocks reported by shell integration for rich sidebar display.
     var markdownBlocks: [String] = []
+
+    // MARK: - Remote SSH session state
+
+    /// Human-readable connection state for the active SSH session (e.g. "connected", "reconnecting").
+    /// Populated by shell integration when isRemoteSSH is true.
+    var remoteConnectionState: String? = nil
+
+    /// Status of the remote daemon (e.g. "running", "starting", "stopped").
+    var remoteDaemonStatus: String? = nil
+
+    /// Ports forwarded through the SSH tunnel for this session.
+    var remoteForwardedPorts: [PortInfo]? = nil
+
+    /// Proxy endpoint address used by the remote session (e.g. "127.0.0.1:2222").
+    var remoteProxyEndpoint: String? = nil
+
+    /// Cumulative heartbeat count received from the remote daemon since session start.
+    var remoteHeartbeatCount: Int = 0
+
+    /// Timestamp of the most recently received heartbeat from the remote daemon.
+    var remoteLastHeartbeatAt: Date? = nil
+
+    // MARK: - Remote SSH extended state (fields 7–9)
+
+    /// Human-readable connection detail string, e.g. "user@host:port".
+    var remoteConnectionDetail: String? = nil
+
+    /// Ports detected as open/listening on the remote host.
+    var remoteDetectedPorts: [PortInfo]? = nil
+
+    /// Port conflict descriptions, e.g. ["Port 8080 already in use by nginx"].
+    var remotePortConflicts: [String]? = nil
+
+    // MARK: - Remote SSH extended state (fields 10–11)
+
+    /// Typed configuration string describing the remote connection (e.g. "user@host:port via jump-host").
+    var remoteConfiguration: String? = nil
+
+    /// Number of active remote terminal sessions in this workspace.
+    var activeRemoteTerminalSessionCount: Int = 0
 }
 
 /// A TCP/UDP port that a process in the workspace is listening on.

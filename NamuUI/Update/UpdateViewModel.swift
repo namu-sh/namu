@@ -63,17 +63,17 @@ final class UpdateViewModel: ObservableObject {
         case .idle:
             return ""
         case .checking:
-            return "Checking for Updates…"
+            return String(localized: "update.status.checking", defaultValue: "Checking for Updates…")
         case .updateAvailable(let version):
-            return "Update Available: \(version)"
+            return String(format: String(localized: "update.status.available", defaultValue: "Update Available: %@"), version)
         case .downloading(let progress):
-            return String(format: "Downloading: %.0f%%", progress * 100)
+            return String(format: String(localized: "update.status.downloading", defaultValue: "Downloading: %.0f%%"), progress * 100)
         case .installing:
-            return "Installing…"
+            return String(localized: "update.status.installing", defaultValue: "Installing…")
         case .upToDate:
-            return "Up to Date"
+            return String(localized: "update.status.upToDate", defaultValue: "Up to Date")
         case .error:
-            return "Update Failed"
+            return String(localized: "update.status.failed", defaultValue: "Update Failed")
         }
     }
 

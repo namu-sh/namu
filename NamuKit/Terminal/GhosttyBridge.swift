@@ -13,6 +13,7 @@ extension Notification.Name {
     static let namuNotificationCreated = Notification.Name("xyz.omlabs.namu.notificationCreated")
     static let namuTerminalNotification = Notification.Name("xyz.omlabs.namu.terminalNotification")
     static let namuPaneAttentionRequested = Notification.Name("xyz.omlabs.namu.paneAttentionRequested")
+    static let namuWorkspaceAutoReorderRequested = Notification.Name("xyz.omlabs.namu.workspaceAutoReorderRequested")
     // Search/find overlay
     static let namuSearchStarted = Notification.Name("xyz.omlabs.namu.searchStarted")
     static let namuSearchEnded = Notification.Name("xyz.omlabs.namu.searchEnded")
@@ -23,6 +24,9 @@ extension Notification.Name {
     static let namuScrollbarUpdated = Notification.Name("xyz.omlabs.namu.scrollbarUpdated")
     static let namuKeySequenceUpdated = Notification.Name("xyz.omlabs.namu.keySequenceUpdated")
     static let namuKeyTableUpdated = Notification.Name("xyz.omlabs.namu.keyTableUpdated")
+    // Zoom portal reconciliation — posted after zoom state changes so terminal portal
+    // views can reconcile their visibility. userInfo: ["panelID": UUID, "isZoomed": Bool]
+    static let namuTerminalPortalReconcile = Notification.Name("xyz.omlabs.namu.terminalPortalReconcile")
 }
 
 // MARK: - GhosttyColorScheme
@@ -897,6 +901,14 @@ enum GhosttyBridge {
             context: ghostty_surface_context_e
         ) -> ghostty_surface_config_s {
             ghostty_surface_inherited_config(surface, context)
+        }
+
+        /// Best-effort check: reject pointers that no longer belong to an active
+        /// malloc zone allocation. NOT a reliable UAF detector — freed-then-reallocated
+        /// memory will pass this check. The primary safety mechanism is
+        /// TerminalSession.destroy() setting surface = nil.
+        static func appearsLive(_ surface: ghostty_surface_t) -> Bool {
+            malloc_zone_from_ptr(surface) != nil && malloc_size(surface) > 0
         }
     }
 }

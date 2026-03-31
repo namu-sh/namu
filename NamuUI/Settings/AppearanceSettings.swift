@@ -7,7 +7,7 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            sectionHeader("Appearance", subtitle: "Customize the look and feel of Namu")
+            sectionHeader(String(localized: "settings.appearance.title", defaultValue: "Appearance"), subtitle: String(localized: "settings.appearance.subtitle", defaultValue: "Customize the look and feel of Namu"))
 
             themeSection
             sidebarSection
@@ -22,7 +22,7 @@ struct AppearanceSettingsView: View {
     private var themeSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Theme")
+                Text(String(localized: "settings.appearance.theme.label", defaultValue: "Theme"))
                     .font(.system(size: 13, weight: .semibold))
 
                 Picker("", selection: $appearance.theme) {
@@ -45,7 +45,7 @@ struct AppearanceSettingsView: View {
     private var autoScheduleRow: some View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Light mode from")
+                Text(String(localized: "settings.appearance.theme.lightFrom", defaultValue: "Light mode from"))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Stepper(
@@ -58,7 +58,7 @@ struct AppearanceSettingsView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("Dark mode from")
+                Text(String(localized: "settings.appearance.theme.darkFrom", defaultValue: "Dark mode from"))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Stepper(
@@ -78,12 +78,12 @@ struct AppearanceSettingsView: View {
     private var sidebarSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Sidebar")
+                Text(String(localized: "settings.appearance.sidebar.label", defaultValue: "Sidebar"))
                     .font(.system(size: 13, weight: .semibold))
 
                 // Material
                 HStack {
-                    Text("Material")
+                    Text(String(localized: "settings.appearance.sidebar.material", defaultValue: "Material"))
                         .font(.system(size: 12))
                         .frame(width: 80, alignment: .leading)
                     Picker("", selection: $appearance.sidebarMaterial) {
@@ -98,7 +98,7 @@ struct AppearanceSettingsView: View {
 
                 // Tint color
                 HStack {
-                    Text("Tint Color")
+                    Text(String(localized: "settings.appearance.sidebar.tintColor", defaultValue: "Tint Color"))
                         .font(.system(size: 12))
                         .frame(width: 80, alignment: .leading)
                     ColorPicker(
@@ -109,7 +109,7 @@ struct AppearanceSettingsView: View {
                     .labelsHidden()
                     .frame(width: 36)
 
-                    Text("Opacity")
+                    Text(String(localized: "settings.appearance.sidebar.opacity", defaultValue: "Opacity"))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Slider(value: $appearance.sidebarTintOpacity, in: 0...1, step: 0.05)
@@ -120,7 +120,7 @@ struct AppearanceSettingsView: View {
                         .frame(width: 36, alignment: .trailing)
                 }
 
-                Text("Tint overlays the sidebar background material.")
+                Text(String(localized: "settings.appearance.sidebar.tintNote", defaultValue: "Tint overlays the sidebar background material."))
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
@@ -148,7 +148,7 @@ struct AppearanceSettingsView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    Text("Window Opacity")
+                    Text(String(localized: "settings.appearance.windowOpacity.label", defaultValue: "Window Opacity"))
                         .font(.system(size: 13, weight: .semibold))
                     Spacer()
                     Text("\(Int(appearance.windowOpacity * 100))%")
@@ -156,7 +156,7 @@ struct AppearanceSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Slider(value: $appearance.windowOpacity, in: 0.3...1.0, step: 0.05)
-                Text("Lower opacity can help when referencing other windows.")
+                Text(String(localized: "settings.appearance.windowOpacity.note", defaultValue: "Lower opacity can help when referencing other windows."))
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
@@ -170,7 +170,7 @@ struct AppearanceSettingsView: View {
     private var fontSection: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Terminal Font")
+                Text(String(localized: "settings.appearance.font.label", defaultValue: "Terminal Font"))
                     .font(.system(size: 13, weight: .semibold))
                 TerminalFontSettingsView()
             }
@@ -191,15 +191,15 @@ struct TerminalFontSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Family")
+                Text(String(localized: "settings.appearance.font.family", defaultValue: "Family"))
                     .font(.system(size: 12))
                     .frame(width: 90, alignment: .leading)
-                TextField("Default (system mono)", text: $fontFamily)
+                TextField(String(localized: "settings.appearance.font.familyPlaceholder", defaultValue: "Default (system mono)"), text: $fontFamily)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12, design: .monospaced))
             }
             HStack {
-                Text("Size")
+                Text(String(localized: "settings.appearance.font.size", defaultValue: "Size"))
                     .font(.system(size: 12))
                     .frame(width: 90, alignment: .leading)
                 Stepper(value: $fontSize, in: 6...36, step: 1) {
@@ -209,7 +209,7 @@ struct TerminalFontSettingsView: View {
                 }
             }
             HStack {
-                Text("Line Height")
+                Text(String(localized: "settings.appearance.font.lineHeight", defaultValue: "Line Height"))
                     .font(.system(size: 12))
                     .frame(width: 90, alignment: .leading)
                 Slider(value: $lineHeight, in: 0.8...2.0, step: 0.05)
@@ -219,7 +219,7 @@ struct TerminalFontSettingsView: View {
                     .frame(width: 36, alignment: .trailing)
             }
             HStack {
-                Text("Spacing")
+                Text(String(localized: "settings.appearance.font.spacing", defaultValue: "Spacing"))
                     .font(.system(size: 12))
                     .frame(width: 90, alignment: .leading)
                 Slider(value: $letterSpacing, in: -2.0...4.0, step: 0.5)
@@ -228,7 +228,7 @@ struct TerminalFontSettingsView: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 36, alignment: .trailing)
             }
-            Text("Font changes apply to new terminal sessions.")
+            Text(String(localized: "settings.appearance.font.note", defaultValue: "Font changes apply to new terminal sessions."))
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
@@ -249,7 +249,7 @@ private func sectionHeader(_ title: String, subtitle: String) -> some View {
 
 // MARK: - Color+Hex helpers
 
-private extension Color {
+extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .whitespacesAndNewlines)
                      .replacingOccurrences(of: "#", with: "")

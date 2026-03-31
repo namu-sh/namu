@@ -25,7 +25,7 @@ struct UpdatePopoverView: View {
             Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
-            Text("Software Update")
+            Text(String(localized: "update.title", defaultValue: "Software Update"))
                 .font(.system(size: 14, weight: .semibold))
         }
     }
@@ -34,7 +34,7 @@ struct UpdatePopoverView: View {
 
     private var versionRow: some View {
         HStack {
-            Text("Current Version")
+            Text(String(localized: "update.currentVersion.label", defaultValue: "Current Version"))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Spacer()
@@ -53,7 +53,7 @@ struct UpdatePopoverView: View {
                 ProgressView()
                     .scaleEffect(0.7)
                     .frame(width: 14, height: 14)
-                Text("Checking for updates…")
+                Text(String(localized: "update.checking", defaultValue: "Checking for updates…"))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -63,7 +63,7 @@ struct UpdatePopoverView: View {
                 HStack {
                     Image(systemName: "shippingbox.fill")
                         .foregroundColor(.accentColor)
-                    Text("Version \(version) is available")
+                    Text(String(localized: "update.available", defaultValue: "Version \(version) is available"))
                         .font(.system(size: 12, weight: .medium))
                 }
                 if let notes = viewModel.releaseNotes {
@@ -77,7 +77,7 @@ struct UpdatePopoverView: View {
         case .downloading(let progress):
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Downloading update…")
+                    Text(String(localized: "update.downloading", defaultValue: "Downloading update…"))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -95,7 +95,7 @@ struct UpdatePopoverView: View {
                 ProgressView()
                     .scaleEffect(0.7)
                     .frame(width: 14, height: 14)
-                Text("Installing update…")
+                Text(String(localized: "update.installing", defaultValue: "Installing update…"))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -104,7 +104,7 @@ struct UpdatePopoverView: View {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                Text("You're up to date")
+                Text(String(localized: "update.upToDate", defaultValue: "You're up to date"))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -129,14 +129,14 @@ struct UpdatePopoverView: View {
     private var controlsRow: some View {
         HStack(spacing: 8) {
             if case .updateAvailable = viewModel.state {
-                Button("Install Update") {
+                Button(String(localized: "update.installButton", defaultValue: "Install Update")) {
                     UpdateController.shared.installUpdate()
                 }
                 .controlSize(.small)
                 .keyboardShortcut(.defaultAction)
             }
 
-            Button(viewModel.isChecking ? "Checking…" : "Check Now") {
+            Button(viewModel.isChecking ? String(localized: "update.checkButton.checking", defaultValue: "Checking…") : String(localized: "update.checkButton", defaultValue: "Check Now")) {
                 UpdateController.shared.checkForUpdates()
             }
             .disabled(viewModel.isChecking)

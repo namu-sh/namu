@@ -30,7 +30,8 @@ struct SidebarItemView: View, Equatable {
         lhs.panelBranches == rhs.panelBranches &&
         lhs.metadataEntries.count == rhs.metadataEntries.count &&
         zip(lhs.metadataEntries, rhs.metadataEntries).allSatisfy({ $0 == $1 }) &&
-        lhs.markdownBlocks == rhs.markdownBlocks
+        lhs.markdownBlocks == rhs.markdownBlocks &&
+        lhs.availableWindows.map(\.id) == rhs.availableWindows.map(\.id)
     }
 
     let title: String
@@ -83,7 +84,9 @@ struct SidebarItemView: View, Equatable {
         onRename: @escaping () -> Void = {},
         onTogglePin: @escaping () -> Void = {},
         onSetColor: @escaping (String?) -> Void = { _ in },
-        onClose: @escaping () -> Void = {}
+        onClose: @escaping () -> Void = {},
+        availableWindows: [(id: UUID, title: String)] = [],
+        onMoveToWindow: ((UUID) -> Void)? = nil
     ) {
         self.title = title
         self.isSelected = isSelected
@@ -112,6 +115,8 @@ struct SidebarItemView: View, Equatable {
         self.onTogglePin = onTogglePin
         self.onSetColor = onSetColor
         self.onClose = onClose
+        self.availableWindows = availableWindows
+        self.onMoveToWindow = onMoveToWindow
     }
 
     // Action closures are excluded from == — they're recreated on every parent
@@ -121,6 +126,10 @@ struct SidebarItemView: View, Equatable {
     var onTogglePin: () -> Void
     var onSetColor: (String?) -> Void
     var onClose: () -> Void
+    /// Available windows to move this workspace to (windowID, display title).
+    var availableWindows: [(id: UUID, title: String)]
+    /// Called with the target windowID when "Move to Window" is selected.
+    var onMoveToWindow: ((UUID) -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
@@ -176,6 +185,8 @@ struct SidebarItemView: View, Equatable {
                                 .foregroundColor(isSelected ? Color.white.opacity(0.7) : .secondary)
                         }
                         .buttonStyle(.plain)
+                        .help(String(localized: "sidebar.item.close.tooltip", defaultValue: "Close Workspace"))
+                        .accessibilityLabel(String(localized: "sidebar.item.close.accessibility", defaultValue: "Close Workspace"))
                     }
                 }
 
@@ -193,7 +204,7 @@ struct SidebarItemView: View, Equatable {
                         Image(systemName: "network")
                             .font(.system(size: 9))
                             .foregroundColor(isSelected ? Color.white.opacity(0.7) : .orange)
-                        Text("Remote")
+                        Text(String(localized: "sidebar.item.remote.label", defaultValue: "Remote"))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(isSelected ? Color.white.opacity(0.7) : .orange)
                     }
@@ -356,6 +367,7 @@ struct SidebarItemView: View, Equatable {
                     .padding(.vertical, 2)
                     .background(Capsule().fill(Color.red))
                     .transition(.scale.combined(with: .opacity))
+                    .accessibilityLabel(String(format: String(localized: "sidebar.item.unreadBadge.accessibility", defaultValue: "%d unread notifications"), unreadCount))
             }
 
             // Pin icon shown on hover when pinned
@@ -363,6 +375,7 @@ struct SidebarItemView: View, Equatable {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 9))
                     .foregroundColor(isSelected ? Color.white.opacity(0.6) : Color.secondary.opacity(0.6))
+                    .accessibilityLabel(String(localized: "sidebar.item.pinned.accessibility", defaultValue: "Pinned"))
             }
         }
         .padding(.vertical, 6)
@@ -379,22 +392,26 @@ struct SidebarItemView: View, Equatable {
         .onHover { hovering in isHovering = hovering }
         .onTapGesture { onSelect() }
         .contextMenu {
-            Button("Rename") { onRename() }
-            Button(isPinned ? "Unpin" : "Pin") { onTogglePin() }
+            Button(String(localized: "sidebar.item.menu.rename", defaultValue: "Rename")) { onRename() }
+            Button(isPinned ? String(localized: "sidebar.item.menu.unpin", defaultValue: "Unpin") : String(localized: "sidebar.item.menu.pin", defaultValue: "Pin")) { onTogglePin() }
             Divider()
-            Menu("Set Color") {
-                Button("Red")    { onSetColor("#FF6B6B") }
-                Button("Orange") { onSetColor("#FF9F43") }
-                Button("Yellow") { onSetColor("#FECA57") }
-                Button("Green")  { onSetColor("#1DD1A1") }
-                Button("Blue")   { onSetColor("#54A0FF") }
-                Button("Purple") { onSetColor("#A29BFE") }
-                Button("Pink")   { onSetColor("#FD79A8") }
+            Menu(String(localized: "sidebar.item.menu.setColor", defaultValue: "Set Color")) {
+                ForEach(WorkspaceColorPaletteSettings.allColors(), id: \.self) { hex in
+                    Button(hex) { onSetColor(hex) }
+                }
                 Divider()
-                Button("Clear Color") { onSetColor(nil) }
+                Button(String(localized: "sidebar.item.color.clear", defaultValue: "Clear Color")) { onSetColor(nil) }
+            }
+            if !availableWindows.isEmpty, let onMoveToWindow {
+                Divider()
+                Menu(String(localized: "sidebar.item.menu.moveToWindow", defaultValue: "Move to Window")) {
+                    ForEach(availableWindows, id: \.id) { window in
+                        Button(window.title) { onMoveToWindow(window.id) }
+                    }
+                }
             }
             Divider()
-            Button("Close Workspace", role: .destructive) { onClose() }
+            Button(String(localized: "sidebar.item.menu.closeWorkspace", defaultValue: "Close Workspace"), role: .destructive) { onClose() }
         }
     }
 
@@ -465,8 +482,8 @@ struct SidebarItemView: View, Equatable {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(isSelected ? Color.white.opacity(0.8) : .primary)
             prStateBadge(pr.state)
-            if let checks = pr.checksStatus, !checks.isEmpty {
-                Text(checks)
+            if let checks = pr.checksStatus, checks != .none {
+                Text(checks.rawValue)
                     .font(.system(size: 9))
                     .foregroundColor(isSelected ? Color.white.opacity(0.6) : .secondary)
                     .lineLimit(1)
@@ -488,9 +505,9 @@ struct SidebarItemView: View, Equatable {
 
     private func prStateLabelAndColor(_ state: PRState) -> (String, Color) {
         switch state {
-        case .open:   return ("open", .green)
-        case .merged: return ("merged", .purple)
-        case .closed: return ("closed", .red)
+        case .open:   return (String(localized: "sidebar.pr.state.open", defaultValue: "open"), .green)
+        case .merged: return (String(localized: "sidebar.pr.state.merged", defaultValue: "merged"), .purple)
+        case .closed: return (String(localized: "sidebar.pr.state.closed", defaultValue: "closed"), .red)
         }
     }
 
@@ -555,17 +572,3 @@ private struct IndeterminateProgressBar: View {
     }
 }
 
-// MARK: - Color hex initializer
-
-private extension Color {
-    /// Initialize a SwiftUI Color from a hex string like "#FF6B6B" or "FF6B6B".
-    init?(hex: String) {
-        var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if h.hasPrefix("#") { h = String(h.dropFirst()) }
-        guard h.count == 6, let value = UInt64(h, radix: 16) else { return nil }
-        let r = Double((value >> 16) & 0xFF) / 255
-        let g = Double((value >>  8) & 0xFF) / 255
-        let b = Double( value        & 0xFF) / 255
-        self.init(red: r, green: g, blue: b)
-    }
-}

@@ -29,7 +29,7 @@ struct BrowserSearchOverlay: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
-                    TextField("Find in page", text: $query)
+                    TextField(String(localized: "browser.findInPage.fieldPlaceholder", defaultValue: "Find in page"), text: $query)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                         .focused($fieldFocused)
@@ -67,6 +67,8 @@ struct BrowserSearchOverlay: View {
                     .buttonStyle(.plain)
                     .disabled(query.isEmpty || matchCount == 0)
                     .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .help(String(localized: "browser.findInPage.previous.tooltip", defaultValue: "Previous match (⌘⇧G)"))
+                    .accessibilityLabel(String(localized: "browser.findInPage.previous.accessibility", defaultValue: "Previous match"))
 
                     Button(action: { navigateMatch(forward: true) }) {
                         Image(systemName: "chevron.down")
@@ -75,6 +77,8 @@ struct BrowserSearchOverlay: View {
                     .buttonStyle(.plain)
                     .disabled(query.isEmpty || matchCount == 0)
                     .keyboardShortcut("g", modifiers: .command)
+                    .help(String(localized: "browser.findInPage.next.tooltip", defaultValue: "Next match (⌘G)"))
+                    .accessibilityLabel(String(localized: "browser.findInPage.next.accessibility", defaultValue: "Next match"))
                 }
                 .padding(4)
                 .background(
@@ -90,6 +94,8 @@ struct BrowserSearchOverlay: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.escape, modifiers: [])
+                .help(String(localized: "browser.findInPage.close.tooltip", defaultValue: "Close find bar (Esc)"))
+                .accessibilityLabel(String(localized: "browser.findInPage.close.accessibility", defaultValue: "Close"))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -106,7 +112,7 @@ struct BrowserSearchOverlay: View {
     // MARK: - Computed
 
     private var matchSummary: String {
-        if matchCount == 0 { return "No results" }
+        if matchCount == 0 { return String(localized: "browser.findInPage.noResults", defaultValue: "No results") }
         return "\(currentMatch)/\(matchCount)"
     }
 

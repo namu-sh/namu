@@ -48,6 +48,8 @@ final class NamuWebView: WKWebView {
         var allowPopups: Bool = true
         /// Whether to intercept downloads instead of opening them.
         var interceptDownloads: Bool = true
+        /// Override the website data store (nil = WKWebsiteDataStore.default()).
+        var websiteDataStore: WKWebsiteDataStore? = nil
     }
 
     // MARK: - Dialog support
@@ -101,9 +103,10 @@ final class NamuWebView: WKWebView {
         let wkConfig = WKWebViewConfiguration()
         wkConfig.preferences.isElementFullscreenEnabled = true
         wkConfig.preferences.javaScriptCanOpenWindowsAutomatically = namuConfig.allowPopups
+        wkConfig.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
-        // Persistent data store so cookies/storage survive navigation.
-        wkConfig.websiteDataStore = .default()
+        // Use the provided data store (for profile isolation) or the shared persistent default.
+        wkConfig.websiteDataStore = namuConfig.websiteDataStore ?? .default()
 
         // Inject console capture script at document start.
         let consoleScript = WKUserScript(
@@ -114,6 +117,12 @@ final class NamuWebView: WKWebView {
         wkConfig.userContentController.addUserScript(consoleScript)
 
         super.init(frame: frame, configuration: wkConfig)
+
+        #if compiler(>=5.9)
+        if #available(macOS 13.3, *) {
+            isInspectable = true
+        }
+        #endif
 
         allowsBackForwardNavigationGestures = true
         allowsMagnification = true
@@ -586,11 +595,530 @@ final class NamuWebView: WKWebView {
         configuration.userContentController.addUserScript(userScript)
     }
 
+    // MARK: - Developer Tools
+
+    /// Toggle the Web Inspector panel for this web view.
+    func toggleDeveloperTools() {
+        perform(NSSelectorFromString("_inspector"), with: nil)
+    }
+
+    /// Show the Web Inspector console tab.
+    func showDeveloperToolsConsole() {
+        if let inspector = value(forKey: "_inspector") as AnyObject? {
+            inspector.perform(NSSelectorFromString("showConsole"), with: nil)
+        }
+    }
+
     // MARK: - Viewport
 
     /// Resize the web view to the given pixel dimensions.
     func setViewportSize(width: Int, height: Int) {
         setFrameSize(CGSize(width: CGFloat(width), height: CGFloat(height)))
+    }
+
+    // MARK: - Double-click
+
+    /// Double-click the element matching `selector`.
+    func dblclick(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+            return 'ok';
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - Fill (clear + type)
+
+    /// Clear the input matching `selector` then type `text` (Playwright-style fill).
+    func fill(selector: String, text: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            el.focus();
+            el.value = '';
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.value = \(jsString(text));
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return 'ok';
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - Individual key events
+
+    /// Dispatch only a keydown event on the element matching `selector`.
+    func keydown(selector: String, key: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            el.dispatchEvent(new KeyboardEvent('keydown', { key: \(jsString(key)), bubbles: true, cancelable: true }));
+            return 'ok';
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Dispatch only a keyup event on the element matching `selector`.
+    func keyup(selector: String, key: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            el.dispatchEvent(new KeyboardEvent('keyup', { key: \(jsString(key)), bubbles: true, cancelable: true }));
+            return 'ok';
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - DOM query helpers
+
+    /// Get the innerHTML of the element matching `selector`.
+    func getInnerHTML(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            return el.innerHTML;
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Get the value property of the input matching `selector`.
+    func getInputValue(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            return el.value !== undefined ? String(el.value) : 'null';
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Count elements matching `selector`.
+    func countElements(selector: String) async throws -> Int {
+        let script = """
+        (function() {
+            return document.querySelectorAll(\(jsString(selector))).length;
+        })();
+        """
+        let result = try await evaluateJS(script)
+        return Int(result) ?? 0
+    }
+
+    /// Get the bounding box of the element matching `selector` as JSON.
+    func getBoundingBox(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            var r = el.getBoundingClientRect();
+            return JSON.stringify({ x: r.x, y: r.y, width: r.width, height: r.height });
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Get the computed styles of the element matching `selector` as JSON.
+    func getComputedStyles(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            var cs = window.getComputedStyle(el);
+            var out = {};
+            for (var i = 0; i < cs.length; i++) {
+                var prop = cs[i];
+                out[prop] = cs.getPropertyValue(prop);
+            }
+            return JSON.stringify(out);
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - Visibility / state checks
+
+    /// Check if the element matching `selector` is visible.
+    func isVisible(selector: String) async throws -> Bool {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return false;
+            var r = el.getBoundingClientRect();
+            var cs = window.getComputedStyle(el);
+            return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0'
+                && r.width > 0 && r.height > 0;
+        })();
+        """
+        let result = try await evaluateJS(script)
+        return result == "true"
+    }
+
+    /// Check if the element matching `selector` is enabled (not disabled).
+    func isEnabled(selector: String) async throws -> Bool {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return false;
+            return !el.disabled;
+        })();
+        """
+        let result = try await evaluateJS(script)
+        return result == "true"
+    }
+
+    /// Check if the checkbox matching `selector` is checked.
+    func isChecked(selector: String) async throws -> Bool {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return false;
+            return el.checked === true;
+        })();
+        """
+        let result = try await evaluateJS(script)
+        return result == "true"
+    }
+
+    // MARK: - ARIA-based finders
+
+    /// Return the CSS selector for the first element with the given ARIA role.
+    func findByRole(_ role: String) async throws -> String {
+        let script = """
+        (function() {
+            var els = Array.from(document.querySelectorAll('[role="\(role.replacingOccurrences(of: "\"", with: "\\\""))"]'));
+            if (els.length === 0) {
+                // fallback: implicit roles
+                var implicitMap = {
+                    button: 'button', link: 'a', textbox: 'input[type=text],textarea',
+                    checkbox: 'input[type=checkbox]', radio: 'input[type=radio]',
+                    combobox: 'select', img: 'img', heading: 'h1,h2,h3,h4,h5,h6'
+                };
+                var fallback = implicitMap["\(role.replacingOccurrences(of: "\"", with: "\\\""))"];
+                if (fallback) els = Array.from(document.querySelectorAll(fallback));
+            }
+            if (els.length === 0) return 'error: no element with role';
+            return JSON.stringify(els.map(function(el) { return el.tagName.toLowerCase() + (el.id ? '#'+el.id : ''); }));
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return elements whose text content matches `text`.
+    func findByText(_ text: String) async throws -> String {
+        let script = """
+        (function() {
+            var results = [];
+            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+            while (walker.nextNode()) {
+                var el = walker.currentNode;
+                if (el.children.length === 0 && (el.textContent || '').trim() === \(jsString(text))) {
+                    results.push(el.tagName.toLowerCase() + (el.id ? '#'+el.id : ''));
+                }
+            }
+            if (results.length === 0) return 'error: no element with text';
+            return JSON.stringify(results);
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return elements whose associated label text matches `text`.
+    func findByLabel(_ text: String) async throws -> String {
+        let script = """
+        (function() {
+            var labels = Array.from(document.querySelectorAll('label'));
+            var results = [];
+            labels.forEach(function(lbl) {
+                if ((lbl.textContent || '').trim() === \(jsString(text))) {
+                    var target = lbl.control || (lbl.htmlFor && document.getElementById(lbl.htmlFor));
+                    if (target) results.push(target.tagName.toLowerCase() + (target.id ? '#'+target.id : ''));
+                }
+            });
+            if (results.length === 0) return 'error: no element with label';
+            return JSON.stringify(results);
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return elements with a matching placeholder attribute.
+    func findByPlaceholder(_ text: String) async throws -> String {
+        let script = """
+        (function() {
+            var els = Array.from(document.querySelectorAll('[placeholder]')).filter(function(el) {
+                return el.getAttribute('placeholder') === \(jsString(text));
+            });
+            if (els.length === 0) return 'error: no element with placeholder';
+            return JSON.stringify(els.map(function(el) { return el.tagName.toLowerCase() + (el.id ? '#'+el.id : ''); }));
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return elements with a matching alt attribute.
+    func findByAlt(_ text: String) async throws -> String {
+        let script = """
+        (function() {
+            var els = Array.from(document.querySelectorAll('[alt]')).filter(function(el) {
+                return el.getAttribute('alt') === \(jsString(text));
+            });
+            if (els.length === 0) return 'error: no element with alt';
+            return JSON.stringify(els.map(function(el) { return el.tagName.toLowerCase() + (el.id ? '#'+el.id : ''); }));
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return elements with a matching title attribute.
+    func findByTitle(_ text: String) async throws -> String {
+        let script = """
+        (function() {
+            var els = Array.from(document.querySelectorAll('[title]')).filter(function(el) {
+                return el.getAttribute('title') === \(jsString(text));
+            });
+            if (els.length === 0) return 'error: no element with title';
+            return JSON.stringify(els.map(function(el) { return el.tagName.toLowerCase() + (el.id ? '#'+el.id : ''); }));
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return elements with a matching data-testid attribute.
+    func findByTestId(_ testId: String) async throws -> String {
+        let script = """
+        (function() {
+            var els = Array.from(document.querySelectorAll('[data-testid]')).filter(function(el) {
+                return el.getAttribute('data-testid') === \(jsString(testId));
+            });
+            if (els.length === 0) return 'error: no element with testid';
+            return JSON.stringify(els.map(function(el) { return el.tagName.toLowerCase() + (el.id ? '#'+el.id : ''); }));
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - Positional selectors
+
+    /// Return the first element matching `selector` as an identifier string.
+    func findFirst(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: no element found';
+            return el.tagName.toLowerCase() + (el.id ? '#'+el.id : '');
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return the last element matching `selector` as an identifier string.
+    func findLast(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var els = document.querySelectorAll(\(jsString(selector)));
+            if (els.length === 0) return 'error: no element found';
+            var el = els[els.length - 1];
+            return el.tagName.toLowerCase() + (el.id ? '#'+el.id : '');
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Return the nth element (0-based) matching `selector` as an identifier string.
+    func findNth(selector: String, index: Int) async throws -> String {
+        let script = """
+        (function() {
+            var els = document.querySelectorAll(\(jsString(selector)));
+            if (\(index) >= els.length) return 'error: index out of bounds';
+            var el = els[\(index)];
+            return el.tagName.toLowerCase() + (el.id ? '#'+el.id : '');
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - Dialog accept/dismiss
+
+    /// Accept the front-most pending dialog (alias for dismissDialog(accept:true)).
+    func acceptDialog(text: String? = nil) {
+        dismissDialog(accept: true, text: text)
+    }
+
+    /// Dismiss the front-most pending dialog (alias for dismissDialog(accept:false)).
+    func dismissDialogExplicit() {
+        dismissDialog(accept: false, text: nil)
+    }
+
+    // MARK: - Cookie clear
+
+    /// Clear all cookies (alias for deleteAllCookies for IPC layer).
+    func clearAllCookies() async {
+        await deleteAllCookies()
+    }
+
+    // MARK: - Highlight element
+
+    /// Highlight the element matching `selector` with a red outline for 2 seconds.
+    func highlight(selector: String) async throws -> String {
+        let script = """
+        (function() {
+            var el = document.querySelector(\(jsString(selector)));
+            if (!el) return 'error: element not found';
+            var prev = el.style.outline;
+            el.style.outline = '3px solid red';
+            setTimeout(function() { el.style.outline = prev; }, 2000);
+            return 'ok';
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - Page state save/load
+
+    /// Save the current page scroll position and form values as a JSON string.
+    func savePageState() async throws -> String {
+        let script = """
+        (function() {
+            var inputs = {};
+            document.querySelectorAll('input,textarea,select').forEach(function(el, i) {
+                var key = el.id || el.name || ('__idx_'+i);
+                inputs[key] = el.value;
+            });
+            return JSON.stringify({ scrollX: window.scrollX, scrollY: window.scrollY, inputs: inputs });
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Restore page scroll position and form values from a previously saved JSON string.
+    func loadPageState(_ state: String) async throws -> String {
+        let escaped = state
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "${", with: "\\${")
+        let script = """
+        (function() {
+            try {
+                var s = JSON.parse(`\(escaped)`);
+                window.scrollTo(s.scrollX || 0, s.scrollY || 0);
+                var els = document.querySelectorAll('input,textarea,select');
+                els.forEach(function(el, i) {
+                    var key = el.id || el.name || ('__idx_'+i);
+                    if (s.inputs && s.inputs[key] !== undefined) {
+                        el.value = s.inputs[key];
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                });
+                return 'ok';
+            } catch(e) { return 'error: ' + e.message; }
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    // MARK: - Network requests
+
+    /// Return recently intercepted network requests as a JSON string.
+    /// Reads from __namuNetworkTrace if active, otherwise falls back to the
+    /// legacy __namu_requests interceptor (installs it on first call).
+    func networkRequests() async throws -> String {
+        let script = """
+        (function() {
+            if (window.__namuNetworkTrace) {
+                return JSON.stringify(window.__namuNetworkTrace.slice());
+            }
+            if (!window.__namu_requests) {
+                window.__namu_requests = [];
+                var origFetch = window.fetch;
+                window.fetch = function(input, init) {
+                    var url = typeof input === 'string' ? input : (input.url || String(input));
+                    window.__namu_requests.push({ method: (init && init.method) || 'GET', url: url, ts: Date.now() });
+                    return origFetch.apply(this, arguments);
+                };
+                var origOpen = XMLHttpRequest.prototype.open;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    window.__namu_requests.push({ method: method, url: url, ts: Date.now() });
+                    return origOpen.apply(this, arguments);
+                };
+            }
+            var reqs = window.__namu_requests.slice();
+            return JSON.stringify(reqs);
+        })();
+        """
+        return try await evaluateJS(script)
+    }
+
+    /// Inject fetch/XHR interceptors and reset the __namuNetworkTrace buffer.
+    func startNetworkTrace() async throws {
+        let script = """
+        (function() {
+          window.__namuNetworkTrace = [];
+          var origFetch = window.fetch;
+          window.__namuOrigFetch = origFetch;
+          window.fetch = function(url, opts) {
+            var entry = { type: 'fetch', url: String(url), method: (opts && opts.method) || 'GET', timestamp: Date.now() };
+            window.__namuNetworkTrace.push(entry);
+            return origFetch.apply(this, arguments).then(function(resp) {
+              entry.status = resp.status;
+              entry.duration = Date.now() - entry.timestamp;
+              return resp;
+            });
+          };
+          var origXHROpen = XMLHttpRequest.prototype.open;
+          window.__namuOrigXHROpen = origXHROpen;
+          XMLHttpRequest.prototype.open = function(method, url) {
+            this.__namuTraceEntry = { type: 'xhr', url: String(url), method: method, timestamp: Date.now() };
+            window.__namuNetworkTrace.push(this.__namuTraceEntry);
+            return origXHROpen.apply(this, arguments);
+          };
+          var origXHRSend = XMLHttpRequest.prototype.send;
+          window.__namuOrigXHRSend = origXHRSend;
+          XMLHttpRequest.prototype.send = function() {
+            var entry = this.__namuTraceEntry;
+            this.addEventListener('loadend', function() {
+              if (entry) { entry.status = this.status; entry.duration = Date.now() - entry.timestamp; }
+            });
+            return origXHRSend.apply(this, arguments);
+          };
+        })();
+        """
+        _ = try await evaluateJS(script)
+    }
+
+    /// Read the trace buffer, restore original fetch/XHR, and return entries as JSON.
+    func stopNetworkTrace() async throws -> String {
+        let script = """
+        (function() {
+          var trace = window.__namuNetworkTrace ? window.__namuNetworkTrace.slice() : [];
+          if (window.__namuOrigFetch) {
+            window.fetch = window.__namuOrigFetch;
+            delete window.__namuOrigFetch;
+          }
+          if (window.__namuOrigXHROpen) {
+            XMLHttpRequest.prototype.open = window.__namuOrigXHROpen;
+            delete window.__namuOrigXHROpen;
+          }
+          if (window.__namuOrigXHRSend) {
+            XMLHttpRequest.prototype.send = window.__namuOrigXHRSend;
+            delete window.__namuOrigXHRSend;
+          }
+          delete window.__namuNetworkTrace;
+          return JSON.stringify(trace);
+        })();
+        """
+        return try await evaluateJS(script)
     }
 
     // MARK: - Navigation forwarding (called by external delegates)

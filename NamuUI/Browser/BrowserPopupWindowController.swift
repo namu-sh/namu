@@ -224,7 +224,7 @@ final class BrowserPopupWindowController: NSObject {
             alert.alertStyle = .informational
             alert.messageText = dialogTitle(for: webView)
             alert.informativeText = message
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: String(localized: "browser.dialog.ok", defaultValue: "OK"))
             presentAlert(alert, for: webView) { _ in completionHandler() }
         }
 
@@ -238,8 +238,8 @@ final class BrowserPopupWindowController: NSObject {
             alert.alertStyle = .informational
             alert.messageText = dialogTitle(for: webView)
             alert.informativeText = message
-            alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Cancel")
+            alert.addButton(withTitle: String(localized: "browser.dialog.ok", defaultValue: "OK"))
+            alert.addButton(withTitle: String(localized: "browser.dialog.cancel", defaultValue: "Cancel"))
             presentAlert(alert, for: webView) { response in
                 completionHandler(response == .alertFirstButtonReturn)
             }

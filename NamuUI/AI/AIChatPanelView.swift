@@ -69,7 +69,7 @@ struct AIChatPanelView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(.secondary)
-            Text("Namu AI")
+            Text(String(localized: "ai.header.title", defaultValue: "Namu AI"))
                 .font(.system(size: 13, weight: .semibold))
 
             if viewModel.isConfigured, !viewModel.enabledProviders.isEmpty {
@@ -150,14 +150,14 @@ struct AIChatPanelView: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
-            Text("Namu AI")
+            Text(String(localized: "ai.setup.title", defaultValue: "Namu AI"))
                 .font(.system(size: 17, weight: .semibold))
-            Text("Configure your AI provider in Settings to get started.")
+            Text(String(localized: "ai.setup.body", defaultValue: "Configure your AI provider in Settings to get started."))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-            Button("Open Settings") {
+            Button(String(localized: "ai.setup.openSettings", defaultValue: "Open Settings")) {
                 NotificationCenter.default.post(name: .openSettings, object: nil)
             }
             .buttonStyle(.borderedProminent)
@@ -172,7 +172,7 @@ struct AIChatPanelView: View {
             ProgressView()
                 .scaleEffect(0.6)
                 .frame(width: 14, height: 14)
-            Text("Thinking...")
+            Text(String(localized: "ai.processing.thinking", defaultValue: "Thinking..."))
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
@@ -189,7 +189,7 @@ struct AIChatPanelView: View {
 
     private var inputArea: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask Namu AI...", text: $inputText, axis: .vertical)
+            TextField(String(localized: "ai.chat.placeholder", defaultValue: "Ask Namu AI..."), text: $inputText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .lineLimit(1...5)

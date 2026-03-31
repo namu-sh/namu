@@ -13,6 +13,12 @@ private enum Policy {
     static let maxBackupCount: Int = 3
     static let sessionFileName = "session.json"
     static let appSupportSubdirectory = "Namu"
+    static let scrollbackSubdirectory = "scrollback"
+    static let maxScrollbackChars: Int = 400_000
+    static let maxScrollbackLines: Int = 4_000
+    static let maxWindows: Int = 12
+    static let maxWorkspaces: Int = 128
+    static let maxPanels: Int = 512
 }
 
 // MARK: - SessionPersistence
@@ -115,6 +121,13 @@ final class SessionPersistence: ObservableObject {
         let snapshot = buildSnapshot()
         do {
             try writeSnapshot(snapshot)
+            // Remove scrollback files for panels no longer in the snapshot.
+            let activePanelIDs = Set(snapshot.windows.flatMap { win in
+                win.workspaces.flatMap { ws in
+                    collectPanelIDs(from: ws.layout)
+                }
+            })
+            cleanStaleScrollbackFiles(keepingPanelIDs: activePanelIDs)
             saveStatus = .saved(at: Date())
             let windowCount = snapshot.windows.count
             let workspaceCount = snapshot.windows.reduce(0) { $0 + $1.workspaces.count }
@@ -123,6 +136,15 @@ final class SessionPersistence: ObservableObject {
             let reason = error.localizedDescription
             saveStatus = .failed(reason: reason)
             logger.error("Session save failed: \(reason)")
+        }
+    }
+
+    /// Recursively collect all panel IDs from a layout snapshot.
+    private func collectPanelIDs(from layout: WorkspaceLayoutSnapshot) -> [UUID] {
+        switch layout {
+        case .pane(let pane): return [pane.id]
+        case .split(let split):
+            return collectPanelIDs(from: split.first) + collectPanelIDs(from: split.second)
         }
     }
 
@@ -184,6 +206,11 @@ final class SessionPersistence: ObservableObject {
             windows.append(winSnap)
         }
 
+        if windows.count > Policy.maxWindows {
+            logger.warning("Session snapshot truncated: \(windows.count) windows exceeds maxWindows (\(Policy.maxWindows))")
+            windows = Array(windows.prefix(Policy.maxWindows))
+        }
+
         return SessionSnapshot(windows: windows)
     }
 
@@ -195,7 +222,16 @@ final class SessionPersistence: ObservableObject {
         sidebarCollapsed: Bool = false,
         sidebarWidth: Double = 220
     ) -> WindowSnapshot {
-        let workspaceSnapshots = workspaceManager.workspaces.map { workspace in
+        let allWorkspaces = workspaceManager.workspaces
+        let cappedWorkspaces: [Workspace]
+        if allWorkspaces.count > Policy.maxWorkspaces {
+            logger.warning("Session snapshot truncated: \(allWorkspaces.count) workspaces exceeds maxWorkspaces (\(Policy.maxWorkspaces))")
+            cappedWorkspaces = Array(allWorkspaces.prefix(Policy.maxWorkspaces))
+        } else {
+            cappedWorkspaces = allWorkspaces
+        }
+
+        let workspaceSnapshots = cappedWorkspaces.map { workspace in
             WorkspaceSnapshot(
                 id: workspace.id,
                 title: workspace.title,
@@ -238,14 +274,36 @@ final class SessionPersistence: ObservableObject {
                 }
             }
             let id = panelID ?? UUID(uuidString: paneNode.id) ?? UUID()
+            // Determine panel type: check browser registry first, fall back to terminal.
+            if let browserPanel = panelManager.browserPanel(for: id) {
+                let pinned: Bool? = panelManager.isPanelPinned(id: id) ? true : nil
+                let pane = PaneSnapshot(
+                    id: id,
+                    panelType: .browser,
+                    workingDirectory: nil,
+                    scrollbackFile: nil,
+                    gitBranch: nil,
+                    customTitle: browserPanel.customTitle,
+                    browserURL: browserPanel.url?.absoluteString,
+                    browserZoom: browserPanel.zoom != 1.0 ? browserPanel.zoom : nil,
+                    browserDevToolsVisible: browserPanel.devToolsVisible ? true : nil,
+                    browserBackHistory: browserPanel.backHistory.isEmpty ? nil : browserPanel.backHistory,
+                    browserForwardHistory: browserPanel.forwardHistory.isEmpty ? nil : browserPanel.forwardHistory,
+                    isPinned: pinned
+                )
+                return .pane(pane)
+            }
             let panel = panelManager.panel(for: id)
+            let scrollbackPath = panel.flatMap { captureScrollback(panel: $0) }
+            let pinned: Bool? = panelManager.isPanelPinned(id: id) ? true : nil
             let pane = PaneSnapshot(
                 id: id,
                 panelType: .terminal,
                 workingDirectory: panel?.workingDirectory,
-                scrollbackFile: nil,
+                scrollbackFile: scrollbackPath,
                 gitBranch: panel?.gitBranch,
-                customTitle: panel?.customTitle
+                customTitle: panel?.customTitle,
+                isPinned: pinned
             )
             return .pane(pane)
 
@@ -333,29 +391,38 @@ final class SessionPersistence: ObservableObject {
         }
     }
 
-    /// Collect all panel IDs from a layout snapshot in document order.
-    private func collectPanelIDs(from layout: WorkspaceLayoutSnapshot) -> [UUID] {
-        switch layout {
-        case .pane(let snap):
-            return [snap.id]
-        case .split(let snap):
-            return collectPanelIDs(from: snap.first) + collectPanelIDs(from: snap.second)
-        }
-    }
 
-    /// Recreate TerminalPanels for all pane leaves in the layout.
-    /// The scrollback file path is stored on the panel; shell integration reads
+
+    /// Recreate panels for all pane leaves in the layout.
+    /// Terminal panels: scrollback file path stored on the panel; shell integration reads
     /// NAMU_RESTORE_SCROLLBACK_FILE on startup to replay the scrollback content.
+    /// Browser panels: URL, zoom, devtools, and nav history are applied after creation.
     private func createPanels(from layout: WorkspaceLayoutSnapshot, panelManager: PanelManager) {
         switch layout {
         case .pane(let snap):
-            panelManager.restoreTerminalPanel(
-                id: snap.id,
-                workingDirectory: snap.workingDirectory,
-                scrollbackFile: snap.scrollbackFile,
-                gitBranch: snap.gitBranch,
-                customTitle: snap.customTitle
-            )
+            if snap.panelType == .browser {
+                let url = snap.browserURL.flatMap { URL(string: $0) }
+                let panel = panelManager.restoreBrowserPanel(id: snap.id, url: url, customTitle: snap.customTitle)
+                if let zoom = snap.browserZoom {
+                    panel.applyZoom(zoom)
+                }
+                if snap.browserDevToolsVisible == true {
+                    panel.showDevToolsIfNeeded(true)
+                }
+            } else {
+                panelManager.restoreTerminalPanel(
+                    id: snap.id,
+                    workingDirectory: snap.workingDirectory,
+                    scrollbackFile: snap.scrollbackFile,
+                    gitBranch: snap.gitBranch,
+                    customTitle: snap.customTitle
+                )
+            }
+            // Restore pin state: only call togglePanelPin if the snapshot records pinned=true,
+            // since the default state on a fresh panel is unpinned.
+            if snap.isPinned == true {
+                panelManager.togglePanelPin(id: snap.id)
+            }
         case .split(let snap):
             createPanels(from: snap.first, panelManager: panelManager)
             createPanels(from: snap.second, panelManager: panelManager)
@@ -415,6 +482,71 @@ final class SessionPersistence: ObservableObject {
         try? fileManager.moveItem(at: fileURL, to: corruptURL)
     }
 
+    // MARK: - Scrollback capture
+
+    /// Capture the scrollback buffer of a panel to disk.
+    /// Returns the file path on success, nil on failure or empty content.
+    /// Line limit is applied before the character limit to bound restore size.
+    private func captureScrollback(panel: TerminalPanel) -> String? {
+        guard var text = panel.session.readScrollbackText(charLimit: .max),
+              !text.isEmpty else { return nil }
+
+        // Apply line limit first: drop oldest lines from the front if over limit.
+        let lineCount = text.components(separatedBy: "\n").count
+        if lineCount > Policy.maxScrollbackLines {
+            var lines = text.components(separatedBy: "\n")
+            let excess = lines.count - Policy.maxScrollbackLines
+            lines.removeFirst(excess)
+            text = lines.joined(separator: "\n")
+        }
+
+        // Apply character limit after line limit.
+        if text.utf8.count > Policy.maxScrollbackChars {
+            var bytes = Array(text.utf8)
+            var cut = Policy.maxScrollbackChars
+            // Step back over any UTF-8 continuation bytes to land on a codepoint boundary.
+            while cut > 0 && bytes[cut] & 0xC0 == 0x80 { cut -= 1 }
+            text = String(bytes: Array(bytes.prefix(cut)), encoding: .utf8) ?? text
+        }
+
+        // ANSI CSI safe truncation and replay wrapping.
+        let safeStart = Self.ansiSafeTruncationStart(in: text, from: text.startIndex)
+        text = Self.ansiSafeReplayText(String(text[safeStart...]))
+
+        guard let scrollbackDir = scrollbackDirectoryURL() else { return nil }
+
+        do {
+            try fileManager.createDirectory(at: scrollbackDir, withIntermediateDirectories: true)
+        } catch {
+            logger.warning("Could not create scrollback directory: \(error.localizedDescription)")
+            return nil
+        }
+
+        let fileURL = scrollbackDir.appendingPathComponent("\(panel.id.uuidString).txt")
+        do {
+            try text.write(to: fileURL, atomically: true, encoding: .utf8)
+            return fileURL.path
+        } catch {
+            logger.warning("Failed to write scrollback for panel \(panel.id): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Delete stale scrollback files for panels no longer in the snapshot.
+    private func cleanStaleScrollbackFiles(keepingPanelIDs activePanelIDs: Set<UUID>) {
+        guard let scrollbackDir = scrollbackDirectoryURL(),
+              fileManager.fileExists(atPath: scrollbackDir.path) else { return }
+
+        guard let files = try? fileManager.contentsOfDirectory(at: scrollbackDir, includingPropertiesForKeys: nil) else { return }
+
+        for file in files {
+            let name = file.deletingPathExtension().lastPathComponent
+            if let uuid = UUID(uuidString: name), !activePanelIDs.contains(uuid) {
+                try? fileManager.removeItem(at: file)
+            }
+        }
+    }
+
     // MARK: - Path helpers
 
     /// ~/Library/Application Support/Namu/session.json
@@ -428,6 +560,60 @@ final class SessionPersistence: ObservableObject {
         let namuURL = namuDir.appendingPathComponent(Policy.sessionFileName)
 
         return namuURL
+    }
+
+    /// ~/Library/Application Support/Namu/scrollback/
+    private func scrollbackDirectoryURL() -> URL? {
+        guard let appSupport = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else { return nil }
+
+        return appSupport
+            .appendingPathComponent(Policy.appSupportSubdirectory, isDirectory: true)
+            .appendingPathComponent(Policy.scrollbackSubdirectory, isDirectory: true)
+    }
+}
+
+// MARK: - ANSI Helpers
+
+private extension SessionPersistence {
+
+    /// Find a safe truncation start that doesn't split a CSI escape sequence.
+    static func ansiSafeTruncationStart(in text: String, from initialStart: String.Index) -> String.Index {
+        // Scan backward from initialStart for ESC (0x1B)
+        var idx = initialStart
+        let searchLimit = 20
+        var scanned = 0
+        while idx > text.startIndex && scanned < searchLimit {
+            idx = text.index(before: idx)
+            scanned += 1
+            if text[idx] == "\u{1B}" {
+                // Found ESC — check if followed by '[' (CSI introducer)
+                let next = text.index(after: idx)
+                if next < initialStart && text[next] == "[" {
+                    // Look for CSI final byte (0x40-0x7E) between next and initialStart
+                    var scan = text.index(after: next)
+                    while scan < initialStart {
+                        let byte = text[scan].asciiValue ?? 0
+                        if byte >= 0x40 && byte <= 0x7E {
+                            // Complete CSI found — safe to truncate at initialStart
+                            return initialStart
+                        }
+                        scan = text.index(after: scan)
+                    }
+                    // Incomplete CSI — truncate before the ESC
+                    return idx
+                }
+                break
+            }
+        }
+        return initialStart
+    }
+
+    /// Wrap scrollback text with SGR reset for clean replay state.
+    static func ansiSafeReplayText(_ text: String) -> String {
+        "\u{1B}[0m" + text + "\u{1B}[0m"
     }
 }
 

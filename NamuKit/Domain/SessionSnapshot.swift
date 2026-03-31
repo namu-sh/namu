@@ -165,10 +165,25 @@ struct PaneSnapshot: Codable {
     var customTitle: String?
     /// URL string for browser panels.
     var browserURL: String?
+    /// Browser page zoom level (1.0 = 100%).
+    var browserZoom: Double?
+    /// Whether the Web Inspector was visible at snapshot time.
+    var browserDevToolsVisible: Bool?
+    /// Back-navigation history URLs for the browser panel.
+    var browserBackHistory: [String]?
+    /// Forward-navigation history URLs for the browser panel.
+    var browserForwardHistory: [String]?
     /// v3: All panel UUIDs in this pane (for tab support). Single panel → [id].
     var panelIds: [UUID]?
     /// v3: The selected/active panel UUID within this pane.
     var selectedPanelId: UUID?
+    /// The UUID string of the browser profile active in this pane at snapshot time.
+    /// Used during restore to re-initialise the correct WKWebsiteDataStore for the panel.
+    var browserProfileID: String?
+    /// Whether the web view should be rendered immediately on restore (vs. lazy/deferred).
+    var browserShouldRender: Bool?
+    /// Whether this panel was pinned at snapshot time. Restored by calling togglePanelPin.
+    var isPinned: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -178,8 +193,15 @@ struct PaneSnapshot: Codable {
         case gitBranch
         case customTitle
         case browserURL
+        case browserZoom
+        case browserDevToolsVisible
+        case browserBackHistory
+        case browserForwardHistory
         case panelIds
         case selectedPanelId
+        case browserProfileID
+        case browserShouldRender
+        case isPinned
     }
 }
 

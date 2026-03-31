@@ -26,6 +26,8 @@ final class NotificationCommands {
         registry.register("notification.clear")       { [weak self] req in try await self?.clear(req) ?? .notAvailable(req) }
         registry.register("notification.subscribe")   { [weak self] req in try await self?.subscribe(req) ?? .notAvailable(req) }
         registry.register("notification.unsubscribe") { [weak self] req in try await self?.unsubscribe(req) ?? .notAvailable(req) }
+        registry.register(HandlerRegistration(method: "notification.jump_to_unread", execution: .mainActor, safety: .normal,
+            handler: { [weak self] req in try await self?.jumpToUnread(req) ?? .notAvailable(req) }))
     }
 
     // MARK: - notification.create
@@ -142,6 +144,29 @@ final class NotificationCommands {
 
         let count = notificationService.clearAll(workspaceID: nil)
         return .success(id: req.id, result: .object(["cleared": .int(count)]))
+    }
+
+    // MARK: - notification.jump_to_unread
+
+    private func jumpToUnread(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        guard let wsID = notificationService.jumpToOldestUnread() else {
+            return .success(id: req.id, result: .object([
+                "jumped": .bool(false),
+                "workspace_id": .null
+            ]))
+        }
+
+        workspaceManager.selectWorkspace(id: wsID)
+        notificationService.markAllRead(workspaceID: wsID)
+
+        if let panelID = panelManager.focusedPanelID(in: wsID) {
+            panelManager.activatePanel(id: panelID)
+        }
+
+        return .success(id: req.id, result: .object([
+            "jumped": .bool(true),
+            "workspace_id": .string(wsID.uuidString)
+        ]))
     }
 
     // MARK: - notification.subscribe

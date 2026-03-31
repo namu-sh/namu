@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os.log
 
@@ -56,6 +57,9 @@ final class ServiceContainer {
     // Held so registerCommands() can wire SidebarCommands after init
     private weak var sidebarViewModelForCommands: SidebarViewModel?
 
+    // Per-panel port cache for merging into workspace-level SidebarMetadata.
+    private var panelPortCache: [UUID: [PortInfo]] = [:]
+
     // MARK: - Init
 
     init(workspaceManager: WorkspaceManager, panelManager: PanelManager, sidebarViewModel: SidebarViewModel? = nil) {
@@ -67,6 +71,7 @@ final class ServiceContainer {
         eventBus = EventBus()
         commandRegistry = CommandRegistry()
         accessController = AccessController(mode: .allowAll)
+
         commandDispatcher = CommandDispatcher(registry: commandRegistry)
 
         // Persistence
@@ -127,14 +132,64 @@ final class ServiceContainer {
         sessionPersistence.restoreIfAvailable()
         sessionPersistence.startAutosave()
 
+        // Wire PortScanner → SidebarMetadata updates.
+        // Callback is per-panel; merge all panels in the workspace before writing metadata.
+        if let svm = sidebarViewModelForCommands {
+            PortScanner.shared.onPortsUpdated = { [weak svm, weak self] workspaceID, panelID, ports in
+                guard let svm, let self else { return }
+                self.panelPortCache[panelID] = ports
+                // Collect ports for all panels in this workspace and deduplicate.
+                let allPanelIDs = self.panelManager.allPanelIDs(in: workspaceID)
+                var seen = Set<UInt16>()
+                var merged: [PortInfo] = []
+                for pid in allPanelIDs {
+                    for info in (self.panelPortCache[pid] ?? []) {
+                        if seen.insert(info.port).inserted {
+                            merged.append(info)
+                        }
+                    }
+                }
+                merged.sort { $0.port < $1.port }
+                var meta = svm.currentMetadata(for: workspaceID)
+                meta.listeningPorts = merged
+                svm.updateMetadata(meta, for: workspaceID)
+            }
+        }
+
         // Alert engine + channel routing
         alertEngine.loadRules()
         alertEngine.start()
         Task { await alertRouter.reloadChannels() }
 
+        // Wire focused-panel provider for precise desktop-notification suppression.
+        // Uses the key window's context when available, otherwise the primary panelManager.
+        notificationService.keyWindowFocusedPanelID = { [weak self] in
+            guard let self else { return nil }
+            let pm: PanelManager
+            if let ctx = AppDelegate.shared?.keyWindowContext {
+                pm = ctx.panelManager
+                let wm = ctx.workspaceManager
+                guard let wsID = wm.selectedWorkspaceID else { return nil }
+                return pm.focusedPanelID(in: wsID)
+            } else {
+                guard let wsID = self.workspaceManager.selectedWorkspaceID else { return nil }
+                return self.panelManager.focusedPanelID(in: wsID)
+            }
+        }
+
         // Request macOS notification permission on first launch.
         // UNUserNotificationCenter only prompts the user once; safe to call every launch.
         notificationService.requestAuthorization()
+
+        // Wire auto-reorder: move notified workspace to top of unpinned list.
+        NotificationCenter.default.addObserver(
+            forName: .namuWorkspaceAutoReorderRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let wsID = notification.userInfo?["workspace_id"] as? UUID else { return }
+            self?.workspaceManager.moveWorkspaceToTop(id: wsID)
+        }
 
         // Listen for shell exit → close the panel/workspace
         NotificationCenter.default.addObserver(
@@ -252,21 +307,25 @@ final class ServiceContainer {
         sys.register(in: commandRegistry)
         systemCommands = sys
 
-        // Claude Code hook handler — tracks active Claude sessions per workspace.
+        // Agent hook handler — tracks active agent PIDs per workspace.
         commandRegistry.register("system.claude_hook") { [weak self] req in
             guard let self else { return .failure(id: req.id, error: .internalError("Service unavailable")) }
             let params = req.params?.object ?? [:]
             let event = (params["event"].flatMap { if case .string(let s) = $0 { return s } else { return nil } }) ?? ""
             let wsIDStr = params["workspace_id"].flatMap { if case .string(let s) = $0 { return s } else { return nil } }
-            let claudePID = params["claude_pid"].flatMap { if case .string(let s) = $0 { return s } else { return nil } }
+            let agentPID = params["claude_pid"].flatMap { if case .string(let s) = $0 { return s } else { return nil } }
+            // "tool" param identifies the agent type (e.g. "codex"); default to "claude_code".
+            let agentType = (params["tool"].flatMap { if case .string(let s) = $0 { return s } else { return nil } }) ?? "claude_code"
 
             if let wsIDStr, let wsID = UUID(uuidString: wsIDStr),
                let idx = self.workspaceManager.workspaces.firstIndex(where: { $0.id == wsID }) {
                 switch event {
-                case "session-start":
-                    self.workspaceManager.workspaces[idx].claudeSessionPID = claudePID
-                case "session-end":
-                    self.workspaceManager.workspaces[idx].claudeSessionPID = nil
+                case "session-start", "prompt-submit", "pre-tool-use":
+                    if let pid = agentPID {
+                        self.workspaceManager.workspaces[idx].setAgentPID(type: agentType, pid: pid)
+                    }
+                case "session-end", "stop":
+                    self.workspaceManager.workspaces[idx].clearAgentPID(type: agentType)
                 default:
                     break
                 }

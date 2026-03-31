@@ -6,9 +6,11 @@ struct SlackChannel: AlertChannel, Sendable {
     let displayName = "Slack"
 
     private let webhookURL: String
+    private let session: URLSession
 
-    init(webhookURL: String) {
+    init(webhookURL: String, session: URLSession = .shared) {
         self.webhookURL = webhookURL
+        self.session = session
     }
 
     func send(_ payload: AlertPayload) async throws {
@@ -42,7 +44,7 @@ struct SlackChannel: AlertChannel, Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 10
 
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (_, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0

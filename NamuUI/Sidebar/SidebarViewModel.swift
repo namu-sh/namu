@@ -1,3 +1,4 @@
+import Bonsplit
 import Combine
 import Foundation
 import SwiftUI
@@ -6,6 +7,7 @@ import SwiftUI
 enum SidebarSelection: Equatable, Hashable {
     case workspace(UUID)
     case settings
+    case notifications
 }
 
 /// Precomputed, value-typed snapshot of one workspace row.
@@ -73,12 +75,24 @@ final class SidebarViewModel: ObservableObject {
         didSet { selectionDidChange(oldValue: oldValue) }
     }
 
+    /// Mirrors NotificationService.unreadCount for the bell badge.
+    @Published private(set) var notificationUnreadCount: Int = 0
+
     /// Remembers the last workspace so settings can toggle back.
     private(set) var lastWorkspaceID: UUID
 
     private let workspaceManager: WorkspaceManager
     private weak var panelManager: PanelManager?
     private var cancellables = Set<AnyCancellable>()
+    private var notificationCancellable: AnyCancellable?
+
+    /// Windows available for cross-window workspace moves (populated by ContentView).
+    /// Each entry is (windowID, display title).
+    var availableWindows: [(id: UUID, title: String)] = []
+
+    /// Called when the user picks "Move to Window" from the context menu.
+    /// Set by ContentView to delegate to AppDelegate.
+    var onMoveWorkspaceToWindow: ((UUID, UUID) -> Void)? // (workspaceID, targetWindowID)
 
     init(workspaceManager: WorkspaceManager, panelManager: PanelManager? = nil) {
         self.workspaceManager = workspaceManager
@@ -110,6 +124,24 @@ final class SidebarViewModel: ObservableObject {
         }
     }
 
+    func toggleNotifications() {
+        if selection == .notifications {
+            selection = .workspace(lastWorkspaceID)
+        } else {
+            selection = .notifications
+        }
+    }
+
+    /// Wire up a NotificationService so the bell badge stays current.
+    func setNotificationService(_ service: NotificationService) {
+        notificationUnreadCount = service.unreadCount
+        notificationCancellable = service.$allNotifications
+            .receive(on: RunLoop.main)
+            .map { $0.filter { !$0.isRead }.count }
+            .removeDuplicates()
+            .assign(to: \.notificationUnreadCount, on: self)
+    }
+
     func renameWorkspace(id: UUID, title: String) {
         workspaceManager.renameWorkspace(id: id, title: title)
     }
@@ -134,6 +166,80 @@ final class SidebarViewModel: ObservableObject {
         workspaceManager.reorderWorkspace(from: source, to: destination)
     }
 
+    /// Move a workspace to another window (cross-window).
+    func moveWorkspaceToWindow(workspaceID: UUID, targetWindowID: UUID) {
+        onMoveWorkspaceToWindow?(workspaceID, targetWindowID)
+    }
+
+    /// Move a panel (tab) from one workspace to another within the same window.
+    func movePanelToWorkspace(panelID: UUID, sourceWorkspaceID: UUID, targetWorkspaceID: UUID) {
+        guard sourceWorkspaceID != targetWorkspaceID,
+              let pm = panelManager else { return }
+
+        let sourceEng = pm.engine(for: sourceWorkspaceID)
+        let targetEng = pm.engine(for: targetWorkspaceID)
+
+        guard let tabID = sourceEng.tabID(for: panelID) else { return }
+
+        let tabTitle: String
+        let kind: String
+        if let terminal = pm.panel(for: panelID) {
+            tabTitle = terminal.title.isEmpty ? "Terminal" : terminal.title
+            kind = "terminal"
+        } else if let browser = pm.browserPanel(for: panelID) {
+            tabTitle = browser.title
+            kind = "browser"
+        } else {
+            return
+        }
+
+        sourceEng.removeMapping(panelID: panelID)
+        sourceEng.closeTab(tabID)
+
+        if let newTabID = targetEng.createTab(title: tabTitle, kind: kind, inPane: nil) {
+            targetEng.registerMapping(tabID: newTabID, panelID: panelID)
+        }
+
+        pm.objectWillChange.send()
+    }
+
+    /// Move a panel to a target workspace and split it into a new pane.
+    func splitPanelToWorkspace(panelID: UUID, sourceWorkspaceID: UUID, targetWorkspaceID: UUID, direction: SplitDirection) {
+        guard sourceWorkspaceID != targetWorkspaceID,
+              let pm = panelManager else { return }
+
+        let sourceEng = pm.engine(for: sourceWorkspaceID)
+
+        guard let tabID = sourceEng.tabID(for: panelID) else { return }
+
+        let tabTitle: String
+        let kind: String
+        if let terminal = pm.panel(for: panelID) {
+            tabTitle = terminal.title.isEmpty ? "Terminal" : terminal.title
+            kind = "terminal"
+        } else if let browser = pm.browserPanel(for: panelID) {
+            tabTitle = browser.title
+            kind = "browser"
+        } else {
+            return
+        }
+
+        sourceEng.removeMapping(panelID: panelID)
+        sourceEng.closeTab(tabID)
+
+        let targetEng = pm.engine(for: targetWorkspaceID)
+        let orientation: Bonsplit.SplitOrientation = direction == .horizontal ? .horizontal : .vertical
+        if let newPaneID = targetEng.splitPane(targetEng.focusedPaneID, orientation: orientation),
+           let newTabID = targetEng.createTab(title: tabTitle, kind: kind, inPane: newPaneID) {
+            targetEng.registerMapping(tabID: newTabID, panelID: panelID)
+            targetEng.focusPane(newPaneID)
+        } else if let newTabID = targetEng.createTab(title: tabTitle, kind: kind, inPane: nil) {
+            targetEng.registerMapping(tabID: newTabID, panelID: panelID)
+        }
+
+        pm.objectWillChange.send()
+    }
+
     // MARK: - Private
 
     /// Sync WorkspaceManager and rebuild items whenever selection changes.
@@ -142,7 +248,7 @@ final class SidebarViewModel: ObservableObject {
         case .workspace(let id):
             lastWorkspaceID = id
             workspaceManager.selectWorkspace(id: id)
-        case .settings:
+        case .settings, .notifications:
             break
         }
         rebuildItems()
@@ -181,6 +287,13 @@ final class SidebarViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.openSettings()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .toggleNotificationPanel)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.toggleNotifications()
             }
             .store(in: &cancellables)
 
@@ -226,7 +339,7 @@ final class SidebarViewModel: ObservableObject {
 
                 // Skip sidebar update for Claude panes (their notifications come via hooks).
                 if let ws = self.workspaceManager.workspaces.first(where: { $0.id == wsID }),
-                   ws.claudeSessionPID != nil {
+                   !ws.agentPIDs.isEmpty {
                     return
                 }
 

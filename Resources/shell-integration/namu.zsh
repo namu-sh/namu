@@ -576,6 +576,13 @@ _namu_precmd() {
         _namu_start_pr_poll_loop "$pwd" 1
     fi
 
+    # Kick port scanner after each command completes.
+    if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
+        {
+            _namu_send "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ports_kick\",\"params\":{\"surface_id\":\"$NAMU_SURFACE_ID\",\"workspace_id\":\"$NAMU_WORKSPACE_ID\"}}"
+        } >/dev/null 2>&1 &!
+    fi
+
     # A marker: prompt start.
     _namu_mark "A"
 }
@@ -666,6 +673,13 @@ add-zsh-hook precmd _namu_fix_path
 
 # Report TTY once on load.
 _namu_prop "tty" "$(tty 2>/dev/null || echo '')"
+if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
+    local _namu_tty_name
+    _namu_tty_name="$(tty 2>/dev/null | sed 's|/dev/||' || true)"
+    if [[ -n "$_namu_tty_name" ]]; then
+        _namu_send "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"report_tty\",\"params\":{\"tty\":\"${_namu_tty_name}\",\"surface_id\":\"$NAMU_SURFACE_ID\",\"workspace_id\":\"$NAMU_WORKSPACE_ID\"}}" >/dev/null 2>&1 &!
+    fi
+fi
 
 # Emit initial pwd/branch so Namu has context immediately.
 _namu_report_pwd

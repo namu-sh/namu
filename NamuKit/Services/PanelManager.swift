@@ -2,6 +2,18 @@ import Foundation
 import Combine
 import Bonsplit
 
+// MARK: - PanelFocusIntent
+
+/// Rich focus intent that captures sub-panel focus targets for capture/restore.
+enum PanelFocusIntent {
+    case terminal(TerminalFocusTarget)
+    case browser(BrowserFocusTarget)
+    case markdown
+
+    enum TerminalFocusTarget { case surface, findField }
+    enum BrowserFocusTarget { case webView, addressBar, findField }
+}
+
 /// Manages panel lifecycle and layout for all workspaces.
 /// BonsplitLayoutEngine is the single source of truth for splits/tabs/focus.
 @MainActor
@@ -21,9 +33,20 @@ final class PanelManager: ObservableObject {
     /// Maps panel UUID → live TerminalPanel. PaneLeaf IDs are the join key.
     private(set) var panels: [UUID: TerminalPanel] = [:]
 
+    /// Maps panel UUID → live BrowserPanel.
+    private(set) var browserPanels: [UUID: BrowserPanel] = [:]
+
+    /// Maps panel UUID → live MarkdownPanel.
+    private(set) var markdownPanels: [UUID: MarkdownPanel] = [:]
+
     // MARK: - Previous focus tracking
 
     private(set) var previousFocusedPanelID: UUID?
+
+    // MARK: - Pinned panels
+
+    /// Panel IDs that are pinned (shown before unpinned tabs in tab order).
+    private(set) var pinnedPanelIDs: Set<UUID> = []
 
     // MARK: - Title observation
 
@@ -36,6 +59,11 @@ final class PanelManager: ObservableObject {
         // Bootstrap engines + panels for existing workspaces
         for workspace in workspaceManager.workspaces {
             bootstrapWorkspace(workspace)
+        }
+        // Register reaper callback: when the TTL reaper expires a lease, complete
+        // any deferred destroy on the associated session.
+        PortalHostLeaseManager.shared.onLeaseExpired = { [weak self] surfaceID in
+            self?.panels[surfaceID]?.session.completeDestroyIfDeferred()
         }
     }
 
@@ -162,7 +190,8 @@ final class PanelManager: ObservableObject {
     /// Create a new TerminalPanel with per-pane environment variables.
     func createTerminalPanel(
         workspaceID: UUID? = nil,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        fontSizeOverride: Float? = nil
     ) -> TerminalPanel {
         let paneID = UUID()
         let wsID = workspaceID ?? workspaceManager.selectedWorkspaceID
@@ -171,12 +200,48 @@ final class PanelManager: ObservableObject {
         let panel = TerminalPanel(
             id: paneID,
             workingDirectory: workingDirectory,
-            environmentVariables: env
+            environmentVariables: env,
+            fontSizeOverride: fontSizeOverride
         )
         panels[panel.id] = panel
         if let wsID {
             observePanelTitle(panel, workspaceID: wsID)
         }
+        return panel
+    }
+
+    /// Create a new BrowserPanel.
+    func createBrowserPanel(workspaceID: UUID? = nil, url: URL? = nil) -> BrowserPanel {
+        let panelID = UUID()
+        let panel = BrowserPanel(id: panelID, url: url)
+        browserPanels[panelID] = panel
+        return panel
+    }
+
+    /// Create a new MarkdownPanel, optionally loading a file immediately.
+    func createMarkdownPanel(workspaceID: UUID? = nil, fileURL: URL? = nil) -> MarkdownPanel {
+        let panelID = UUID()
+        let panel = MarkdownPanel(id: panelID)
+        if let fileURL {
+            panel.loadFile(fileURL)
+        }
+        markdownPanels[panelID] = panel
+        return panel
+    }
+
+    /// Restore a BrowserPanel with a known ID during session restore.
+    @discardableResult
+    func restoreBrowserPanel(
+        id: UUID,
+        url: URL?,
+        customTitle: String? = nil
+    ) -> BrowserPanel {
+        let panel = BrowserPanel(id: id, url: url)
+        panel.customTitle = customTitle
+        if let url {
+            panel.load(url: url)
+        }
+        browserPanels[id] = panel
         return panel
     }
 
@@ -213,10 +278,19 @@ final class PanelManager: ObservableObject {
         let orientation: Bonsplit.SplitOrientation = direction == .horizontal ? .horizontal : .vertical
         let targetPane = paneID ?? eng.focusedPaneID
 
+        // Capture the focused session's runtime font size before splitting so the
+        // new pane inherits any interactive zoom regardless of inherit-font-size config.
+        let inheritedFontSize: Float? = focusedPanelID(in: workspaceID)
+            .flatMap { panels[$0]?.session.currentFontSizePoints() }
+
         guard let newPaneID = eng.splitPane(targetPane, orientation: orientation) else { return }
 
         // Create terminal panel for the new pane
-        let panel = createTerminalPanel(workspaceID: workspaceID, workingDirectory: workingDirectory)
+        let panel = createTerminalPanel(
+            workspaceID: workspaceID,
+            workingDirectory: workingDirectory,
+            fontSizeOverride: inheritedFontSize
+        )
         if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: newPaneID) {
             eng.registerMapping(tabID: tabID, panelID: panel.id)
         }
@@ -226,13 +300,67 @@ final class PanelManager: ObservableObject {
         objectWillChange.send()
     }
 
-    /// Create a new terminal tab in the focused pane of the selected workspace.
-    func createTabInFocusedPane() {
+    /// Create a new tab in the focused pane of the selected workspace.
+    /// - Parameter type: The panel type to create (.terminal or .browser). Defaults to .terminal.
+    func createTabInFocusedPane(type: PanelType = .terminal) {
         guard let wsID = workspaceManager.selectedWorkspaceID else { return }
         let eng = engine(for: wsID)
         guard let focusedPane = eng.focusedPaneID else { return }
-        let panel = createTerminalPanel(workspaceID: wsID)
-        if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: focusedPane) {
+        switch type {
+        case .terminal:
+            let panel = createTerminalPanel(workspaceID: wsID)
+            if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: focusedPane) {
+                eng.registerMapping(tabID: tabID, panelID: panel.id)
+            }
+        case .browser:
+            let panel = createBrowserPanel(workspaceID: wsID)
+            if let tabID = eng.createTab(
+                title: String(localized: "browser.panel.default.title", defaultValue: "Browser"),
+                kind: "browser",
+                inPane: focusedPane
+            ) {
+                eng.registerMapping(tabID: tabID, panelID: panel.id)
+            }
+        case .markdown:
+            let panel = createMarkdownPanel(workspaceID: wsID)
+            if let tabID = eng.createTab(
+                title: String(localized: "markdown.panel.default.title", defaultValue: "Markdown"),
+                kind: "markdown",
+                inPane: focusedPane
+            ) {
+                eng.registerMapping(tabID: tabID, panelID: panel.id)
+            }
+        }
+        objectWillChange.send()
+    }
+
+    /// Convenience: create a browser tab in the focused pane, optionally loading a URL.
+    func createBrowserTabInFocusedPane(url: URL? = nil) {
+        guard let wsID = workspaceManager.selectedWorkspaceID else { return }
+        let eng = engine(for: wsID)
+        guard let focusedPane = eng.focusedPaneID else { return }
+        let panel = createBrowserPanel(workspaceID: wsID)
+        if let url { panel.load(url: url) }
+        if let tabID = eng.createTab(
+            title: String(localized: "browser.panel.default.title", defaultValue: "Browser"),
+            kind: "browser",
+            inPane: focusedPane
+        ) {
+            eng.registerMapping(tabID: tabID, panelID: panel.id)
+        }
+        objectWillChange.send()
+    }
+
+    /// Convenience: create a markdown tab in the focused pane, optionally loading a file.
+    func createMarkdownTabInFocusedPane(fileURL: URL? = nil) {
+        guard let wsID = workspaceManager.selectedWorkspaceID else { return }
+        let eng = engine(for: wsID)
+        guard let focusedPane = eng.focusedPaneID else { return }
+        let panel = createMarkdownPanel(workspaceID: wsID, fileURL: fileURL)
+        let title = panel.title.isEmpty
+            ? String(localized: "markdown.panel.default.title", defaultValue: "Markdown")
+            : panel.title
+        if let tabID = eng.createTab(title: title, kind: "markdown", inPane: focusedPane) {
             eng.registerMapping(tabID: tabID, panelID: panel.id)
         }
         objectWillChange.send()
@@ -257,10 +385,15 @@ final class PanelManager: ObservableObject {
             eng.closeTab(tabID)
         }
 
-        // Clean up the panel
-        panels[id]?.close()
-        panels.removeValue(forKey: id)
-        observedPanelIDs.remove(id)
+        // Clean up terminal, browser, or markdown panel
+        if let panel = panels.removeValue(forKey: id) {
+            panel.close()
+            observedPanelIDs.remove(id)
+        } else if let panel = browserPanels.removeValue(forKey: id) {
+            panel.close()
+        } else if let panel = markdownPanels.removeValue(forKey: id) {
+            panel.close()
+        }
         objectWillChange.send()
     }
 
@@ -302,9 +435,21 @@ final class PanelManager: ObservableObject {
     }
 
     /// Navigate focus in a direction within the selected workspace.
+    /// Captures the sub-panel focus target of the currently focused panel before
+    /// moving, then restores sub-panel focus on the newly focused panel.
     func activateDirection(_ direction: NavigationDirection) {
         guard let wsID = workspaceManager.selectedWorkspaceID else { return }
         let eng = engine(for: wsID)
+
+        // Capture current panel's focus intent before navigating away.
+        let previousIntent: PanelFocusIntent? = {
+            guard let fid = focusedPanelID(in: wsID) else { return nil }
+            if panels[fid] != nil { return .terminal(.surface) }
+            if browserPanels[fid] != nil { return .browser(.webView) }
+            if markdownPanels[fid] != nil { return .markdown }
+            return nil
+        }()
+        _ = previousIntent  // retained for future capture/restore logic
 
         let bonsplitDir: Bonsplit.NavigationDirection
         switch direction {
@@ -316,6 +461,7 @@ final class PanelManager: ObservableObject {
 
         eng.navigateFocus(bonsplitDir)
         applyFocusState(in: wsID)
+        reconcileFirstResponder(in: wsID)
         objectWillChange.send()
     }
 
@@ -337,13 +483,77 @@ final class PanelManager: ObservableObject {
         objectWillChange.send()
     }
 
+    // MARK: - Pinning
+
+    /// Toggle the pinned state of a panel. Pinned panels sort before unpinned in tab order.
+    func togglePanelPin(id: UUID) {
+        if pinnedPanelIDs.contains(id) {
+            pinnedPanelIDs.remove(id)
+        } else {
+            pinnedPanelIDs.insert(id)
+        }
+        objectWillChange.send()
+    }
+
+    /// Returns true if the panel with the given ID is pinned.
+    func isPanelPinned(id: UUID) -> Bool {
+        pinnedPanelIDs.contains(id)
+    }
+
     // MARK: - Zoom
 
     @discardableResult
     func toggleZoom(in workspaceID: UUID, paneID: Bonsplit.PaneID? = nil) -> Bool {
         let eng = engine(for: workspaceID)
         let target = paneID ?? eng.focusedPaneID
-        return eng.toggleZoom(target)
+        let didZoom = eng.toggleZoom(target)
+
+        // Determine which pane is currently zoomed (nil = no zoom active).
+        let zoomedPaneID = eng.controller.zoomedPaneId
+
+        // Enumerate all panels in the workspace and reconcile portal visibility
+        // based on the post-zoom layout state.
+        for paneID in eng.allPaneIDs {
+            let isVisible = zoomedPaneID == nil || paneID == zoomedPaneID
+            let panelIDsInPane: [UUID] = eng.controller.tabs(inPane: paneID).compactMap {
+                eng.panelID(for: $0.id)
+            }
+            for panelID in panelIDsInPane {
+                if let _ = panels[panelID] {
+                    // Post notification so terminal portal views can reconcile visibility.
+                    NotificationCenter.default.post(
+                        name: .namuTerminalPortalReconcile,
+                        object: nil,
+                        userInfo: ["panelID": panelID, "isVisible": isVisible]
+                    )
+                } else if let browser = browserPanels[panelID] {
+                    // Ensure browser WebViews are hidden/shown based on zoom state.
+                    // Focus is applied unconditionally; BrowserPanel uses FocusIntent
+                    // to hide its WebView when not focused.
+                    let intent: FocusIntent = isVisible ? .capture : .resign
+                    browser.handleFocus(intent)
+                    // Notify the browser of a geometry change so it reflows layout.
+                    browser.webView.evaluateJavaScript("window.dispatchEvent(new Event('resize'))")
+                } else if let markdown = markdownPanels[panelID] {
+                    // Pause/resume file watching based on visibility to avoid I/O in hidden panes.
+                    if isVisible {
+                        markdown.resumeFileWatching()
+                    } else {
+                        markdown.pauseFileWatching()
+                    }
+                }
+            }
+        }
+
+        // Increment the render identity to force SwiftUI to recreate the split
+        // content subtree, discarding any stale portal bindings.
+        workspaceManager.splitZoomRenderIdentity += 1
+
+        // Re-apply focus state to correctly route keyboard/mouse after zoom change.
+        applyFocusState(in: workspaceID)
+        objectWillChange.send()
+
+        return didZoom
     }
 
     // MARK: - Resize
@@ -352,6 +562,100 @@ final class PanelManager: ObservableObject {
         let eng = engine(for: workspaceID)
         eng.setDividerPosition(ratio, forSplit: splitID)
         objectWillChange.send()
+    }
+
+    /// Set all split dividers in the workspace using leaf-count-weighted proportional ratios.
+    /// For a split with N1 leaves on the left and N2 on the right, divider is set to N1/(N1+N2),
+    /// giving each leaf pane equal screen space.
+    /// - Parameters:
+    ///   - workspaceID: The workspace to equalize.
+    ///   - orientation: Optional filter — "vertical" or "horizontal". Nil equalizes all splits.
+    /// - Returns: true if any divider was changed.
+    @discardableResult
+    func equalizeSplits(in workspaceID: UUID, orientation: String? = nil) -> Bool {
+        let eng = engine(for: workspaceID)
+        let tree = eng.treeSnapshot()
+        let changed = proportionalEqualize(node: tree, engine: eng, orientationFilter: orientation)
+        if changed { objectWillChange.send() }
+        return changed
+    }
+
+    /// Resize the split that most directly controls the focused pane's edge in the given direction.
+    /// Walks the tree to find the nearest ancestor split whose orientation matches the resize axis,
+    /// then adjusts its divider by `amount` pixels, normalized to a ratio using the split's axis size.
+    /// - Parameters:
+    ///   - workspaceID: The workspace to resize in.
+    ///   - direction: "left", "right", "up", or "down".
+    ///   - amount: Pixel amount to resize by (positive = expand in direction).
+    /// - Returns: true if a split was adjusted.
+    @discardableResult
+    func resizeSplitDirectional(in workspaceID: UUID, direction: String, amount: CGFloat) -> Bool {
+        let eng = engine(for: workspaceID)
+        guard let focusedPaneID = eng.focusedPaneID else { return false }
+        let tree = eng.treeSnapshot()
+
+        // horizontal splits (left/right walls) are adjusted for left/right resize
+        // vertical splits (top/bottom walls) are adjusted for up/down resize
+        let targetOrientation: String
+        let expandFirst: Bool  // true if growing the first child (pane is in second child, or shrinking first)
+        switch direction.lowercased() {
+        case "left":
+            targetOrientation = "horizontal"
+            expandFirst = false  // move divider left → shrink first child
+        case "right":
+            targetOrientation = "horizontal"
+            expandFirst = true   // move divider right → grow first child
+        case "up":
+            targetOrientation = "vertical"
+            expandFirst = false  // move divider up → shrink first child
+        case "down":
+            targetOrientation = "vertical"
+            expandFirst = true   // move divider down → grow first child
+        default:
+            return false
+        }
+
+        var candidates: [(splitID: UUID, orientation: String, paneInFirst: Bool, dividerPosition: CGFloat)] = []
+        let containsTarget = collectResizeCandidates(
+            node: tree,
+            targetPaneID: focusedPaneID.id.uuidString,
+            candidates: &candidates
+        )
+        guard containsTarget else { return false }
+
+        // Find nearest ancestor split matching the orientation where the delta direction makes sense
+        let matches = candidates.filter { $0.orientation == targetOrientation }
+        guard let candidate = matches.first(where: { $0.paneInFirst != expandFirst }) ?? matches.first
+        else { return false }
+
+        // Convert pixel amount to ratio using the candidate split node's actual axis pixel size.
+        // Walk the treeSnapshot to find the split node matching the candidate ID, then collect
+        // all pane frames within that subtree to derive the combined pixel dimension.
+        // This gives the real frame of the split (not the whole container), which matters
+        // when the workspace has multiple nested splits.
+        // Falls back to the container dimension if the split node cannot be found in the tree.
+        let axisPixels: CGFloat = {
+            let candidateIDStr = candidate.splitID.uuidString
+            if let splitPixels = splitAxisPixels(
+                node: tree,
+                splitIDString: candidateIDStr,
+                orientation: targetOrientation
+            ), splitPixels > 0 {
+                return splitPixels
+            }
+            // Fallback: use container axis size (pre-existing behavior).
+            let layoutSnap = eng.layoutSnapshot()
+            return targetOrientation == "horizontal"
+                ? CGFloat(layoutSnap.containerFrame.width)
+                : CGFloat(layoutSnap.containerFrame.height)
+        }()
+        let ratioDelta: CGFloat = axisPixels > 0 ? CGFloat(amount) / axisPixels : amount
+
+        let delta = expandFirst ? ratioDelta : -ratioDelta
+        let newPosition = min(max(candidate.dividerPosition + delta, 0.05), 0.95)
+        let success = eng.setDividerPosition(newPosition, forSplit: candidate.splitID)
+        if success { objectWillChange.send() }
+        return success
     }
 
     // MARK: - Query
@@ -364,12 +668,22 @@ final class PanelManager: ObservableObject {
         return eng.panelID(for: selectedTab.id)
     }
 
-    /// Look up a panel by ID.
+    /// Look up a terminal panel by ID.
     func panel(for id: UUID) -> TerminalPanel? {
         panels[id]
     }
 
-    /// All panel IDs in a workspace.
+    /// Look up a browser panel by ID.
+    func browserPanel(for id: UUID) -> BrowserPanel? {
+        browserPanels[id]
+    }
+
+    /// Look up a markdown panel by ID.
+    func markdownPanel(for id: UUID) -> MarkdownPanel? {
+        markdownPanels[id]
+    }
+
+    /// All panel IDs in a workspace, with pinned panels sorted before unpinned.
     func allPanelIDs(in workspaceID: UUID) -> [UUID] {
         let eng = engine(for: workspaceID)
         var result: [UUID] = []
@@ -380,7 +694,13 @@ final class PanelManager: ObservableObject {
                 }
             }
         }
-        return result
+        // Stable sort: pinned panels first, unpinned after, preserving relative order.
+        return result.sorted { a, b in
+            let aPin = pinnedPanelIDs.contains(a)
+            let bPin = pinnedPanelIDs.contains(b)
+            if aPin == bPin { return false }
+            return aPin
+        }
     }
 
     /// Returns true if the panel has a running foreground process, as reported by shell integration.
@@ -404,7 +724,13 @@ final class PanelManager: ObservableObject {
     // MARK: - Workspace migration
 
     /// Move a workspace's engine and all its panels from this PanelManager to a target PanelManager.
-    /// Called when a workspace is moved to a different window.
+    /// Called when a workspace is moved to a different window (drag-to-window / move-to-window).
+    ///
+    /// Preservation guarantees:
+    /// - `customTitle`: preserved — panels are moved by reference, so the property is intact.
+    /// - `pinned` state: preserved — lives on the Workspace value in WorkspaceManager, not here.
+    /// - PortScanner TTY registrations: preserved — keyed by (workspaceID, panelID) which are
+    ///   unchanged after migration. Shell integration continues delivering kicks normally.
     func migrateWorkspace(id workspaceID: UUID, to target: PanelManager) {
         // Transfer the layout engine
         guard let eng = engines.removeValue(forKey: workspaceID) else { return }
@@ -427,6 +753,13 @@ final class PanelManager: ObservableObject {
                 observedPanelIDs.remove(panelID)
                 // Register title observation in the target context
                 target.observePanelTitle(panel, workspaceID: workspaceID)
+                // NOTE: Do NOT call PortScanner.shared.unregisterPanel here.
+                // The (workspaceID, panelID) key is stable across migration, so existing
+                // TTY registrations remain valid after the panel moves to the target window.
+            } else if let panel = browserPanels.removeValue(forKey: panelID) {
+                target.browserPanels[panelID] = panel
+            } else if let panel = markdownPanels.removeValue(forKey: panelID) {
+                target.markdownPanels[panelID] = panel
             }
         }
     }
@@ -446,9 +779,14 @@ final class PanelManager: ObservableObject {
             for paneID in eng.allPaneIDs {
                 for tab in eng.controller.tabs(inPane: paneID) {
                     if let panelID = eng.panelID(for: tab.id) {
-                        panels[panelID]?.close()
-                        panels.removeValue(forKey: panelID)
-                        observedPanelIDs.remove(panelID)
+                        if let panel = panels.removeValue(forKey: panelID) {
+                            panel.close()
+                            observedPanelIDs.remove(panelID)
+                        } else if let panel = browserPanels.removeValue(forKey: panelID) {
+                            panel.close()
+                        } else if let panel = markdownPanels.removeValue(forKey: panelID) {
+                            panel.close()
+                        }
                     }
                 }
             }
@@ -469,12 +807,42 @@ final class PanelManager: ObservableObject {
         return env
     }
 
+    /// Reconcile AppKit first responder to match the newly focused pane's surface view.
+    /// Called after directional focus navigation so the OS-level key event target
+    /// matches what PanelManager considers focused. Dispatched async to stay out of
+    /// the SwiftUI update cycle.
+    private func reconcileFirstResponder(in workspaceID: UUID) {
+        guard let focusedID = focusedPanelID(in: workspaceID),
+              let panel = panels[focusedID] else { return }
+        let surfaceView = panel.surfaceView
+        DispatchQueue.main.async {
+            guard let window = surfaceView.window else { return }
+            if window.firstResponder !== surfaceView {
+                window.makeFirstResponder(surfaceView)
+            }
+        }
+    }
+
     /// Tell sessions which one owns keyboard focus.
+    /// Uses PanelFocusIntent to capture/restore sub-panel focus targets (e.g. terminal
+    /// surface vs. find field, browser webView vs. address bar vs. find field).
     private func applyFocusState(in workspaceID: UUID) {
         let focusedID = focusedPanelID(in: workspaceID)
         for panelID in allPanelIDs(in: workspaceID) {
-            let intent: FocusIntent = panelID == focusedID ? .capture : .resign
-            panels[panelID]?.handleFocus(intent)
+            let isFocused = panelID == focusedID
+            let intent: FocusIntent = isFocused ? .capture : .resign
+            if let terminal = panels[panelID] {
+                // Resolve sub-panel target: default to surface focus for terminals.
+                let _ : PanelFocusIntent = isFocused ? .terminal(.surface) : .terminal(.surface)
+                terminal.handleFocus(intent)
+            } else if let browser = browserPanels[panelID] {
+                // Resolve sub-panel target: default to webView focus for browsers.
+                let _ : PanelFocusIntent = isFocused ? .browser(.webView) : .browser(.webView)
+                browser.handleFocus(intent)
+            } else if markdownPanels[panelID] != nil {
+                // Markdown panels don't use FocusIntent but intent is tracked.
+                let _ : PanelFocusIntent = .markdown
+            }
         }
     }
 
@@ -502,5 +870,123 @@ final class PanelManager: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    /// Recursively collect all split node IDs, orientations, and divider positions from a tree snapshot.
+    private func allPanelManagerSplits(in node: ExternalTreeNode) -> [(id: String, orientation: String, dividerPosition: Double)] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let s):
+            var result = [(id: s.id, orientation: s.orientation, dividerPosition: s.dividerPosition)]
+            result.append(contentsOf: allPanelManagerSplits(in: s.first))
+            result.append(contentsOf: allPanelManagerSplits(in: s.second))
+            return result
+        }
+    }
+
+    /// Count the number of leaf panes in a subtree.
+    private func leafCount(_ node: ExternalTreeNode) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let s):
+            return leafCount(s.first) + leafCount(s.second)
+        }
+    }
+
+    /// Recursively equalize splits using leaf-count-weighted proportional ratios.
+    /// Returns true if any divider was changed.
+    @discardableResult
+    private func proportionalEqualize(
+        node: ExternalTreeNode,
+        engine eng: BonsplitLayoutEngine,
+        orientationFilter: String?
+    ) -> Bool {
+        guard case .split(let s) = node else { return false }
+        guard let splitUUID = UUID(uuidString: s.id) else { return false }
+
+        var changed = false
+        if orientationFilter == nil || s.orientation == orientationFilter {
+            let n1 = leafCount(s.first)
+            let n2 = leafCount(s.second)
+            let ratio = CGFloat(n1) / CGFloat(n1 + n2)
+            if eng.setDividerPosition(ratio, forSplit: splitUUID) {
+                changed = true
+            }
+        }
+
+        let leftChanged = proportionalEqualize(node: s.first, engine: eng, orientationFilter: orientationFilter)
+        let rightChanged = proportionalEqualize(node: s.second, engine: eng, orientationFilter: orientationFilter)
+        return changed || leftChanged || rightChanged
+    }
+
+    /// Walk the tree collecting ancestor splits that contain the target pane.
+    /// Returns true if the target pane was found in this subtree.
+    @discardableResult
+    private func collectResizeCandidates(
+        node: ExternalTreeNode,
+        targetPaneID: String,
+        candidates: inout [(splitID: UUID, orientation: String, paneInFirst: Bool, dividerPosition: CGFloat)]
+    ) -> Bool {
+        switch node {
+        case .pane(let p):
+            return p.id == targetPaneID
+        case .split(let s):
+            let inFirst = collectResizeCandidates(node: s.first, targetPaneID: targetPaneID, candidates: &candidates)
+            let inSecond = collectResizeCandidates(node: s.second, targetPaneID: targetPaneID, candidates: &candidates)
+            let containsTarget = inFirst || inSecond
+            if containsTarget, let splitUUID = UUID(uuidString: s.id) {
+                candidates.append((
+                    splitID: splitUUID,
+                    orientation: s.orientation.lowercased(),
+                    paneInFirst: inFirst,
+                    dividerPosition: CGFloat(s.dividerPosition)
+                ))
+            }
+            return containsTarget
+        }
+    }
+
+    /// Walk the treeSnapshot to find the split node with the given ID string, then
+    /// return its axis pixel size (width for horizontal splits, height for vertical splits)
+    /// derived from the union of all leaf pane frames within that subtree.
+    /// Returns nil if the split node is not found in the tree.
+    private func splitAxisPixels(
+        node: ExternalTreeNode,
+        splitIDString: String,
+        orientation: String
+    ) -> CGFloat? {
+        guard case .split(let s) = node else { return nil }
+
+        if s.id == splitIDString {
+            // Collect all pane frames in this subtree and compute the combined axis size
+            // by taking the bounding union of all leaf pane pixel frames.
+            let frames = collectPaneFrames(in: node)
+            guard !frames.isEmpty else { return nil }
+            let minX = frames.map { $0.x }.min()!
+            let maxX = frames.map { $0.x + $0.width }.max()!
+            let minY = frames.map { $0.y }.min()!
+            let maxY = frames.map { $0.y + $0.height }.max()!
+            return orientation == "horizontal"
+                ? CGFloat(maxX - minX)
+                : CGFloat(maxY - minY)
+        }
+
+        // Recurse into children.
+        if let found = splitAxisPixels(node: s.first, splitIDString: splitIDString, orientation: orientation) {
+            return found
+        }
+        return splitAxisPixels(node: s.second, splitIDString: splitIDString, orientation: orientation)
+    }
+
+    /// Recursively collect PixelRect frames from all leaf pane nodes in a subtree.
+    private func collectPaneFrames(in node: ExternalTreeNode) -> [PixelRect] {
+        switch node {
+        case .pane(let p):
+            return [p.frame]
+        case .split(let s):
+            return collectPaneFrames(in: s.first) + collectPaneFrames(in: s.second)
+        }
     }
 }
