@@ -26,12 +26,14 @@ final class BrowserImportTests: XCTestCase {
     func testHistoryEntryHasUniqueIDs() {
         let entry1 = BrowserImport.HistoryEntry(
             browser: .chrome,
+            profile: nil,
             url: URL(string: "https://example.com")!,
             title: "Example",
             visitDate: Date()
         )
         let entry2 = BrowserImport.HistoryEntry(
             browser: .chrome,
+            profile: nil,
             url: URL(string: "https://example.com")!,
             title: "Example",
             visitDate: Date()

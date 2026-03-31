@@ -175,8 +175,8 @@ extension AIProviderType {
 
     var apiKeyPlaceholder: String {
         switch self {
-        case .claude:  return "sk-ant-..."
-        case .openai:  return "sk-..."
+        case .claude:  return "Paste Claude API key"
+        case .openai:  return "Paste OpenAI API key"
         case .gemini:  return "AIza..."
         case .custom:  return "API key (optional)"
         }

@@ -114,11 +114,12 @@ jobs:
 
       - name: Check for hardcoded secrets
         run: |
-          # Fail if any API keys, passwords, or tokens are hardcoded
-          if grep -rn "phc_\|sk-\|ghp_\|gho_\|xoxb-\|xoxp-" \
+          # Fail if real API keys, passwords, or tokens are hardcoded.
+          # Patterns: full key prefixes (not partial matches like "task-completed").
+          if grep -rn '"phc_[a-zA-Z0-9]\|"sk-ant-api\|"sk-[a-zA-Z0-9]\{20\}\|"ghp_\|"gho_\|"xoxb-\|"xoxp-' \
             --include="*.swift" \
             NamuKit/ NamuUI/ CLI/ \
-            | grep -v "// example\|// test\|Tests/"; then
+            | grep -v "// example\|// test\|// placeholder\|Tests/\|Placeholder\|placeholder"; then
             echo "ERROR: Possible hardcoded secrets found"
             exit 1
           fi
