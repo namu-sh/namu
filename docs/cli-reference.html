@@ -28,18 +28,11 @@
         <p>
             The <code>namu</code> CLI communicates with the running app over a Unix domain
             socket using JSON-RPC 2.0. The default socket path is <code>/tmp/namu.sock</code>.
+            Tagged debug builds use <code>/tmp/namu-&lt;tag&gt;.sock</code>.
         </p>
 
         <h2>Usage</h2>
         <pre><code>namu &lt;namespace&gt; &lt;command&gt; [--param value ...]</code></pre>
-
-        <h2>Namespaces</h2>
-        <p>
-            Primary namespaces exposed by the CLI today: <code>workspace</code>,
-            <code>pane</code>, <code>surface</code>, <code>notification</code>,
-            <code>browser</code>, <code>system</code>, <code>window</code>,
-            <code>debug</code>, and <code>ai</code>.
-        </p>
 
         <h2>Global Flags</h2>
         <table>
@@ -47,27 +40,42 @@
             <tbody>
                 <tr><td><code>--json</code></td><td>Output raw JSON-RPC response</td><td>off</td></tr>
                 <tr><td><code>--socket &lt;path&gt;</code></td><td>Custom socket path</td><td><code>/tmp/namu.sock</code></td></tr>
-                <tr><td><code>--timeout &lt;secs&gt;</code></td><td>Request timeout in seconds</td><td>5 (30 for long-running commands)</td></tr>
+                <tr><td><code>--timeout &lt;secs&gt;</code></td><td>Request timeout in seconds</td><td>5 (30 for long-running)</td></tr>
+                <tr><td><code>--no-focus</code></td><td>Prevent focus steal on commands that normally take focus</td><td>off</td></tr>
+                <tr><td><code>--id-format &lt;fmt&gt;</code></td><td><code>refs</code> / <code>uuids</code> / <code>both</code> for ID display</td><td><code>refs</code></td></tr>
+                <tr><td><code>--password &lt;pw&gt;</code></td><td>Socket password (also: <code>$NAMU_SOCKET_PASSWORD</code> or file)</td><td>—</td></tr>
             </tbody>
         </table>
+
+        <h2>Ref IDs</h2>
+        <p>
+            All commands accept short ref IDs in <code>kind:ordinal</code> format as well as
+            full UUIDs. Refs are stable within a session:
+        </p>
+        <pre><code>workspace:1   pane:2   surface:3</code></pre>
+        <p>
+            Use <code>--id-format both</code> to see refs and UUIDs side by side in list output.
+        </p>
 
         <hr>
 
         <h2>workspace.*</h2>
         <pre><code>namu workspace list
 namu workspace create --title "Backend"
-namu workspace select --id "A1B2C3D4-..."
-namu workspace rename --id "A1B2C3D4-..." --title "Frontend"
-namu workspace pin --id "A1B2C3D4-..."
-namu workspace color --id "A1B2C3D4-..." --color "#FF6B6B"
-namu workspace delete --id "A1B2C3D4-..."</code></pre>
+namu workspace select --id workspace:1
+namu workspace rename --id workspace:1 --title "Frontend"
+namu workspace pin --id workspace:1
+namu workspace color --id workspace:1 --color "#FF6B6B"
+namu workspace delete --id workspace:1</code></pre>
 
         <h2>pane.*</h2>
         <pre><code>namu pane split --direction horizontal
-namu pane split --direction vertical --pane_id "A1B2C3D4-..."
-namu pane focus --pane_id "A1B2C3D4-..."
-namu pane resize --split_id "A1B2C3D4-..." --ratio 0.6
+namu pane split --direction vertical --pane_id pane:2
+namu pane focus --pane_id pane:1
+namu pane resize --split_id pane:2 --ratio 0.6
 namu pane equalize
+namu pane swap --pane_id pane:1 --target_pane_id pane:2
+namu pane break --pane_id pane:3
 namu pane send_keys "npm test\n"
 namu pane read_screen --lines 50
 namu pane zoom
@@ -83,10 +91,39 @@ namu pane unpin</code></pre>
         <pre><code>namu surface list
 namu surface current
 namu surface split --direction right
+namu surface reorder --surface_id surface:1 --index 0
+namu surface drag_to_split --surface_id surface:1 --direction right
+namu surface move --surface_id surface:1 --pane_id pane:2
+namu surface move --surface_id surface:1 --workspace_id workspace:3
 namu surface send_text --text "ls\n"
 namu surface send_key --key enter
 namu surface read_text --lines 100
 namu surface close</code></pre>
+
+        <h2>sidebar.*</h2>
+        <pre><code># Status pills
+namu sidebar set_status build "Tests passing" --icon checkmark.circle --color "#34C759" --priority 10
+namu sidebar set_status deploy "Deploying..." --icon arrow.up.circle --color "#007AFF"
+namu sidebar clear_status build
+namu sidebar list_status
+
+# Progress bar
+namu sidebar set_progress 0.75 --label "Building (75%)"
+namu sidebar clear_progress
+
+# Structured log
+namu sidebar log --level success "All 42 tests passed"
+namu sidebar log --level warning "Slow query detected" --source db
+namu sidebar log --level error "Build failed" --source ci
+namu sidebar clear_log
+namu sidebar list_log --limit 50</code></pre>
+
+        <h2>window.*</h2>
+        <pre><code>namu window list
+namu window current
+namu window create
+namu window focus --id window:1
+namu window close --id window:2</code></pre>
 
         <h2>browser.*</h2>
         <pre><code>namu browser open
@@ -120,6 +157,16 @@ namu system relay_status
 namu system render_stats
 namu system capabilities --json</code></pre>
 
+        <h2>debug.*</h2>
+        <pre><code>namu debug layout
+namu debug window screenshot --path /tmp/window.png
+namu debug panel snapshot --surface_id surface:1
+namu debug bonsplit_underflow count
+namu debug bonsplit_underflow reset
+namu debug flash count --surface_id surface:1
+namu debug flash reset
+namu debug render_stats --surface_id surface:1</code></pre>
+
         <h2>ai.*</h2>
         <p>
             AI commands talk to <code>NamuAI</code>, which interprets natural language,
@@ -142,10 +189,12 @@ namu send
 namu read-screen
 namu notify</code></pre>
 
+        <h2>SSH Remote Workspace</h2>
+        <pre><code>namu ssh user@host
+namu ssh user@host --port 2222
+namu ssh user@host --identity ~/.ssh/id_ed25519 --no-focus</code></pre>
+
         <h2>Special Entry Points</h2>
-        <p>
-            The CLI also includes non-namespace integration helpers that matter for current workflows:
-        </p>
 
         <h3>Claude Hook Integration</h3>
         <pre><code>namu claude-hook session-start
@@ -160,8 +209,8 @@ namu codex-hook session-start
 namu codex-hook prompt-submit</code></pre>
 
         <h3>OpenCode Integration</h3>
-        <pre><code>namu opencode <command>
-namu omo <command></code></pre>
+        <pre><code>namu opencode &lt;command&gt;
+namu omo &lt;command&gt;</code></pre>
 
         <h3>TMux Compatibility</h3>
         <p>37 tmux-compat commands bridge common tmux patterns to Namu commands:</p>
@@ -182,6 +231,18 @@ namu __tmux-compat list-panes
 
 namu workspace select --id "$WS"
 namu pane split --direction vertical</code></pre>
+
+        <h3>Use short refs in a script</h3>
+        <pre><code># No UUID bookkeeping needed
+namu workspace select --id workspace:1
+namu pane swap --pane_id pane:1 --target_pane_id pane:2
+namu surface move --surface_id surface:3 --pane_id pane:1</code></pre>
+
+        <h3>Monitor a build with sidebar status</h3>
+        <pre><code>namu sidebar set_status build "Running..." --icon arrow.triangle.2.circlepath --color "#FF9500"
+npm test && \
+  namu sidebar set_status build "Passed" --icon checkmark.circle.fill --color "#34C759" || \
+  namu sidebar set_status build "Failed" --icon xmark.circle.fill --color "#FF3B30"</code></pre>
 
         <h3>Run commands and read screen state</h3>
         <pre><code>namu pane send_keys "npm start\n"

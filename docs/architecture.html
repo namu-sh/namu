@@ -37,7 +37,7 @@
                 <tr>
                     <td><strong>NamuKit</strong></td>
                     <td><code>NamuKit/</code></td>
-                    <td>Core logic. Domain models, Ghostty FFI, IPC, relay, services, AI, alerting. No SwiftUI imports.</td>
+                    <td>Core logic. Domain models, Ghostty FFI, IPC, relay, services, AI, alerting, browser. No SwiftUI imports.</td>
                 </tr>
                 <tr>
                     <td><strong>NamuUI</strong></td>
@@ -47,12 +47,12 @@
                 <tr>
                     <td><strong>CLI</strong></td>
                     <td><code>CLI/</code></td>
-                    <td>The <code>namu</code> command-line client plus tmux compatibility, Claude hooks, Codex hooks, and helper entry points.</td>
+                    <td>The <code>namu</code> command-line client plus tmux compatibility, Claude hooks, Codex hooks, ref ID resolution, and helper entry points.</td>
                 </tr>
                 <tr>
                     <td><strong>Remote Helper</strong></td>
                     <td><code>daemon/remote/</code></td>
-                    <td>Remote relay helper/bootstrap for forwarded command access over an authenticated TCP relay.</td>
+                    <td>Go daemon providing 12 RPC methods for remote session management, PTY resize, SOCKS5/HTTP CONNECT proxy, and stream multiplexing.</td>
                 </tr>
             </tbody>
         </table>
@@ -63,16 +63,17 @@
                 <tr><th>Subdirectory</th><th>Responsibility</th></tr>
             </thead>
             <tbody>
-                <tr><td><code>Domain/</code></td><td>Core value types such as <code>Workspace</code>, <code>Panel</code>, <code>PaneTree</code>, session snapshots, and workspace placement settings.</td></tr>
-                <tr><td><code>Terminal/</code></td><td>Ghostty bridge/config/keyboard wrappers, <code>TerminalSurfaceRegistry</code> (pointer safety), <code>PortalHostLease</code> system, session lifecycle, shell integration, copy mode, image transfer (Kitty graphics + SCP).</td></tr>
-                <tr><td><code>IPC/</code></td><td><code>SocketServer</code>, <code>RelayServer</code> (TCP with HMAC-SHA256 auth), command registry/dispatcher, access control, event bus, command namespaces, and middleware.</td></tr>
-                <tr><td><code>Services/</code></td><td>Workspace/panel managers, persistence, notifications, layout, appearance, analytics, <code>PortScanner</code> (batched ps+lsof), and app coordination.</td></tr>
-                <tr><td><code>AI/</code></td><td><code>NamuAI</code>, provider abstraction, context collection, command mapping, conversation state, command safety, and alert engine with 4 trigger types.</td></tr>
-                <tr><td><code>Alerting/</code></td><td>Outbound channel delivery for Slack, Telegram, Discord, and generic webhook alerts with credential security.</td></tr>
-                <tr><td><code>Browser/</code></td><td><code>BrowserProfileStore</code>, <code>BrowserHistoryStore</code>, browser models, <code>MarkdownPanel</code> with file watching, helpers for 84+ browser commands.</td></tr>
-                <tr><td><code>Debug/</code></td><td>Keystroke latency profiling (<code>TypingTiming</code>, always compiled with 34 instrumentation points).</td></tr>
+                <tr><td><code>Domain/</code></td><td>Core value types: <code>Workspace</code>, <code>Panel</code>, <code>PaneTree</code>, session snapshots, <code>WorkspaceRemoteConfiguration</code>, and workspace placement settings.</td></tr>
+                <tr><td><code>Terminal/</code></td><td>Ghostty bridge/config/keyboard wrappers, <code>TerminalSurfaceRegistry</code> (pointer safety), <code>PortalHostLease</code> system, session lifecycle, CJK IME, dictation, middle-click paste, shell integration, copy mode, image transfer (Kitty + SCP), SSH detection, and ZDOTDIR overlay.</td></tr>
+                <tr><td><code>IPC/</code></td><td><code>SocketServer</code>, <code>RelayServer</code> (TCP with HMAC-SHA256), command registry/dispatcher, access control, event bus, command namespaces, middleware, and password auth.</td></tr>
+                <tr><td><code>Services/</code></td><td>Workspace/panel managers, persistence, notifications (status/progress/log APIs), layout, appearance, analytics, <code>PortScanner</code> (batched ps+lsof), project config watcher, and app coordination.</td></tr>
+                <tr><td><code>AI/</code></td><td><code>NamuAI</code>, provider abstraction (Claude/OpenAI/Gemini/Custom), context collection, command mapping, conversation state, command safety, and alert engine.</td></tr>
+                <tr><td><code>Alerting/</code></td><td>Outbound channel delivery for Slack, Telegram, Discord, and generic webhook with rate limiting and credential security.</td></tr>
+                <tr><td><code>Browser/</code></td><td><code>BrowserProfileStore</code>, <code>BrowserHistoryStore</code>, browser models, <code>MarkdownPanel</code> with file watching, 84+ browser command handlers, network tracing, and proxy configuration.</td></tr>
+                <tr><td><code>Remote/</code></td><td><code>RemoteSessionController</code>, <code>DaemonRPCClient</code>, <code>RemoteProxyBroker</code>, <code>RemoteProxyTunnel</code>, and CLI relay server for SSH remote workspaces.</td></tr>
+                <tr><td><code>Debug/</code></td><td>Keystroke latency profiling (<code>TypingTiming</code>, 34 instrumentation points always compiled in).</td></tr>
                 <tr><td><code>Scripting/</code></td><td>AppleScript support (4 classes, 11 commands via SDEF).</td></tr>
-                <tr><td><code>Config/</code></td><td>Project configuration, directory trust, and command execution.</td></tr>
+                <tr><td><code>Config/</code></td><td>Project configuration, directory trust, config hot-reload, and command execution.</td></tr>
             </tbody>
         </table>
 
@@ -84,13 +85,16 @@
   |       +---> Domain
   |       +---> Terminal (Ghostty C FFI)
   |       +---> IPC (socket + relay + command dispatch)
-  |       +---> Services
-  |       +---> AI
+  |       +---> Services (workspace, panel, notifications, config watcher)
+  |       +---> AI (NamuAI + providers + safety)
   |       +---> Alerting
+  |       +---> Browser (84+ commands, network tracing)
+  |       +---> Remote (SSH orchestration, proxy broker)
   |
   +---> AppKit (hosting, overlays, browser integration)
 
 CLI ---> Unix Socket ---> NamuKit/IPC
+     \-> Short ref IDs resolved locally before RPC
 
 daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre>
 
@@ -101,18 +105,28 @@ daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre
   --> AppKit routing
     --> performKeyEquivalent
     --> keyDown
-    --> interpretKeyEvents
+    --> interpretKeyEvents (NSTextInputClient, CJK IME, dictation)
       --> GhosttyKeyboard
         --> Ghostty surface</code></pre>
 
         <h3>Local Socket Command</h3>
         <pre><code>CLI / automation client
-  --> SocketServer
-    --> AccessControl
-      --> CommandDispatcher
-        --> CommandRegistry
-          --> namespace handler
-            --> manager / service / terminal</code></pre>
+  --> SocketServer (access control + optional password auth)
+    --> CommandDispatcher
+      --> CommandRegistry
+        --> namespace handler
+          --> manager / service / terminal</code></pre>
+
+        <h3>SSH Remote Workspace</h3>
+        <pre><code>namu ssh user@host
+  --> RemoteSessionController
+    --> SSH process (BatchMode, ServerAliveInterval, ControlSocket)
+      --> DaemonRPCClient (hello + capability negotiation)
+        --> daemon binary (SHA256-verified, provisioned on demand)
+          --> session.attach / session.resize / session.detach
+          --> proxy.socks5 / proxy.http_connect (browser traffic)
+  --> CLIRelayServer (HMAC-SHA256 local socket)
+    --> forwarded commands via SSH tunnel to remote daemon</code></pre>
 
         <h3>AI Command Flow</h3>
         <pre><code>User message
@@ -127,47 +141,50 @@ daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre
                   --> result summarized back to user</code></pre>
 
         <h3>Alert Flow</h3>
-        <pre><code>EventBus event
-  --> AlertEngine
+        <pre><code>EventBus event (process.exit | output.match | port.change | shell.idle)
+  --> AlertEngine (4 trigger types)
     --> AlertRouter
       --> Slack / Telegram / Discord / Webhook channel
         --> outbound API delivery</code></pre>
 
+        <h3>Sidebar Notification APIs</h3>
+        <pre><code>CLI: namu sidebar set_status / set_progress / log
+  --> SocketServer
+    --> SidebarStatusCommands / SidebarLogCommands
+      --> WorkspaceManager
+        --> SidebarMetadata update
+          --> SwiftUI sidebar re-render (colored pills, progress bar, log entries)</code></pre>
+
         <h3>Remote Relay Flow</h3>
         <pre><code>Remote helper / forwarded client
-  --> RelayServer (TCP with HMAC-SHA256)
+  --> RelayServer (TCP with HMAC-SHA256 constant-time verification)
     --> Access control check
       --> CommandDispatcher
         --> JSON-RPC handler
           --> response sent over relay socket</code></pre>
-
-        <h3>GPU Metal Instrumentation Flow</h3>
-        <pre><code>NamuMetalLayer (rendering)
-  --> drawable statistics collected
-    --> system.render_stats command
-      --> IPC diagnostics returned to client</code></pre>
 
         <h3>Port Scanner Flow</h3>
         <pre><code>Background timer
   --> PortScanner (batched ps+lsof)
     --> coalesce + burst detection
       --> port.change event published
-        --> EventBus subscribers notified</code></pre>
+        --> EventBus subscribers notified
+          --> NAMU_PORT / NAMU_PORT_RANGE env vars updated per workspace</code></pre>
 
         <h2>Key Design Decisions</h2>
 
         <h3>Clean Rewrite</h3>
         <p>
             Namu references proven ideas from established projects — Ghostty embedding, socket namespaces,
-            layout persistence, portal-style UI coordination — but it is a fresh codebase.
+            layout persistence, portal-style UI coordination — but is a fresh codebase.
             The main architectural goal is to avoid god objects and keep responsibilities
             narrow and testable.
         </p>
 
         <h3>Folder-Based Modules in a Single App Target</h3>
         <p>
-            Most of the app still builds as a single Xcode target organized by directory,
-            rather than as many Swift packages. That keeps build complexity low while the
+            Most of the app builds as a single Xcode target organized by directory, rather
+            than as many Swift packages. That keeps build complexity low while the
             architecture is still settling.
         </p>
 
@@ -179,7 +196,7 @@ daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre
 
         <h3>TerminalBackend Boundary</h3>
         <p>
-            <code>TerminalBackend</code> defines the abstraction boundary, while
+            <code>TerminalBackend</code> defines the abstraction boundary while
             <code>TerminalSession</code> is the concrete Ghostty-backed implementation. Session
             lifecycle is modeled explicitly through <code>SessionState</code>.
         </p>
@@ -187,27 +204,30 @@ daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre
         <h3>Immutable PaneTree</h3>
         <p>
             Layout state is modeled as an indirect enum. Operations return new trees instead
-            of mutating nested nodes in place, which keeps persistence and snapshotting simple.
+            of mutating nested nodes, which keeps persistence and snapshotting simple.
         </p>
 
         <h3>Focus Policy</h3>
         <p>
             Only <code>workspace.select</code> and <code>pane.focus</code> are allowed to steal
-            focus. Other commands preserve the current user focus state.
+            focus. All other commands preserve the current user focus state unless
+            <code>--no-focus</code> is passed.
         </p>
 
-        <h3>Async AI by Default</h3>
+        <h3>Short Ref IDs</h3>
         <p>
-            NamuAI is not an agent bridge or MCP wrapper. It interprets natural language,
-            emits structured tool calls, runs those calls through safety checks, and returns
-            results asynchronously.
+            All list responses include a <code>ref</code> field alongside <code>id</code>.
+            The CLI resolves <code>workspace:1</code>, <code>pane:2</code>, and
+            <code>surface:3</code> notation locally before sending RPCs, so scripts do not
+            need to track full UUIDs.
         </p>
 
-        <h3>Historical Gateway Docs</h3>
+        <h3>Security Model</h3>
         <p>
-            Some older repo-local docs still mention a standalone gateway/WebSocket bridge.
-            That module is not part of the active checkout. Current remote behavior is based
-            on <code>RelayServer</code> plus the helper under <code>daemon/remote/</code>.
+            The relay uses CryptoKit constant-time HMAC comparison to prevent timing attacks.
+            The proxy tunnel blocks 169.254.169.254 (cloud metadata SSRF). Daemon binary
+            manifests are path-traversal checked before download. Relay and proxy response
+            sizes are capped (1MB and 64KB respectively).
         </p>
 
         <h2>Performance Targets</h2>

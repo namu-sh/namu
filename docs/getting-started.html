@@ -30,8 +30,8 @@
         <ul>
             <li>macOS 14.0 or newer</li>
             <li>Xcode 16.0 or newer</li>
-            <li><code>zig</code> 0.15.2</li>
-            <li><code>xcodegen</code></li>
+            <li><code>zig</code> 0.15.2 — <code>brew install zig</code></li>
+            <li><code>xcodegen</code> — <code>brew install xcodegen</code></li>
         </ul>
 
         <h2>Clone and Setup</h2>
@@ -42,8 +42,9 @@ xcodegen generate
 open Namu.xcodeproj</code></pre>
 
         <p>
-            <code>Scripts/setup.sh</code> initializes the Ghostty dependency and builds the
-            <code>GhosttyKit.xcframework</code> needed for the full app.
+            <code>Scripts/setup.sh</code> initializes the Ghostty dependency and builds
+            <code>GhosttyKit.xcframework</code>. <code>xcodegen generate</code> creates
+            <code>Namu.xcodeproj</code> from <code>project.yml</code>.
         </p>
 
         <h2>Build</h2>
@@ -52,40 +53,59 @@ open Namu.xcodeproj</code></pre>
         <h2>Run Tests</h2>
         <pre><code>xcodebuild -scheme Namu -configuration Debug test
 
+# Run a specific test suite
 xcodebuild -scheme Namu -configuration Debug \
   -only-testing:NamuTests/WorkspaceTests test</code></pre>
 
         <h2>Repository Layout</h2>
         <pre><code>namu/
-  NamuKit/         Core logic: domain, terminal, IPC, AI, alerting, services
+  NamuKit/         Core logic: domain, terminal, IPC, AI, alerting, services, browser
   NamuUI/          SwiftUI + AppKit app and views
-  CLI/             `namu` CLI and hook integrations
-  daemon/remote/   Remote relay helper/bootstrap
-  Resources/       Info.plist, shell integration, bundled CLI, skills
-  Tests/           Unit tests, UI tests, Python integration tests
+  CLI/             `namu` CLI, hooks (Claude, Codex), tmux compat
+  daemon/remote/   Go daemon for remote session and proxy RPC
+  Resources/       Info.plist, shell integration, bundled CLI, skills, SDEF
+  Tests/           Swift unit tests, UI tests, Python integration tests
   project.yml      XcodeGen project definition</code></pre>
 
         <h2>First Run Checks</h2>
         <ol>
             <li>Launch the <code>Namu</code> scheme from Xcode.</li>
-            <li>Confirm a terminal workspace opens successfully.</li>
-            <li>Verify the Unix socket exists at <code>/tmp/namu.sock</code>.</li>
-            <li>From another terminal, run <code>namu system ping</code>.</li>
-            <li>Optionally inspect available methods with <code>namu system capabilities --json</code>.</li>
+            <li>Confirm a terminal workspace opens.</li>
+            <li>Verify the Unix socket exists: <code>ls /tmp/namu.sock</code></li>
+            <li>From another terminal: <code>namu system ping</code></li>
+            <li>Inspect available commands: <code>namu system capabilities --json</code></li>
         </ol>
 
-        <h2>Optional Remote Relay</h2>
+        <h2>SSH Remote Workspace</h2>
         <p>
-            The app also includes an authenticated TCP relay (<code>RelayServer</code>) plus a
-            helper under <code>daemon/remote/</code>. This is the active remote-access path in
-            the current checkout.
+            Connect to a remote host and open a managed workspace over SSH:
+        </p>
+        <pre><code>namu ssh user@remote-host
+namu ssh user@remote-host --port 2222
+namu ssh user@remote-host --identity ~/.ssh/id_ed25519</code></pre>
+        <p>
+            Namu provisions the remote daemon binary (SHA256-verified), sets up an
+            HMAC-SHA256 authenticated relay, and optionally tunnels browser traffic via
+            SOCKS5. The connection recovers automatically with exponential backoff.
+        </p>
+
+        <h2>Agent Hook Setup</h2>
+        <p>Install Claude Code hooks to enable sidebar status, notifications, and session tracking:</p>
+        <pre><code>namu claude-teams          # install Claude hooks for this workspace
+namu codex install-hooks   # install Codex hooks</code></pre>
+
+        <h2>Config Hot-Reload</h2>
+        <p>
+            Press <strong>Cmd+Shift+,</strong> to reload Ghostty config without restarting.
+            Project config (<code>namu.json</code>) is watched automatically and reloads on save.
         </p>
 
         <h2>Notes</h2>
         <ul>
-            <li>Some older documentation still references a standalone gateway module. Treat those references as historical.</li>
-            <li>Current alert delivery is outbound only via configured channel credentials.</li>
-            <li>Current AI workflows are available locally through the app UI and <code>namu ai *</code> commands.</li>
+            <li>The CLI accepts short ref IDs everywhere (<code>workspace:1</code>, <code>pane:2</code>) in addition to full UUIDs.</li>
+            <li>Use <code>--no-focus</code> to prevent focus stealing when creating workspaces or breaking panes from scripts.</li>
+            <li>Alert delivery (Slack, Telegram, Discord, webhook) requires credentials configured in Settings → Alerts.</li>
+            <li>AI commands require an API key configured in Settings → AI for the desired provider.</li>
         </ul>
     </main>
 </div>

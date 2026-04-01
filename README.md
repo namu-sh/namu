@@ -2,9 +2,7 @@
 
 **Terminal multiplexer for the agent era.**
 
-Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.org/). It organizes work into workspaces with split panes, exposes the app over a JSON-RPC socket API, ships a `namu` CLI for automation, and includes a built-in natural-language control plane (`NamuAI`) for local AI-assisted control.
-
-The current checkout also includes outbound alert routing (Slack, Telegram, Discord, webhook), browser automation commands, and an authenticated TCP relay for remote command forwarding. Older docs may still reference a standalone gateway; the shipped code today centers on `SocketServer`, `RelayServer`, and local AI/alerting.
+Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.org/). It organizes work into workspaces with split panes, exposes full programmatic control over a JSON-RPC socket API, ships a `namu` CLI for automation, and includes a built-in natural-language control plane (NamuAI). It also provides SSH remote workspace orchestration, deep agent integrations, embedded browser automation, and outbound alert routing.
 
 ## Features
 
@@ -16,60 +14,105 @@ The current checkout also includes outbound alert routing (Slack, Telegram, Disc
 - **Tab-level pinning** — Pin tabs with session persistence across relaunches
 - **Session persistence** — Restores layout, splits, scrollback, and window state across relaunches
 - **Scrollback persistence** — ANSI-safe truncation with configurable buffer limits
+- **Config hot-reload** — Cmd+Shift+, reloads Ghostty config without restarting
+- **Project config file watching** — Live reload of `namu.json` on save with debounce
 
-### Notification & Discovery
-- **Notification panel UI** — Cmd+Shift+I for keyboard-navigable notification panel
-- **Jump-to-unread** — Cmd+Shift+U (configurable) to jump to first unread notification
+### SSH & Remote Workspaces
+- **`namu ssh user@host`** — Full remote workspace command with SSH relay bootstrap
+- **Remote daemon provisioning** — Automatic cross-platform binary download with SHA256 verification
+- **SOCKS5 and HTTP CONNECT proxy tunnel** — Routes browser panel traffic through remote workspace
+- **HMAC-SHA256 authenticated CLI relay** — Secure challenge-response for remote command forwarding
+- **PTY resize coordination** — "Smallest screen wins" debounced resize across all attached clients
+- **Automatic reconnection** — Exponential backoff with jitter on connection loss
+- **ControlSocket multiplexing** — SSH connection reuse enabled by default
+- **Terminfo provisioning** — xterm-ghostty sent to remote via infocmp/tic
+- **ZDOTDIR overlay** — Shell integration injected into remote zsh sessions automatically
 
-### User Interface
-- **Keyboard-driven UI** — Command palette, copy mode, keyboard hints, and pane/workspace shortcuts
-- **32 configurable keyboard shortcuts** — Full customization in preferences
-- **Window decorations** — Traffic light management, custom drag handle, toolbar controller
-- **Keystroke latency profiling** — Always compiled with 34 instrumentation points (enabled via env var)
+### Terminal Input
+- **CJK IME** — Full NSTextInputClient with keyboard layout change detection during composition
+- **macOS dictation** — Voice input routed correctly via accessibility APIs
+- **Enhanced clipboard paste** — HTML/RTF/RTFD to plaintext conversion, image-only detection, 10MB limit
+- **Middle-click paste** — X11-style paste from mouse button 2
+- **Focus-follows-mouse** — Drag guards prevent focus thrashing during drag operations
 
-### Panels & Content
-- **Embedded browser** — Browser panels with isolated profiles and data stores, 84+ automation commands
-- **Browser profiles** — Isolated data stores for separate browser contexts
-- **5 search engines** — Parallel suggest with history scoring
-- **Markdown panel** — Live file watching and rendering
-- **New panel shortcuts** — `pane.new_browser_tab`, `pane.new_markdown_tab` commands
+### Workspace & Pane Operations
+- **`surface.reorder`** — Reorder tabs within a pane
+- **`surface.drag_to_split`** — Drag existing tab into split position
+- **`surface.move`** — Move surface across panes, workspaces, and windows
+- **`pane.swap`** — Swap two panes with placeholder handling
+- **`pane.break`** — Detach surface to new workspace with rollback on failure
+- **Per-panel git branch tracking** — Shows branch and dirty state per panel
+- **Per-panel PR status** — `panelPullRequests` dictionary with command palette "Open All PRs"
 
-### Terminal Features
-- **Shell integration** — Tracks working directory, git branch, ports, shell state, and exit codes
-- **Port scanner** — Batched ps+lsof with coalesce and burst detection
-- **Image transfer pipeline** — Kitty graphics protocol + SCP upload support
-- **Surface pointer safety** — malloc_zone + registry cross-validation for dangling pointer detection
+### Notification System
+- **Status tracking API** — `sidebar.set_status` / `clear_status` / `list_status` with icon, color, priority pills
+- **Structured logging API** — `sidebar.log` / `clear_log` / `list_log` with 5 severity levels (info, progress, success, warning, error)
+- **Progress tracking API** — `sidebar.set_progress` / `clear_progress` with label
+- **Menu bar unread badge** — Shows unread count (1-9 exact, 10+ shows "99+")
+- **16 built-in notification sounds** — Plus custom sound support with background transcoding
+- **Desktop notifications** — Focus suppression when notified pane is visible
+- **5-reason attention rings** — Distinct colors, opacities, and animations per reason
 
-### Automation & Integration
-- **Socket API** — JSON-RPC 2.0 over Unix socket and TCP relay for programmatic control
-- **CLI tool** — `namu` for scripting, tmux compatibility, and automation hooks
+### Browser Panel
+- **84 automation IPC commands** — Navigation, DOM, JS eval, tabs, history, profiles, cookies, screenshots
+- **HTTPS insecure HTTP bypass** — Pattern allowlist for localhost/127.0.0.1/::1/\*.localtest.me
+- **Find-in-page state restoration** — Search query replayed after navigation
+- **Camera/microphone permissions** — System dialog via WKUIDelegate
+- **Browser theme mode** — System/light/dark via CSS media query override
+- **Content process crash recovery** — Automatic webview process restart
+- **Browser profiles** — Isolated data stores for separate contexts
+- **Network tracing** — JavaScript fetch/XHR interception (unique to Namu)
+
+### CLI & API Ergonomics
+- **Short ref IDs** — `workspace:1`, `pane:2`, `surface:3` accepted everywhere UUIDs are
+- **`--id-format` flag** — `refs` / `uuids` / `both` on all list commands
+- **`--no-focus` flag** — Prevents focus steal on commands that normally take focus
+- **Socket password auth** — `--password` flag, `NAMU_SOCKET_PASSWORD` env var, or file
+- **7-candidate socket auto-discovery** — Finds the running instance without configuration
 - **37 tmux-compat commands** — Full tmux command coverage via CLI bridge
-- **AppleScript SDEF** — 4 classes, 11 commands for macOS automation
-- **Codex hook integration** — Install/uninstall hooks for IDE integration
-- **Remote Go daemon** — 12 RPC methods for remote command execution
+
+### Configuration & Theming
+- **Sidebar tint light/dark separation** — Separate colors for light and dark mode
+- **Menu bar visibility toggle** — Show or hide the menu bar from settings
+- **Telemetry opt-out** — No telemetry by default; opt-in only if crash reporting is configured
+
+### Window Management & Debug
+- **Window APIs** — `window.list`, `window.create`, `window.focus`, `window.close`, `window.current`
+- **30+ debug commands** — Layout tree, window screenshot, panel snapshot with pixel diff, render stats
+- **Flash and underflow counters** — Per-surface flash tracking with reset commands
+- **Fullscreen control API** — Programmatic enter/exit fullscreen
+- **Command palette debug APIs** — Toggle, visible state, selection, and rename operations
+
+### Agent Integrations
+- **Claude Code hooks** — 10 hook event types (SessionStart, Stop, SessionEnd, Notification, UserPromptSubmit, PreToolUse, and 4 more)
+- **Codex hook support** — Install/uninstall hooks for OpenAI Codex
+- **Agent PID tracking** — `set_agent_pid` / `clear_agent_pid` per surface with stale reaping
+- **Session lockfile store** — `~/.namu/claude-hook-sessions.json` with 7-day TTL
+- **Per-workspace port allocation** — `NAMU_PORT` / `NAMU_PORT_END` / `NAMU_PORT_RANGE` env vars
+- **Claude hooks disabled toggle** — `NAMU_CLAUDE_HOOKS_DISABLED` env var
 
 ### AI & Intelligence
 - **NamuAI** — Natural-language control plane mapped onto structured socket commands
 - **LLM-swappable** — Claude, OpenAI, Gemini, or custom provider backends
-- **Command safety** — Structured safety classification with destructive-pattern detection
-- **10 Claude hook event types** — Session start, prompt submit, stop events
+- **Command safety** — Structured safe/normal/dangerous classification with destructive-pattern detection
+- **Persistent conversations** — Session history, context collection, and command mapping
+
+### Alerting & Monitoring
+- **Alert engine** — Rule-based alerts with 4 trigger types (process exit, output match, port change, shell idle)
+- **Slack, Telegram, Discord, Webhook** — Outbound delivery with rate limiting and credential security
+
+### Security
+- **Cloud metadata SSRF blocking** — 169.254.169.254 blocked in proxy tunnel
+- **CryptoKit constant-time HMAC** — Relay authentication resistant to timing attacks
+- **Path traversal protection** — Manifest field validation on remote daemon download
+- **Atomic relay metadata writes** — No partial-write race on credential files
+- **Relay credential hex validation** — Malformed token rejection at parse time
+- **Response size caps** — 1MB relay responses, 64KB proxy headers
 
 ### Localization & Accessibility
 - **953 localization keys** — Support across 19 languages
-- **Accessibility hints** — Full keyboard navigation and screen reader support
-
-### Alerting & Monitoring
-- **Alert engine** — Rule-based alerts with 4 trigger types
-- **Slack channel** — Native Slack integration with credential security
-- **Telegram channel** — Outbound Telegram delivery
-- **Discord channel** — Discord webhook support
-- **Webhook channel** — Generic webhook delivery with custom headers
-
-### Remote Access & Diagnostics
-- **Remote relay** — Authenticated TCP relay (HMAC-SHA256) for remote forwarding
-- **GPU Metal instrumentation** — IPC diagnostics for rendering performance
-- **Relay status monitoring** — `system.relay_status` command for relay health
-- **In-app updates** — Update controller and titlebar badge UI
+- **Full keyboard navigation** — Command palette, copy mode, keyboard hints, and pane shortcuts
+- **AppleScript SDEF** — 4 classes, 11 commands for macOS automation
 
 ## Quick Start
 
@@ -107,15 +150,16 @@ daemon/remote/ Remote relay helper for forwarded command access
 
 | Area | Directory | Purpose |
 |------|-----------|---------|
-| **Domain** | `NamuKit/Domain/` | Value types like `Workspace`, `Panel`, `PaneTree`, `SessionSnapshot` |
-| **Terminal** | `NamuKit/Terminal/` | Ghostty FFI, `TerminalSession`, keyboard/input, shell integration, lifecycle |
+| **Domain** | `NamuKit/Domain/` | Value types: `Workspace`, `Panel`, `PaneTree`, `SessionSnapshot`, `WorkspaceRemoteConfiguration` |
+| **Terminal** | `NamuKit/Terminal/` | Ghostty FFI, `TerminalSession`, keyboard/input, IME, shell integration, image transfer, SSH detection |
 | **IPC** | `NamuKit/IPC/` | `SocketServer`, `RelayServer`, registry, dispatcher, middleware, access control, event bus |
-| **Services** | `NamuKit/Services/` | `WorkspaceManager`, `PanelManager`, persistence, notifications, layout, analytics |
+| **Services** | `NamuKit/Services/` | `WorkspaceManager`, `PanelManager`, persistence, notifications, layout, port scanner, analytics |
 | **AI** | `NamuKit/AI/` | `NamuAI`, provider abstraction, safety, conversations, context collection, tool mapping |
 | **Alerting** | `NamuKit/Alerting/` | Channel abstractions and outbound Slack/Telegram/Discord/webhook delivery |
-| **UI** | `NamuUI/` | App entry point, sidebar, workspace, browser, settings, AI chat, update UI |
-| **CLI** | `CLI/` | JSON-RPC client, hooks, `claude-teams`, tmux compatibility helpers |
-| **Remote Helper** | `daemon/remote/` | Remote relay bootstrap/helper used for forwarded command access |
+| **Browser** | `NamuKit/Browser/` | Profile/history stores, 84+ command handlers, network tracing, proxy configuration |
+| **UI** | `NamuUI/` | App entry, sidebar, workspace, browser, settings, AI chat, notifications, update UI |
+| **CLI** | `CLI/` | JSON-RPC client, hooks for Claude/Codex, tmux compat, ref ID resolution |
+| **Remote Helper** | `daemon/remote/` | Go daemon for remote session/proxy RPC; 12 RPC methods |
 
 ### Runtime Data Flow
 
@@ -124,11 +168,13 @@ SwiftUI Views --> @MainActor managers --> domain models --> Ghostty FFI
                          |
 CLI / local clients --> SocketServer --> CommandRegistry --> handlers
                          |
-Remote clients --> RelayServer --> CommandDispatcher --> handlers
+Remote clients --> RelayServer (HMAC-SHA256) --> CommandDispatcher --> handlers
                          |
 NamuAI --> provider --> CommandSafety --> CommandRegistry
                          |
 AlertEngine --> AlertRouter --> Slack / Telegram / Discord / Webhook
+                         |
+SSH sessions --> RemoteSessionController --> daemon RPC --> proxy broker
 ```
 
 ## Building
@@ -152,24 +198,40 @@ xcodebuild -scheme Namu -configuration Debug test
 The `namu` CLI communicates with the running app over `/tmp/namu.sock` by default.
 
 ```bash
-# Workspaces
+# Workspaces — accepts UUIDs or short refs like workspace:1
 namu workspace list
 namu workspace create --title "Backend"
-namu workspace select --id <uuid>
-namu workspace rename --id <uuid> --title "Frontend"
-namu workspace delete --id <uuid>
+namu workspace select --id workspace:1
+namu workspace rename --id workspace:1 --title "Frontend"
+namu workspace delete --id workspace:1
 
 # Panes
 namu pane split --direction horizontal
+namu pane swap --pane_id pane:1 --target_pane_id pane:2
+namu pane break --pane_id pane:3
 namu pane send_keys "npm test\n"
 namu pane read_screen --lines 50
 namu pane zoom
-namu pane unzoom
+
+# Surfaces
+namu surface reorder --surface_id surface:1 --index 0
+namu surface move --surface_id surface:1 --pane_id pane:2
 
 # Browser
 namu browser open
 namu browser navigate --url "https://example.com"
 namu browser eval --code "document.title"
+namu browser screenshot --path shot.png
+
+# Sidebar status / progress / log
+namu sidebar set_status build "Running tests" --icon checkmark.circle --color "#34C759"
+namu sidebar set_progress 0.75 --label "Building..."
+namu sidebar log --level success "All tests passed"
+
+# Windows
+namu window list
+namu window create
+namu window focus --id window:1
 
 # System
 namu system ping
@@ -182,10 +244,25 @@ namu ai message --content "split pane and run npm test"
 namu ai status
 namu ai history --limit 20
 
-# Integrations
+# SSH remote workspace
+namu ssh user@host
+
+# Agent hooks
 namu claude-teams
+namu claude-hook session-start
 namu codex install-hooks
 ```
+
+### Global Flags
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--json` | Output raw JSON-RPC response | off |
+| `--socket <path>` | Custom socket path | `/tmp/namu.sock` |
+| `--timeout <secs>` | Request timeout | 5s (30s for long-running) |
+| `--no-focus` | Prevent focus steal | off |
+| `--id-format <fmt>` | `refs` / `uuids` / `both` | `refs` |
+| `--password <pw>` | Socket password | `$NAMU_SOCKET_PASSWORD` |
 
 ## Contributing
 

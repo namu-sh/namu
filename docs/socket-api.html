@@ -38,7 +38,6 @@
             <li>Framing: one JSON document per line</li>
             <li>Request IDs: string or number</li>
             <li>Notifications: request without an <code>id</code></li>
-            <li>Relay transport: TCP relay with HMAC-SHA256 authentication and structured middleware</li>
         </ul>
 
         <h2>Access Control Modes</h2>
@@ -48,7 +47,7 @@
                 <tr><td><code>off</code></td><td>Reject all connections</td></tr>
                 <tr><td><code>localOnly</code></td><td>Allow only child processes of Namu via PID ancestry checks</td></tr>
                 <tr><td><code>automation</code></td><td>Allow local automation clients and mark the session as automation context</td></tr>
-                <tr><td><code>password</code></td><td>Require password authentication before commands are accepted</td></tr>
+                <tr><td><code>password</code></td><td>Require password authentication before commands are accepted. Password from <code>--password</code>, <code>$NAMU_SOCKET_PASSWORD</code>, or <code>~/.namu/socket-password</code></td></tr>
                 <tr><td><code>allowAll</code></td><td>Allow any local connection</td></tr>
             </tbody>
         </table>
@@ -59,40 +58,73 @@
         <h2>Response Example</h2>
         <pre><code>{"jsonrpc":"2.0","id":"1","result":{"pong":true}}</code></pre>
 
+        <h2>Ref IDs in Responses</h2>
+        <p>
+            All responses that return an <code>id</code> (UUID) also include a <code>ref</code>
+            field with the short form (<code>workspace:1</code>, <code>pane:2</code>,
+            <code>surface:3</code>). Clients may send either form as input.
+        </p>
+
         <h2>Core Namespaces</h2>
         <table>
             <thead><tr><th>Namespace</th><th>Examples</th></tr></thead>
             <tbody>
-                <tr><td><code>workspace.*</code></td><td><code>workspace.list</code>, <code>workspace.create</code>, <code>workspace.select</code></td></tr>
-                <tr><td><code>pane.*</code></td><td><code>pane.split</code>, <code>pane.focus</code>, <code>pane.equalize</code>, <code>pane.pin</code>, <code>pane.unpin</code>, <code>pane.new_browser_tab</code>, <code>pane.new_markdown_tab</code></td></tr>
-                <tr><td><code>surface.*</code></td><td><code>surface.send_text</code>, <code>surface.send_key</code>, <code>surface.read_text</code></td></tr>
+                <tr><td><code>workspace.*</code></td><td><code>workspace.list</code>, <code>workspace.create</code>, <code>workspace.select</code>, <code>workspace.pin</code>, <code>workspace.color</code></td></tr>
+                <tr><td><code>pane.*</code></td><td><code>pane.split</code>, <code>pane.focus</code>, <code>pane.equalize</code>, <code>pane.swap</code>, <code>pane.break</code>, <code>pane.pin</code>, <code>pane.new_browser_tab</code>, <code>pane.new_markdown_tab</code></td></tr>
+                <tr><td><code>surface.*</code></td><td><code>surface.send_text</code>, <code>surface.send_key</code>, <code>surface.read_text</code>, <code>surface.reorder</code>, <code>surface.drag_to_split</code>, <code>surface.move</code></td></tr>
+                <tr><td><code>sidebar.*</code></td><td><code>sidebar.set_status</code>, <code>sidebar.clear_status</code>, <code>sidebar.list_status</code>, <code>sidebar.set_progress</code>, <code>sidebar.clear_progress</code>, <code>sidebar.log</code>, <code>sidebar.clear_log</code>, <code>sidebar.list_log</code></td></tr>
+                <tr><td><code>window.*</code></td><td><code>window.list</code>, <code>window.current</code>, <code>window.create</code>, <code>window.focus</code>, <code>window.close</code></td></tr>
                 <tr><td><code>notification.*</code></td><td><code>notification.create</code>, <code>notification.list</code>, <code>notification.clear</code>, <code>notification.jump_to_unread</code></td></tr>
-                <tr><td><code>browser.*</code></td><td>84+ commands including <code>browser.navigate</code>, <code>browser.eval</code>, <code>browser.screenshot</code>, profile management, history, tabs, find, and more</td></tr>
-                <tr><td><code>system.*</code></td><td><code>system.ping</code>, <code>system.identify</code>, <code>system.relay_status</code>, <code>system.render_stats</code></td></tr>
+                <tr><td><code>browser.*</code></td><td>84 commands: navigation, DOM, JS eval, screenshots, tabs, history, profiles, cookies, find, performance, frames</td></tr>
+                <tr><td><code>system.*</code></td><td><code>system.ping</code>, <code>system.identify</code>, <code>system.relay_status</code>, <code>system.render_stats</code>, <code>system.capabilities</code></td></tr>
+                <tr><td><code>debug.*</code></td><td><code>debug.layout</code>, <code>debug.window.screenshot</code>, <code>debug.panel.snapshot</code>, <code>debug.flash.count</code>, <code>debug.bonsplit_underflow.count</code></td></tr>
                 <tr><td><code>ai.*</code></td><td><code>ai.message</code>, <code>ai.status</code>, <code>ai.history</code></td></tr>
             </tbody>
         </table>
 
-        <h2>Browser Commands (84+ methods)</h2>
+        <h2>Sidebar Status API</h2>
         <p>
-            The browser namespace exposes comprehensive web automation capabilities across
-            multiple categories:
+            Status entries appear as colored pills in the workspace sidebar. Useful for build
+            monitoring, CI/CD status, and agent coordination.
         </p>
+        <pre><code>// Set a status entry
+{"jsonrpc":"2.0","id":"1","method":"sidebar.set_status","params":{
+  "key": "build",
+  "value": "Tests passing",
+  "icon": "checkmark.circle.fill",
+  "color": "#34C759",
+  "priority": 10
+}}
+
+// Set a progress bar
+{"jsonrpc":"2.0","id":"2","method":"sidebar.set_progress","params":{
+  "value": 0.75,
+  "label": "Building (75%)"
+}}
+
+// Append a log entry
+{"jsonrpc":"2.0","id":"3","method":"sidebar.log","params":{
+  "message": "All tests passed",
+  "level": "success",
+  "source": "ci"
+}}</code></pre>
+
+        <h2>Browser Commands (84 methods)</h2>
         <ul>
-            <li><strong>Navigation</strong> — navigate, back, forward, reload, go, stop</li>
+            <li><strong>Navigation</strong> — navigate, back, forward, reload, stop, go</li>
             <li><strong>DOM Interaction</strong> — click, type, hover, focus, blur, get-text, get-attr, get-property</li>
-            <li><strong>Screenshots & Images</strong> — screenshot, get-image, save-image</li>
+            <li><strong>Screenshots &amp; Images</strong> — screenshot, get-image, save-image</li>
             <li><strong>JavaScript Execution</strong> — eval, eval-function, eval-async, eval-generator</li>
             <li><strong>Tab Management</strong> — list-tabs, new-tab, close-tab, activate-tab, switch-tab</li>
-            <li><strong>History & Search</strong> — history, clear-history, find (with history scoring)</li>
+            <li><strong>History &amp; Search</strong> — history, clear-history, find (with history scoring)</li>
             <li><strong>Profile Management</strong> — list-profiles, create-profile, delete-profile, get-profile</li>
-            <li><strong>Cookie & Storage</strong> — get-cookies, set-cookies, clear-cookies, get-local-storage, set-local-storage</li>
-            <li><strong>Performance & Debugging</strong> — get-performance-metrics, enable-devtools, disable-devtools</li>
-            <li><strong>Window & Frame</strong> — get-window-size, set-window-size, list-frames, switch-frame</li>
+            <li><strong>Cookie &amp; Storage</strong> — get-cookies, set-cookies, clear-cookies, get-local-storage, set-local-storage</li>
+            <li><strong>Performance &amp; Debugging</strong> — get-performance-metrics, enable-devtools, disable-devtools</li>
+            <li><strong>Window &amp; Frame</strong> — get-window-size, set-window-size, list-frames, switch-frame</li>
         </ul>
 
         <h2>Server-Push Events</h2>
-        <p>Subscribed clients can receive JSON-RPC notifications for these event families:</p>
+        <p>Subscribed clients receive JSON-RPC notifications for these event families:</p>
         <ul>
             <li><code>process.exit</code></li>
             <li><code>output.match</code></li>
@@ -103,38 +135,38 @@
 
         <h2>TCP Relay Transport</h2>
         <p>
-            Remote access in the current checkout is based on an authenticated TCP relay
-            with HMAC-SHA256 challenge-response authentication, not a standalone gateway.
-            The relay server multiplexes requests to the local command dispatcher.
+            Remote access uses an authenticated TCP relay with HMAC-SHA256 challenge-response
+            authentication. The relay multiplexes requests to the local command dispatcher.
         </p>
-        <pre><code>Relay Features:
-- HMAC-SHA256 authentication (constant-time comparison)
-- Transparent JSON-RPC proxying
-- Command safety level enforcement
-- Access control integration
-- IPC diagnostics and health monitoring</code></pre>
+        <pre><code>Relay security properties:
+- HMAC-SHA256 authentication (CryptoKit constant-time comparison)
+- Relay credential hex validation (malformed tokens rejected at parse time)
+- Response size cap: 1MB
+- Proxy header size cap: 64KB
+- Cloud metadata SSRF blocking (169.254.169.254)
+- Atomic metadata file writes (no partial-write races)</code></pre>
         <p>
-            Use <code>system.relay_status</code> to inspect whether the relay is available
-            and currently running.
+            Use <code>system.relay_status</code> to inspect relay availability and health.
         </p>
 
-        <h2>Python Example</h2>
-        <pre><code>import json
-import socket
-
-sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect("/tmp/namu.sock")
-
-request = {
-    "jsonrpc": "2.0",
-    "id": "ping-1",
-    "method": "system.ping",
-    "params": {}
-}
-
-sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
-response = sock.recv(4096).decode("utf-8")
-print(response)</code></pre>
+        <h2>Environment Variables</h2>
+        <table>
+            <thead><tr><th>Variable</th><th>Purpose</th></tr></thead>
+            <tbody>
+                <tr><td><code>NAMU_SOCKET</code></td><td>Unix socket path override</td></tr>
+                <tr><td><code>NAMU_SOCKET_PASSWORD</code></td><td>Socket password for <code>password</code> access mode</td></tr>
+                <tr><td><code>NAMU_SOCKET_MODE</code></td><td>Socket control mode</td></tr>
+                <tr><td><code>NAMU_SURFACE_ID</code></td><td>UUID of the current pane surface (set per terminal)</td></tr>
+                <tr><td><code>NAMU_WORKSPACE_ID</code></td><td>UUID of the current workspace</td></tr>
+                <tr><td><code>NAMU_PORT</code></td><td>Allocated port start for this workspace</td></tr>
+                <tr><td><code>NAMU_PORT_END</code></td><td>Allocated port end</td></tr>
+                <tr><td><code>NAMU_PORT_RANGE</code></td><td>Full port range string</td></tr>
+                <tr><td><code>NAMU_TAG</code></td><td>Launch tag for debug builds (affects socket path)</td></tr>
+                <tr><td><code>NAMU_BUNDLE_ID</code></td><td>App bundle identifier</td></tr>
+                <tr><td><code>NAMU_BUNDLED_CLI_PATH</code></td><td>Path to the bundled CLI binary</td></tr>
+                <tr><td><code>NAMU_CLAUDE_HOOKS_DISABLED</code></td><td>Disable Claude hook injection</td></tr>
+            </tbody>
+        </table>
     </main>
 </div>
 </body>

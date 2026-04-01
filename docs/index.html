@@ -28,13 +28,14 @@
         <p>
             Namu is a native macOS terminal multiplexer built on
             <a href="https://ghostty.org/">Ghostty</a>. It combines split-pane terminal
-            workflows, browser automation, a JSON-RPC socket API, a scriptable CLI, and a
-            built-in natural-language control plane called <strong>NamuAI</strong>.
+            workflows, SSH remote workspace orchestration, browser automation, a JSON-RPC
+            socket API, a scriptable CLI, and a built-in natural-language control plane
+            called <strong>NamuAI</strong>.
         </p>
         <p>
-            The current checkout ships local AI control, outbound alert routing, and an
-            authenticated TCP relay for remote forwarding. Older references to a standalone
-            gateway are historical and are not part of the active build target.
+            The current checkout ships local AI control, outbound alert routing, SSH remote
+            workspaces with daemon provisioning, deep agent hook integrations, and an
+            authenticated relay for remote command forwarding.
         </p>
 
         <hr>
@@ -44,39 +45,51 @@
         <div class="feature-grid">
             <div class="feature-card">
                 <h3>Ghostty Terminal</h3>
-                <p>GPU-accelerated rendering, low-latency input, Unicode support, copy mode, image transfer, and shell integration.</p>
+                <p>GPU-accelerated rendering, low-latency input, Unicode support, CJK IME, dictation, middle-click paste, copy mode, image transfer, and shell integration.</p>
             </div>
             <div class="feature-card">
                 <h3>Workspaces and Splits</h3>
-                <p>Tabbed workspaces with arbitrary horizontal and vertical pane trees powered by Bonsplit.</p>
+                <p>Tabbed workspaces with arbitrary horizontal and vertical pane trees powered by Bonsplit. Surface reorder, drag-to-split, move across workspaces, pane swap, and break-to-new-workspace.</p>
+            </div>
+            <div class="feature-card">
+                <h3>SSH Remote Workspaces</h3>
+                <p><code>namu ssh user@host</code> provisions the Go daemon binary, sets up an HMAC-SHA256 relay, tunnels browser traffic via SOCKS5/HTTP CONNECT, and keeps the session alive with exponential-backoff reconnection.</p>
             </div>
             <div class="feature-card">
                 <h3>JSON-RPC Socket API</h3>
-                <p>Full programmatic control over workspaces, panes, surfaces, notifications, browser panels, and AI.</p>
+                <p>Full programmatic control over workspaces, panes, surfaces, sidebar status/progress/log, notifications, browser panels, windows, debug commands, and AI.</p>
             </div>
             <div class="feature-card">
                 <h3>CLI and Hooks</h3>
-                <p>The <code>namu</code> CLI supports scripting, tmux compatibility, Claude teams, and Codex hooks.</p>
+                <p>The <code>namu</code> CLI supports short ref IDs, <code>--no-focus</code>, <code>--id-format</code>, socket password auth, 37 tmux-compat commands, Claude hooks, and Codex hooks.</p>
             </div>
             <div class="feature-card">
                 <h3>NamuAI</h3>
-                <p>A built-in NL control plane that interprets intent, maps it to structured commands, safety-checks them, and executes them.</p>
+                <p>A built-in NL control plane that interprets intent, maps it to structured commands, safety-checks them, and executes them. Supports Claude, OpenAI, Gemini, and custom providers.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Notification System</h3>
+                <p>Status tracking, progress bars, and structured logging APIs feed colored pills into the sidebar. Menu bar badge, 16 built-in sounds, desktop notifications with focus suppression.</p>
             </div>
             <div class="feature-card">
                 <h3>Embedded Browser</h3>
-                <p>Browser panels expose navigation, DOM querying, JavaScript evaluation, screenshots, and higher-level automation commands.</p>
+                <p>84 automation commands covering navigation, DOM, JavaScript, tabs, history, profiles, cookies, and screenshots. HTTPS insecure bypass, find-in-page restoration, browser theme mode, and network tracing.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Agent Integrations</h3>
+                <p>10 Claude Code hook types, Codex hook support, agent PID tracking per surface, per-workspace port allocation, and session lockfile store with 7-day TTL.</p>
             </div>
             <div class="feature-card">
                 <h3>Alert Routing</h3>
-                <p>Rule-based alert detection with outbound Slack, Telegram, Discord, and generic webhook delivery.</p>
+                <p>Rule-based alert detection with 4 trigger types and outbound Slack, Telegram, Discord, and generic webhook delivery.</p>
             </div>
             <div class="feature-card">
-                <h3>Remote Relay</h3>
-                <p>An authenticated TCP relay forwards JSON-RPC requests without exposing the local Unix socket directly.</p>
+                <h3>Window Management</h3>
+                <p>Full window list/create/focus/close/current APIs. 30+ debug commands including layout tree, window screenshot, panel snapshot with pixel diff, flash counters, and render stats.</p>
             </div>
             <div class="feature-card">
-                <h3>Native macOS UI</h3>
-                <p>SwiftUI + AppKit views for sidebar, command palette, workspace rendering, AI chat, notifications, and updates.</p>
+                <h3>Security</h3>
+                <p>SSRF blocking for cloud metadata endpoints, CryptoKit constant-time HMAC verification, path traversal protection on manifest fields, and response size caps on relay and proxy.</p>
             </div>
         </div>
 
@@ -85,10 +98,10 @@
         <h2>Quick Links</h2>
         <ul>
             <li><a href="getting-started.html">Getting Started</a> — prerequisites, setup, build, test, and first-run verification</li>
-            <li><a href="architecture.html">Architecture</a> — modules, data flow, relay/alerting, and design decisions</li>
-            <li><a href="cli-reference.html">CLI Reference</a> — namespaces, common commands, hooks, and examples</li>
-            <li><a href="socket-api.html">Socket API</a> — JSON-RPC transport, access modes, events, and examples</li>
-            <li><a href="ai-integration.html">AI Integration</a> — provider model, command safety, alerting, and relay notes</li>
+            <li><a href="architecture.html">Architecture</a> — modules, data flow, remote workspace, relay, alerting, and design decisions</li>
+            <li><a href="cli-reference.html">CLI Reference</a> — namespaces, global flags, hooks, tmux compat, and examples</li>
+            <li><a href="socket-api.html">Socket API</a> — JSON-RPC transport, access modes, namespaces, events, and relay</li>
+            <li><a href="ai-integration.html">AI Integration</a> — provider model, command safety, Claude hooks, alerting</li>
         </ul>
     </main>
 </div>
