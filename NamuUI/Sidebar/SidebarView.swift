@@ -28,13 +28,11 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Notification bell header
-            notificationBellHeader
-            Divider().opacity(0.3)
+            // Titlebar region: + and bell buttons, below traffic lights
+            sidebarTitlebarButtons
 
-            ZStack(alignment: .bottom) {
-                ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 2) {
+            ScrollView(.vertical, showsIndicators: false) {
+                LazyVStack(spacing: 1) {
                         ForEach(viewModel.items) { item in
                             if renamingID == item.id {
                                 renameField(for: item)
@@ -145,99 +143,113 @@ struct SidebarView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "gearshape.fill")
                                     .font(.system(size: 12))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(.primary)
                                 Text(String(localized: "settings.title", defaultValue: "Settings"))
                                     .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(.primary)
                                 Spacer()
-                                // Close button to dismiss settings
                                 Button(action: {
-                                    // Go back to the last workspace
                                     viewModel.selectWorkspace(id: viewModel.lastWorkspaceID)
                                 }) {
                                     Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(.white.opacity(0.6))
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .foregroundStyle(.tertiary)
+                                        .frame(width: 18, height: 18)
+                                        .background(.quaternary, in: Circle())
                                 }
                                 .buttonStyle(.plain)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
                             .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(Color.accentColor)
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(.selection)
                             )
                             .padding(.horizontal, 8)
                         }
 
-                        Spacer().frame(height: 48)
                     }
-                    .padding(.top, 8)
+                    .padding(.top, 4)
                 }
-
-                // "+" button pinned at the bottom
-                addButton
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
-            }
         }
-        .background(SidebarBackgroundView())
+        .ignoresSafeArea(.container, edges: .top)
+        .background {
+            SidebarBackgroundView()
+                .ignoresSafeArea(.container, edges: .top)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("namu-sidebar-list")
     }
 
     // MARK: - Subviews
 
-    private var notificationBellHeader: some View {
-        HStack {
-            Spacer()
-            Button(action: { viewModel.toggleNotifications() }) {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: viewModel.selection == .notifications ? "bell.fill" : "bell")
-                        .font(.system(size: 13))
-                        .foregroundStyle(viewModel.selection == .notifications ? Color.accentColor : .secondary)
+    /// Callback to open the command palette — injected by ContentView.
+    var onOpenCommandPalette: () -> Void = {}
 
-                    if viewModel.notificationUnreadCount > 0 {
-                        Text(viewModel.notificationUnreadCount > 99 ? "99+" : "\(viewModel.notificationUnreadCount)")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 3)
-                            .padding(.vertical, 1)
-                            .background(Color.accentColor, in: Capsule())
-                            .offset(x: 8, y: -6)
-                    }
+    private var sidebarTitlebarButtons: some View {
+        VStack(spacing: 14) {
+            // Row 1: traffic light row — buttons pushed right to avoid overlap
+            HStack(spacing: 6) {
+                Spacer()
+
+                Button(action: { viewModel.createWorkspace() }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
                 }
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .help(String(localized: "sidebar.addButton.tooltip", defaultValue: "New Workspace (⌘N)"))
+                .accessibilityIdentifier("namu-new-workspace-button")
+
+                Button(action: { viewModel.toggleNotifications() }) {
+                    ZStack(alignment: .topTrailing) {
+                        Image(systemName: viewModel.selection == .notifications ? "bell.fill" : "bell")
+                            .font(.system(size: 11))
+                            .foregroundStyle(viewModel.selection == .notifications ? Color.accentColor : .secondary)
+
+                        if viewModel.notificationUnreadCount > 0 {
+                            Text(viewModel.notificationUnreadCount > 99 ? "99+" : "\(viewModel.notificationUnreadCount)")
+                                .font(.system(size: 7, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 3)
+                                .padding(.vertical, 1)
+                                .background(Color.accentColor, in: Capsule())
+                                .offset(x: 6, y: -4)
+                        }
+                    }
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "sidebar.notifications.tooltip", defaultValue: "Notifications (⌘⇧I)"))
+            }
+            .frame(height: 22)
+
+            // Row 2: Search bar
+            Button(action: onOpenCommandPalette) {
+                HStack(spacing: 5) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Text(String(localized: "sidebar.search.placeholder", defaultValue: "Search..."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Text("⌘K")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(.quaternary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
             .buttonStyle(.plain)
-            .help(String(localized: "sidebar.notifications.tooltip", defaultValue: "Notifications (⌘⇧I)"))
-            .accessibilityLabel(String(localized: "sidebar.notifications.label", defaultValue: "Notifications"))
-            .accessibilityHint(String(localized: "sidebar.notifications.hint", defaultValue: "Toggle the notifications panel"))
-            .padding(.trailing, 8)
         }
-        .padding(.vertical, 4)
-    }
-
-    private var addButton: some View {
-        Button(action: { viewModel.createWorkspace() }) {
-            Label(String(localized: "sidebar.addButton.title", defaultValue: "New Workspace"), systemImage: "plus")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 10)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.05))
-                )
-        }
-        .buttonStyle(.plain)
-        .help(String(localized: "sidebar.addButton.tooltip", defaultValue: "Create a new workspace (⌘N)"))
-        .accessibilityLabel(String(localized: "sidebar.addButton.accessibility", defaultValue: "New Workspace"))
-        .accessibilityHint(String(localized: "sidebar.addButton.hint", defaultValue: "Creates a new terminal workspace"))
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("namu-new-workspace-button")
+        .padding(.horizontal, 10)
+        .padding(.top, 10)   // Vertically centered with traffic lights
+        .padding(.bottom, 10)
     }
 
     @ViewBuilder

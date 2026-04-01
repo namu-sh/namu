@@ -176,7 +176,7 @@ final class AppearanceManager: ObservableObject {
         sidebarTintColorHex = defaults.string(forKey: Keys.sidebarTintColor) ?? "#101010"
         sidebarTintColorHexLight = defaults.string(forKey: Keys.sidebarTintColorLight)
         sidebarTintColorHexDark = defaults.string(forKey: Keys.sidebarTintColorDark)
-        let savedTintOpacity = defaults.object(forKey: Keys.sidebarTintOpacity) as? Double ?? 0.54
+        let savedTintOpacity = defaults.object(forKey: Keys.sidebarTintOpacity) as? Double ?? 0.78
         sidebarTintOpacity = savedTintOpacity
 
         let rawMaterial = defaults.string(forKey: Keys.sidebarMaterial) ?? ""

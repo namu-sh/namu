@@ -98,7 +98,7 @@ struct AIChatPanelView: View {
                     .padding(.vertical, 3)
                     .background(
                         RoundedRectangle(cornerRadius: 5)
-                            .fill(Color.white.opacity(0.06))
+                            .fill(Color.primary.opacity(0.05))
                     )
                 }
                 .menuStyle(.borderlessButton)
@@ -128,7 +128,7 @@ struct AIChatPanelView: View {
                         .padding(.vertical, 3)
                         .background(
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(Color.white.opacity(0.06))
+                                .fill(Color.primary.opacity(0.05))
                         )
                     }
                     .menuStyle(.borderlessButton)
@@ -180,7 +180,7 @@ struct AIChatPanelView: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(0.06))
+                .fill(Color.primary.opacity(0.05))
         )
         .id("processing")
     }
@@ -197,7 +197,7 @@ struct AIChatPanelView: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.white.opacity(0.06))
+                        .fill(Color.primary.opacity(0.05))
                 )
                 .focused($isInputFocused)
                 .onSubmit { sendMessage() }
@@ -260,7 +260,7 @@ private struct MessageBubbleView: View {
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.accentColor.opacity(0.25))
+                            .fill(Color.accentColor.opacity(0.15))
                     )
             } else {
                 MarkdownView(content: message.content)
@@ -268,7 +268,7 @@ private struct MessageBubbleView: View {
                     .padding(.vertical, 8)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.white.opacity(0.06))
+                            .fill(Color.primary.opacity(0.05))
                     )
             }
 

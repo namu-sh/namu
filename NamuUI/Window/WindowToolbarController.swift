@@ -1,9 +1,11 @@
 import AppKit
 
+/// Configures windows for transparent titlebar with fullSizeContentView.
+/// No NSToolbar is created — all toolbar UI is rendered as custom SwiftUI views
+/// inside the sidebar and content areas. This eliminates the toolbar gap between
+/// the traffic lights and the content.
 @MainActor
-final class WindowToolbarController: NSObject, NSToolbarDelegate {
-    private let toolbarIdentifier = NSToolbar.Identifier("namu.toolbar")
-
+final class WindowToolbarController: NSObject {
     private var observers: [NSObjectProtocol] = []
 
     override init() {
@@ -17,7 +19,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     }
 
     func start() {
-        attachToExistingWindows()
+        configureExistingWindows()
         installObservers()
     }
 
@@ -32,46 +34,35 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
             Task { @MainActor [weak self] in
-                self?.attach(to: window)
+                self?.configure(window)
             }
         })
     }
 
-    private func attachToExistingWindows() {
+    private func configureExistingWindows() {
         for window in NSApp.windows {
-            attach(to: window)
+            configure(window)
         }
     }
 
-    private func attach(to window: NSWindow) {
-        guard window.toolbar == nil else { return }
-        let toolbar = NSToolbar(identifier: toolbarIdentifier)
-        toolbar.delegate = self
-        toolbar.displayMode = .iconOnly
-        toolbar.sizeMode = .small
-        toolbar.allowsUserCustomization = false
-        toolbar.autosavesConfiguration = false
-        toolbar.showsBaselineSeparator = false
-        window.toolbar = toolbar
-        window.toolbarStyle = .unifiedCompact
+    private func configure(_ window: NSWindow) {
         window.titleVisibility = .hidden
-    }
+        window.titlebarAppearsTransparent = true
+        window.tabbingMode = .disallowed
+        if !window.styleMask.contains(.fullSizeContentView) {
+            window.styleMask.insert(.fullSizeContentView)
+        }
 
-    // MARK: - NSToolbarDelegate
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace]
-    }
-
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace]
-    }
-
-    func toolbar(
-        _ toolbar: NSToolbar,
-        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
-        willBeInsertedIntoToolbar flag: Bool
-    ) -> NSToolbarItem? {
-        nil
+        // Hide the NSTitlebarContainerView entirely — this eliminates the safe area
+        // inset that SwiftUI uses for the titlebar, allowing content to extend to the
+        // very top of the window. Same technique used by Ghostty's HiddenTitlebarTerminalWindow.
+        if let themeFrame = window.contentView?.superview {
+            for subview in themeFrame.subviews {
+                if type(of: subview).description() == "NSTitlebarContainerView" {
+                    subview.isHidden = true
+                    break
+                }
+            }
+        }
     }
 }

@@ -21,48 +21,49 @@ struct WorkspaceView: View {
         let controller = panelManager.controller(for: workspaceID)
         let engine = panelManager.engine(for: workspaceID)
 
-        BonsplitView(controller: controller) { tab, paneId in
-            // Content for each tab
-            if let panelID = engine.panelID(for: tab.id) {
-                if tab.kind == "browser" {
-                    BrowserPanelView(paneID: panelID)
+        // Wrap in SafeAreaFreeView to zero the titlebar safe area inset.
+        // Without this, BonsplitView's GeometryReader receives a frame
+        // offset by ~28pt from the top (the hidden titlebar height).
+        SafeAreaFreeView {
+            BonsplitView(controller: controller) { tab, paneId in
+                if let panelID = engine.panelID(for: tab.id) {
+                    if tab.kind == "browser" {
+                        BrowserPanelView(paneID: panelID)
+                            .onTapGesture {
+                                controller.focusPane(paneId)
+                            }
+                    } else if let panel = panelManager.panel(for: panelID) {
+                        let isFocused = isActive && panelManager.focusedPanelID(in: workspaceID) == panelID
+                        TerminalView(
+                            panel: panel,
+                            onActivate: {
+                                panelManager.activatePanel(id: panelID)
+                            },
+                            isActive: isActive,
+                            isKeyPane: isFocused
+                        )
                         .onTapGesture {
                             controller.focusPane(paneId)
                         }
-                } else if let panel = panelManager.panel(for: panelID) {
-                    let isFocused = isActive && panelManager.focusedPanelID(in: workspaceID) == panelID
-                    TerminalView(
-                        panel: panel,
-                        onActivate: {
-                            panelManager.activatePanel(id: panelID)
-                        },
-                        isActive: isActive,
-                        isKeyPane: isFocused
-                    )
-                    .onTapGesture {
-                        controller.focusPane(paneId)
+                    } else {
+                        Color.clear
                     }
                 } else {
-                    Color.black
+                    Color.clear
                 }
-            } else {
-                Color.black
-            }
-        } emptyPane: { paneId in
-            // Auto-create a terminal in empty panes instead of showing a welcome page
-            Color.black
-                .onAppear {
-                    let eng = panelManager.engine(for: workspaceID)
-                    let panel = panelManager.createTerminalPanel(workspaceID: workspaceID)
-                    if let tabID = eng.createTab(title: String(localized: "workspace.defaultTab.terminal", defaultValue: "Terminal"), kind: "terminal", inPane: paneId) {
-                        eng.registerMapping(tabID: tabID, panelID: panel.id)
+            } emptyPane: { paneId in
+                Color.clear
+                    .onAppear {
+                        let eng = panelManager.engine(for: workspaceID)
+                        let panel = panelManager.createTerminalPanel(workspaceID: workspaceID)
+                        if let tabID = eng.createTab(title: String(localized: "workspace.defaultTab.terminal", defaultValue: "Terminal"), kind: "terminal", inPane: paneId) {
+                            eng.registerMapping(tabID: tabID, panelID: panel.id)
+                        }
                     }
-
-                }
+            }
         }
         .id(workspaceManager.splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color.black)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("namu-workspace-view")
     }

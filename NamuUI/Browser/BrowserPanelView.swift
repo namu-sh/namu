@@ -25,18 +25,16 @@ struct BrowserPanelView: View {
                 omnibar
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.3))
+                    .background(.ultraThinMaterial)
 
                 // Separator
-                Rectangle()
-                    .fill(Color.white.opacity(0.08))
-                    .frame(height: 1)
+                Divider()
 
                 // WebView
                 BrowserWebView(viewModel: viewModel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .background(Color.black)
+            .background(Color(nsColor: .windowBackgroundColor))
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("namu-browser-panel")
 
@@ -143,7 +141,7 @@ struct BrowserPanelView: View {
                 .padding(.vertical, 5)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.white.opacity(0.06))
+                        .fill(Color.primary.opacity(0.04))
                 )
                 .onSubmit {
                     viewModel.navigate()

@@ -9,9 +9,10 @@ struct NamuApp: App {
             ContentView(appDelegate: appDelegate)
         }
         .defaultSize(width: 900, height: 600)
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
-
+        .windowStyle(.hiddenTitleBar)
+        .commands {
+            NamuMenuCommands()
+        }
     }
 }
 
@@ -29,9 +30,7 @@ struct ContentView: View {
 
     @State private var isSidebarVisible: Bool = true
     @State private var isCommandPalettePresented: Bool = false
-    @State private var isAIChatVisible: Bool = false
     @State private var servicesStarted: Bool = false
-    @State private var aiChatViewModel: AIChatViewModel?
     @State private var isMinimalMode: Bool = false
 
     // Resizable sidebar
@@ -61,21 +60,22 @@ struct ContentView: View {
         ZStack {
             HStack(spacing: 0) {
                 if isSidebarVisible && !isMinimalMode {
-                    SidebarView(viewModel: sidebarViewModel)
+                    SidebarView(viewModel: sidebarViewModel, onOpenCommandPalette: { isCommandPalettePresented = true })
                         .frame(width: sidebarWidth)
                         .transaction { t in t.animation = nil }
                         .transition(.move(edge: .leading))
                         .accessibilityIdentifier("namu-sidebar")
-
-                    // Draggable sidebar edge
-                    SidebarResizeHandle(
-                        sidebarWidth: $sidebarWidth,
-                        minWidth: sidebarMinWidth,
-                        maxWidth: sidebarMaxWidth
-                    )
+                        .overlay(alignment: .trailing) {
+                            SidebarResizeHandle(
+                                sidebarWidth: $sidebarWidth,
+                                minWidth: sidebarMinWidth,
+                                maxWidth: sidebarMaxWidth
+                            )
+                            .offset(x: 3) // Center on the edge
+                        }
                 }
 
-                ZStack {
+                    ZStack {
                     ForEach(workspaceManager.workspaces) { workspace in
                         let isSelectedWorkspace = workspace.id == workspaceManager.selectedWorkspaceID
                         let isWorkspaceMode = sidebarViewModel.selection != .settings && sidebarViewModel.selection != .notifications
@@ -128,22 +128,11 @@ struct ContentView: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("namu-workspace-content")
-                // AI Chat panel (slides in from the right)
-                if isAIChatVisible, let vm = aiChatViewModel {
-                    // 1pt separator
-                    Rectangle()
-                        .fill(Color.white.opacity(0.08))
-                        .frame(width: 1)
-                        .frame(maxHeight: .infinity)
-
-                    AIChatPanelView(viewModel: vm)
-                        .transition(.move(edge: .trailing))
-                }
+                .ignoresSafeArea(.container, edges: .top)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color.black)
-            .animation(.easeInOut(duration: 0.18), value: isSidebarVisible)
-            .animation(.easeInOut(duration: 0.18), value: isAIChatVisible)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .animation(.easeInOut(duration: 0.2), value: isSidebarVisible)
 
             // Command palette overlay
             if isCommandPalettePresented {
@@ -156,35 +145,7 @@ struct ContentView: View {
                 .zIndex(100)
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Button(action: { isCommandPalettePresented = true }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
-                        Text(String(localized: "toolbar.search.placeholder", defaultValue: "Search..."))
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .frame(width: 160)
-                }
-                .buttonStyle(.plain)
-                .controlSize(.mini)
-            }
-
-            ToolbarItem(placement: .automatic) {
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        sidebarViewModel.openSettings()
-                    }
-                }) {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 10))
-                }
-                .controlSize(.mini)
-            }
-        }
+        // No SwiftUI toolbar — custom toolbar rendered inside content area
         .onAppear {
             // Apply saved appearance settings at window level.
             AppearanceManager.shared.applyTheme()
@@ -217,7 +178,7 @@ struct ContentView: View {
                     }
                 }
                 appDelegate.toggleSidebar = {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
                         isSidebarVisible.toggle()
                     }
                 }
@@ -231,7 +192,6 @@ struct ContentView: View {
                     )
                     container.start()
                     appDelegate.serviceContainer = container
-                    aiChatViewModel = AIChatViewModel(namuAI: container.namuAI)
                     sidebarViewModel.setNotificationService(container.notificationService)
                     sidebarViewModel.remoteSessionService = container.remoteSessionService
                     servicesStarted = true
@@ -266,13 +226,8 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(.easeInOut(duration: 0.2)) {
                 isSidebarVisible.toggle()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleAIChat)) { _ in
-            withAnimation(.easeInOut(duration: 0.18)) {
-                isAIChatVisible.toggle()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleFindOverlay)) { _ in
@@ -281,7 +236,7 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleMinimalMode)) { _ in
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(.easeInOut(duration: 0.2)) {
                 isMinimalMode.toggle()
             }
         }
@@ -319,6 +274,8 @@ struct ContentView: View {
             surfaceView.beginFindEscapeSuppression()
         }
     }
+
+    // Content toolbar removed — all controls in sidebar titlebar
 }
 
 // MARK: - SidebarResizeHandle
@@ -335,16 +292,10 @@ private struct SidebarResizeHandle: View {
 
     var body: some View {
         ZStack {
-            // Wider invisible hit area
+            // Invisible hit area — overlaps sidebar edge
             Color.clear
                 .contentShape(Rectangle())
-                .frame(width: 8)
-
-            // Visible 1pt line
-            Rectangle()
-                .fill(isHovered || isDragging ? Color.white.opacity(0.28) : Color.white.opacity(0.08))
-                .frame(width: 1)
-                .animation(.easeInOut(duration: 0.12), value: isHovered)
+                .frame(width: 6)
         }
         .frame(maxHeight: .infinity)
         .onHover { hovering in

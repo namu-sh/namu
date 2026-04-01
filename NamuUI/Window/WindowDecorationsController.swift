@@ -88,8 +88,11 @@ final class WindowDecorationsController {
     }
 
     private func trafficLightOffset(for window: NSWindow) -> NSPoint {
-        guard window.identifier?.rawValue == "namu.settings" else { return .zero }
-        return NSPoint(x: 7, y: -4)
+        let id = window.identifier?.rawValue ?? ""
+        if id == "namu.settings" || id == "namu-primary" || id.hasPrefix("namu-secondary-") {
+            return NSPoint(x: 7, y: -4)
+        }
+        return .zero
     }
 
     private func shouldHideTrafficLights(for window: NSWindow) -> Bool {

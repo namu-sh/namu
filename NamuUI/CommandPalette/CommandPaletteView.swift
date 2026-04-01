@@ -210,12 +210,12 @@ struct CommandPaletteView: View {
         HStack(spacing: 10) {
             Image(systemName: cmd.icon)
                 .font(.system(size: 13))
-                .foregroundStyle(index == selection.index ? .white : .secondary)
+                .foregroundStyle(index == selection.index ? .primary : .secondary)
                 .frame(width: 18)
 
             Text(cmd.title)
                 .font(.system(size: 13))
-                .foregroundStyle(index == selection.index ? .white : .primary)
+                .foregroundStyle(.primary)
 
             Spacer()
         }
@@ -224,7 +224,7 @@ struct CommandPaletteView: View {
         .background {
             if index == selection.index {
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.accentColor)
+                    .fill(.selection)
                     .padding(.horizontal, 4)
             }
         }
