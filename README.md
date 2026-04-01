@@ -48,13 +48,17 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 - **Status tracking API** — `sidebar.set_status` / `clear_status` / `list_status` with icon, color, priority pills
 - **Structured logging API** — `sidebar.log` / `clear_log` / `list_log` with 5 severity levels (info, progress, success, warning, error)
 - **Progress tracking API** — `sidebar.set_progress` / `clear_progress` with label
-- **Menu bar unread badge** — Shows unread count (1-9 exact, 10+ shows "99+")
+- **Menu bar unread badge** — Dynamic icon with unread count overlay, inline recent notifications, and mark-all-read
 - **16 built-in notification sounds** — Plus custom sound support with background transcoding
 - **Desktop notifications** — Focus suppression when notified pane is visible
 - **5-reason attention rings** — Distinct colors, opacities, and animations per reason
 
 ### Browser Panel
 - **84 automation IPC commands** — Navigation, DOM, JS eval, tabs, history, profiles, cookies, screenshots
+- **Frecency-ranked address bar** — Tiered text matching + frequency × recency scoring with typed-navigation weighting
+- **External URL scheme routing** — Non-web schemes (mailto:, discord://, slack://, etc.) handed off to macOS
+- **Popup window support** — `window.open()` with nesting depth limits and cascading close
+- **Browser profile import** — 20+ browsers (Chrome, Firefox, Safari, Arc, Edge, Brave, and more)
 - **HTTPS insecure HTTP bypass** — Pattern allowlist for localhost/127.0.0.1/::1/\*.localtest.me
 - **Find-in-page state restoration** — Search query replayed after navigation
 - **Camera/microphone permissions** — System dialog via WKUIDelegate
@@ -101,6 +105,14 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 - **Alert engine** — Rule-based alerts with 4 trigger types (process exit, output match, port change, shell idle)
 - **Slack, Telegram, Discord, Webhook** — Outbound delivery with rate limiting and credential security
 
+### Telemetry & Observability
+- **OpenTelemetry-compatible metrics** — Zero-dependency OTLP HTTP JSON exporter
+- **Sentry integration** — Direct OTLP export via DSN auto-configuration ([docs](https://docs.sentry.io/concepts/otlp/direct/))
+- **Multi-target export** — Send to Sentry + any OTel collector simultaneously
+- **20+ predefined metrics** — IPC latency/errors, socket health, browser navigations, notification counts, AI commands, SSH events, session persistence timing
+- **Structured logs** — Severity-leveled log records exported alongside metrics
+- **Opt-in activation** — `NAMU_SENTRY_DSN` or `NAMU_OTEL_ENDPOINT` env vars; zero overhead when disabled
+
 ### Security
 - **Cloud metadata SSRF blocking** — 169.254.169.254 blocked in proxy tunnel
 - **CryptoKit constant-time HMAC** — Relay authentication resistant to timing attacks
@@ -108,6 +120,8 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 - **Atomic relay metadata writes** — No partial-write race on credential files
 - **Relay credential hex validation** — Malformed token rejection at parse time
 - **Response size caps** — 1MB relay responses, 64KB proxy headers
+- **Socket auth resilience** — LOCAL_PEERCRED UID fallback when LOCAL_PEERPID is unavailable
+- **Socket server hardening** — Error classification, exponential backoff, consecutive failure tracking, health API
 
 ### Localization & Accessibility
 - **953 localization keys** — Support across 19 languages
@@ -154,6 +168,7 @@ daemon/remote/ Remote relay helper for forwarded command access
 | **Terminal** | `NamuKit/Terminal/` | Ghostty FFI, `TerminalSession`, keyboard/input, IME, shell integration, image transfer, SSH detection |
 | **IPC** | `NamuKit/IPC/` | `SocketServer`, `RelayServer`, registry, dispatcher, middleware, access control, event bus |
 | **Services** | `NamuKit/Services/` | `WorkspaceManager`, `PanelManager`, persistence, notifications, layout, port scanner, analytics |
+| **Telemetry** | `NamuKit/Telemetry/` | `NamuTelemetry` OTLP exporter, `NamuMetrics` predefined metric definitions |
 | **AI** | `NamuKit/AI/` | `NamuAI`, provider abstraction, safety, conversations, context collection, tool mapping |
 | **Alerting** | `NamuKit/Alerting/` | Channel abstractions and outbound Slack/Telegram/Discord/webhook delivery |
 | **Browser** | `NamuKit/Browser/` | Profile/history stores, 84+ command handlers, network tracing, proxy configuration |
@@ -191,6 +206,11 @@ xcodebuild -scheme Namu -configuration Debug build
 
 ```bash
 xcodebuild -scheme Namu -configuration Debug test
+
+# Run specific suites
+xcodebuild test -scheme Namu -only-testing:NamuTests/BrowserHistoryStoreTests
+xcodebuild test -scheme Namu -only-testing:NamuTests/AccessControlTests
+xcodebuild test -scheme Namu -only-testing:NamuTests/SocketServerTests
 ```
 
 ## CLI Usage
