@@ -71,15 +71,35 @@ final class ProjectConfigLoader: ObservableObject {
 
     // MARK: - File Watching
 
+    /// Debounce work item — cancels previous pending reload when events fire rapidly.
+    private var debounceWork: DispatchWorkItem?
+
+    /// Maximum reattach attempts after delete/rename before giving up.
+    private static let maxReattachAttempts = 5
+
     private func startWatching() {
         if let path = projectPath {
-            projectWatcher = watchFile(at: path)
+            projectWatcher = watchDirectory(for: path, storeIn: \.projectWatcher)
         }
-        globalWatcher = watchFile(at: Self.globalConfigPath)
+        globalWatcher = watchDirectory(for: Self.globalConfigPath, storeIn: \.globalWatcher)
     }
 
-    private func watchFile(at path: String) -> DispatchSourceFileSystemObject? {
-        // Watch the parent directory so we detect file creation too.
+    /// Debounced reload — coalesces rapid file system events (e.g. atomic saves).
+    private func scheduleReload() {
+        debounceWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.reload()
+        }
+        debounceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
+    /// Watch the parent directory of `path` for changes. Handles delete/rename with reattach.
+    @discardableResult
+    private func watchDirectory(
+        for path: String,
+        storeIn keyPath: ReferenceWritableKeyPath<ProjectConfigLoader, DispatchSourceFileSystemObject?>
+    ) -> DispatchSourceFileSystemObject? {
         let dir = (path as NSString).deletingLastPathComponent
         guard FileManager.default.fileExists(atPath: dir) else { return nil }
 
@@ -92,12 +112,42 @@ final class ProjectConfigLoader: ObservableObject {
             queue: .main
         )
         source.setEventHandler { [weak self] in
-            self?.reload()
+            guard let self else { return }
+            let flags = source.data
+            if flags.contains(.delete) || flags.contains(.rename) {
+                // Directory was moved/deleted — tear down and try to reattach.
+                self[keyPath: keyPath]?.cancel()
+                self[keyPath: keyPath] = nil
+                self.scheduleReload()
+                self.scheduleReattach(for: path, storeIn: keyPath, attempt: 1)
+            } else {
+                self.scheduleReload()
+            }
         }
         source.setCancelHandler {
             close(fd)
         }
         source.resume()
         return source
+    }
+
+    /// Retry reattaching the file watcher after a delete/rename event.
+    private func scheduleReattach(
+        for path: String,
+        storeIn keyPath: ReferenceWritableKeyPath<ProjectConfigLoader, DispatchSourceFileSystemObject?>,
+        attempt: Int
+    ) {
+        guard attempt <= Self.maxReattachAttempts else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            // If already reattached (e.g. by another event), skip.
+            if self[keyPath: keyPath] != nil { return }
+            let dir = (path as NSString).deletingLastPathComponent
+            if FileManager.default.fileExists(atPath: dir) {
+                self[keyPath: keyPath] = self.watchDirectory(for: path, storeIn: keyPath)
+            } else {
+                self.scheduleReattach(for: path, storeIn: keyPath, attempt: attempt + 1)
+            }
+        }
     }
 }

@@ -253,7 +253,15 @@ final class GhosttyApp {
 
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             let soft = action.action.reload_config.soft
-            if !soft {
+            if soft {
+                // Soft reload: re-apply existing config without reloading from disk.
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let app = self.app, let config = self.config else { return }
+                    NamuDebug.log("[Namu] Config soft reload")
+                    ghostty_app_update_config(app, config)
+                    NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+                }
+            } else {
                 DispatchQueue.main.async { self.reloadConfig() }
             }
             return true
@@ -657,9 +665,16 @@ final class GhosttyApp {
 
     /// Reload Ghostty configuration from disk. Called by Cmd+Shift+, shortcut and internal Ghostty action.
     func reloadConfig() {
-        guard let oldConfig = config else { return }
+        NamuDebug.log("[Namu] Config reload from disk: begin")
+        guard let oldConfig = config else {
+            NamuDebug.log("[Namu] Config reload: no existing config, aborting")
+            return
+        }
 
-        guard let newConfig = ghostty_config_new() else { return }
+        guard let newConfig = ghostty_config_new() else {
+            NamuDebug.log("[Namu] Config reload: ghostty_config_new() failed")
+            return
+        }
         ghostty_config_load_default_files(newConfig)
         ghostty_config_load_recursive_files(newConfig)
         ghostty_config_finalize(newConfig)
@@ -672,6 +687,17 @@ final class GhosttyApp {
         self.config = newConfig
 
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+
+        // Refresh all terminal surfaces so visual changes (background, font) take effect immediately.
+        refreshAllSurfaces()
+        NamuDebug.log("[Namu] Config reload from disk: complete")
+    }
+
+    /// Force a redraw on all active terminal surfaces.
+    private func refreshAllSurfaces() {
+        guard let app else { return }
+        ghostty_app_set_focus(app, true)
+        ghostty_app_set_focus(app, NSApp.isActive)
     }
 
 }

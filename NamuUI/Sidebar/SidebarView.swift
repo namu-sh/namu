@@ -58,7 +58,6 @@ struct SidebarView: View {
                                     pullRequests: item.pullRequests,
                                     panelBranches: item.panelBranches,
                                     metadataEntries: item.metadataEntries,
-                                    statusEntries: item.statusEntries,
                                     markdownBlocks: item.markdownBlocks,
                                     onSelect: {
                                         viewModel.selectWorkspace(id: item.id)
@@ -273,18 +272,53 @@ struct SidebarView: View {
     }
 }
 
-// MARK: - Sidebar background (NSVisualEffectView sidebar material)
+// MARK: - Sidebar background (NSVisualEffectView + tint overlay from AppearanceManager)
 
-private struct SidebarBackgroundView: NSViewRepresentable {
+private struct SidebarBackgroundView: View {
+    @ObservedObject private var appearance = AppearanceManager.shared
+
+    var body: some View {
+        ZStack {
+            SidebarMaterialView(material: appearance.sidebarMaterial.nsVisualEffect)
+            // Tint overlay — resolves light/dark color automatically.
+            resolvedTintColor
+        }
+    }
+
+    private var resolvedTintColor: Color {
+        let hex = appearance.resolvedSidebarTintColorHex
+        return Color(nsColor: NSColor.fromHex(hex).withAlphaComponent(CGFloat(appearance.sidebarTintOpacity)))
+    }
+}
+
+private struct SidebarMaterialView: NSViewRepresentable {
+    let material: NSVisualEffectView.Material
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .hudWindow
+        view.material = material
         view.blendingMode = .behindWindow
         view.state = .active
         return view
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+    }
+}
+
+private extension NSColor {
+    static func fromHex(_ hex: String) -> NSColor {
+        var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if h.hasPrefix("#") { h.removeFirst() }
+        guard h.count == 6, let rgb = UInt64(h, radix: 16) else { return .black }
+        return NSColor(
+            red: CGFloat((rgb >> 16) & 0xFF) / 255,
+            green: CGFloat((rgb >> 8) & 0xFF) / 255,
+            blue: CGFloat(rgb & 0xFF) / 255,
+            alpha: 1.0
+        )
+    }
 }
 
 // MARK: - WorkspaceDropDelegate
