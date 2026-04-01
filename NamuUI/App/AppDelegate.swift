@@ -159,11 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Focus
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        ghosttyApp?.setFocus(true)
+        ghosttyApp?.setFocus(Self.focusOverride ?? true)
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        ghosttyApp?.setFocus(false)
+        ghosttyApp?.setFocus(Self.focusOverride ?? false)
     }
 
     // MARK: - Private helpers

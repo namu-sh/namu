@@ -184,13 +184,17 @@ final class WindowCommands {
         }
 
         let window = delegate.createMainWindow()
-        // Find the newly created context by matching the NSWindow identifier
-        let windowID = delegate.windowContexts.keys.first {
-            window.identifier?.rawValue == "namu-secondary-\($0.uuidString)"
+        // Extract the UUID from the window identifier (format: "namu-secondary-<UUID>")
+        let windowID: String
+        if let identifier = window.identifier?.rawValue,
+           identifier.hasPrefix("namu-secondary-") {
+            windowID = String(identifier.dropFirst("namu-secondary-".count))
+        } else {
+            windowID = "unknown"
         }
 
         return .success(id: req.id, result: .object([
-            "window_id": .string(windowID?.uuidString ?? "unknown"),
+            "window_id": .string(windowID),
             "created": .bool(true),
         ]))
     }

@@ -46,10 +46,24 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     func resetFlashCount() { flashCount = 0 }
 
     /// Capture a snapshot of this surface view as a CGImage for visual regression testing.
+    /// Uses CGWindowListCreateImage scoped to this view's window rect to correctly capture Metal content.
+    /// Falls back to cacheDisplay for off-screen views (which won't capture Metal — returns nil in that case).
     func captureSnapshot() -> CGImage? {
-        guard let bitmapRep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
-        cacheDisplay(in: bounds, to: bitmapRep)
-        return bitmapRep.cgImage
+        guard let window = self.window else { return nil }
+        // Convert view bounds to screen coordinates for CGWindowListCreateImage.
+        let viewRectInWindow = convert(bounds, to: nil)
+        let viewRectOnScreen = window.convertToScreen(viewRectInWindow)
+        // CGWindowListCreateImage uses top-left origin (flipped from AppKit's bottom-left).
+        guard let mainScreen = NSScreen.main else { return nil }
+        let flippedY = mainScreen.frame.maxY - viewRectOnScreen.maxY
+        let captureRect = CGRect(x: viewRectOnScreen.origin.x, y: flippedY,
+                                 width: viewRectOnScreen.width, height: viewRectOnScreen.height)
+        return CGWindowListCreateImage(
+            captureRect,
+            .optionIncludingWindow,
+            CGWindowID(window.windowNumber),
+            [.boundsIgnoreFraming, .nominalResolution]
+        )
     }
 
     // needsPanelToBecomeKey = false ensures correct focus in split panes without

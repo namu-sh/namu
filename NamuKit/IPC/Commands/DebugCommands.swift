@@ -13,8 +13,8 @@ final class DebugCommands {
     private let panelManager: PanelManager
 
     /// Stored panel snapshots for pixel-diff comparison.
+    /// Access is safe without locks — this class is @MainActor isolated.
     private var panelSnapshots: [UUID: PanelSnapshotState] = [:]
-    private let snapshotLock = NSLock()
 
     init(workspaceManager: WorkspaceManager, panelManager: PanelManager) {
         self.workspaceManager = workspaceManager
@@ -126,6 +126,10 @@ final class DebugCommands {
             ])
         }
 
+        // Window number metadata for correlating with CGWindowListCreateImage
+        let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? 0
+        let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? 0
+
         return .success(id: req.id, result: .object([
             "workspace_id": .string(wsID.uuidString),
             "tree": treeJSON,
@@ -133,6 +137,8 @@ final class DebugCommands {
             "focused_pane_id": layoutSnap.focusedPaneId.map { .string($0) } ?? .null,
             "panes": .array(panesJSON),
             "timestamp": .double(layoutSnap.timestamp),
+            "main_window_number": .int(mainWindowNumber),
+            "key_window_number": .int(keyWindowNumber),
         ]))
     }
 
@@ -232,14 +238,14 @@ final class DebugCommands {
 
         // Compare with previous snapshot
         let changedPixels: Int
-        snapshotLock.lock()
+
         if let previous = panelSnapshots[panelID] {
             changedPixels = countChangedPixels(previous: previous, current: newSnapshot)
         } else {
             changedPixels = -1  // First snapshot, nothing to compare
         }
         panelSnapshots[panelID] = newSnapshot
-        snapshotLock.unlock()
+
 
         // Save PNG to temp
         let snapshotId = "\(UUID().uuidString.prefix(8))"
@@ -267,10 +273,20 @@ final class DebugCommands {
     // MARK: - debug.panel_snapshot.reset
 
     private func panelSnapshotReset(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
-        snapshotLock.lock()
+        let params = req.params?.object ?? [:]
+
+        // Per-panel reset if surface_id provided, otherwise clear all
+        if let sidValue = params["surface_id"], case .string(let sidStr) = sidValue,
+           let sid = UUID(uuidString: sidStr) {
+            panelSnapshots.removeValue(forKey: sid)
+            return .success(id: req.id, result: .object([
+                "reset": .bool(true),
+                "surface_id": .string(sidStr),
+            ]))
+        }
+
         panelSnapshots.removeAll()
-        snapshotLock.unlock()
-        return .success(id: req.id, result: .object(["reset": .bool(true)]))
+        return .success(id: req.id, result: .object(["reset": .bool(true), "all": .bool(true)]))
     }
 
     // MARK: - debug.flash.count
@@ -334,6 +350,13 @@ final class DebugCommands {
         let layers = NamuMetalLayer.all
         let layerStats: [JSONRPCValue] = layers.enumerated().map { index, layer in
             let stats = layer.extendedDebugStats()
+            // layerContentsKey: hash of current IOSurface contents for stale-framebuffer detection
+            let contentsKey: String
+            if let contents = layer.contents {
+                contentsKey = String(describing: type(of: contents)) + "@\(ObjectIdentifier(contents as AnyObject).hashValue)"
+            } else {
+                contentsKey = "nil"
+            }
             return .object([
                 "layer_index": .int(index),
                 "draw_count": .int(stats.drawCount),
@@ -341,6 +364,7 @@ final class DebugCommands {
                 "present_count": .int(stats.presentCount),
                 "last_present_time": .double(stats.lastPresentTime),
                 "layer_class": .string(stats.layerClass),
+                "layer_contents_key": .string(contentsKey),
             ])
         }
 
@@ -362,6 +386,10 @@ final class DebugCommands {
             result["is_first_responder"] = .bool(view.window?.firstResponder === view)
             result["in_window"] = .bool(view.window != nil)
             result["flash_count"] = .int(view.flashCount)
+            // Ghostty surface state
+            let hasSurface = view.surface != nil
+            result["has_surface"] = .bool(hasSurface)
+            result["is_active"] = .bool(view.window?.isKeyWindow ?? false && view.window?.firstResponder === view)
         }
 
         return .success(id: req.id, result: .object(result))
@@ -442,6 +470,19 @@ final class DebugCommands {
                     obj["working_directory"] = terminal.workingDirectory.map { .string($0) } ?? .null
                     obj["git_branch"] = terminal.gitBranch.map { .string($0) } ?? .null
                     obj["shell_state"] = .string(String(describing: terminal.shellState))
+                    // NSView-level introspection for diagnosing rendering issues
+                    let view = terminal.surfaceView
+                    obj["nsview_debug"] = .object([
+                        "in_window": .bool(view.window != nil),
+                        "hidden": .bool(view.isHiddenOrHasHiddenAncestor),
+                        "is_first_responder": .bool(view.window?.firstResponder === view),
+                        "view_frame": view.window != nil ? .object([
+                            "x": .double(view.convert(view.bounds, to: nil).origin.x),
+                            "y": .double(view.convert(view.bounds, to: nil).origin.y),
+                            "width": .double(view.bounds.width),
+                            "height": .double(view.bounds.height),
+                        ]) : .null,
+                    ])
                 } else if let browser = panelManager.browserPanel(for: panelID) {
                     obj["panel_type"] = .string("browser")
                     obj["panel_id"] = .string(panelID.uuidString)
