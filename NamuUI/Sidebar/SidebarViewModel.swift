@@ -33,6 +33,7 @@ struct SidebarItemData: Equatable, Identifiable {
     let pullRequests: [PullRequestDisplay]
     let panelBranches: [UUID: String]
     let metadataEntries: [(String, String)]
+    let statusEntries: [String: SidebarStatusEntry]
     let markdownBlocks: [String]
 
     static func == (lhs: SidebarItemData, rhs: SidebarItemData) -> Bool {
@@ -57,6 +58,7 @@ struct SidebarItemData: Equatable, Identifiable {
         lhs.panelBranches == rhs.panelBranches &&
         lhs.metadataEntries.count == rhs.metadataEntries.count &&
         zip(lhs.metadataEntries, rhs.metadataEntries).allSatisfy({ $0 == $1 }) &&
+        lhs.statusEntries == rhs.statusEntries &&
         lhs.markdownBlocks == rhs.markdownBlocks
     }
 }
@@ -408,6 +410,7 @@ final class SidebarViewModel: ObservableObject {
                 pullRequests: meta?.pullRequests ?? [],
                 panelBranches: meta?.panelBranches ?? [:],
                 metadataEntries: meta?.metadataEntries ?? [],
+                statusEntries: meta?.statusEntries ?? [:],
                 markdownBlocks: meta?.markdownBlocks ?? []
             )
         }

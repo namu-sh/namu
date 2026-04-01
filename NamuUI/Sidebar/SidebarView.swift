@@ -58,6 +58,7 @@ struct SidebarView: View {
                                     pullRequests: item.pullRequests,
                                     panelBranches: item.panelBranches,
                                     metadataEntries: item.metadataEntries,
+                                    statusEntries: item.statusEntries,
                                     markdownBlocks: item.markdownBlocks,
                                     onSelect: {
                                         viewModel.selectWorkspace(id: item.id)

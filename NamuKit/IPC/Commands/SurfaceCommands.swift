@@ -504,7 +504,7 @@ final class SurfaceCommands {
             throw JSONRPCError(code: -32001, message: "Surface not found")
         }
 
-        // Optional: pane_id (split container UUID), workspace_id, index, focus
+        // Optional: pane_id (split container UUID), workspace_id, window_id, index, focus
         let targetPaneID: Bonsplit.PaneID?
         if let pValue = params["pane_id"], case .string(let pStr) = pValue, let uuid = UUID(uuidString: pStr) {
             targetPaneID = Bonsplit.PaneID(id: uuid)
@@ -519,9 +519,6 @@ final class SurfaceCommands {
             targetWorkspaceID = nil
         }
 
-        // TODO: cross-window moves require finding the target window's PanelManager
-        // via AppDelegate.shared?.windowContexts — not yet implemented.
-
         let index: Int?
         if let iValue = params["index"], case .int(let i) = iValue {
             index = i
@@ -534,6 +531,40 @@ final class SurfaceCommands {
             focus = f
         } else {
             focus = true
+        }
+
+        // Cross-window move: window_id provided — detach from source, attach to target window's PanelManager.
+        if let winValue = params["window_id"], case .string(let winStr) = winValue,
+           let winID = UUID(uuidString: winStr) {
+            guard let targetCtx = AppDelegate.shared?.windowContexts[winID] else {
+                throw JSONRPCError(code: -32001, message: "Window not found")
+            }
+            let targetPM = targetCtx.panelManager
+            let targetWM = targetCtx.workspaceManager
+
+            let destWSID: UUID
+            if let twid = targetWorkspaceID {
+                destWSID = twid
+            } else if let selected = targetWM.selectedWorkspaceID {
+                destWSID = selected
+            } else {
+                throw JSONRPCError(code: -32001, message: "Target window has no workspace")
+            }
+
+            guard let transfer = panelManager.detachPanel(id: surfaceID) else {
+                throw JSONRPCError(code: -32001, message: "Failed to detach surface")
+            }
+
+            guard let attached = targetPM.attachPanel(transfer, inWorkspace: destWSID, paneID: targetPaneID, atIndex: index, focus: focus) else {
+                panelManager.attachPanel(transfer, inWorkspace: sourceWorkspaceID)
+                throw JSONRPCError(code: -32001, message: "Failed to attach surface to target window")
+            }
+
+            return .success(id: req.id, result: .object([
+                "surface_id":   .string(attached.uuidString),
+                "workspace_id": .string(destWSID.uuidString),
+                "window_id":    .string(winID.uuidString),
+            ]))
         }
 
         // Determine destination workspace: explicit workspace_id > pane_id's workspace > source workspace

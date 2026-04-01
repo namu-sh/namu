@@ -898,6 +898,10 @@ final class PanelManager: ObservableObject {
 
     /// Swap the pane positions of two panels within the same workspace.
     /// Each panel moves into the other's pane. Returns true on success.
+    ///
+    /// When a pane has only 1 tab, moving it out would collapse the pane and break
+    /// the second move. We add a temporary placeholder tab to prevent that, then
+    /// remove it after both moves complete.
     @discardableResult
     func swapPanels(
         panelID: UUID,
@@ -905,17 +909,49 @@ final class PanelManager: ObservableObject {
         inWorkspace workspaceID: UUID,
         focus: Bool = true
     ) -> Bool {
+        let eng = engine(for: workspaceID)
         guard let sourcePaneID = paneIDForPanel(panelID, inWorkspace: workspaceID),
               let targetPaneID = paneIDForPanel(targetPanelID, inWorkspace: workspaceID) else {
             return false
         }
+
+        // Add placeholder tabs to single-tab panes so moving the only tab out
+        // does not collapse the pane (which would break the second move).
+        var sourcePlaceholderID: UUID?
+        var targetPlaceholderID: UUID?
+
+        if eng.controller.tabs(inPane: sourcePaneID).count <= 1 {
+            let placeholder = createTerminalPanel(workspaceID: workspaceID)
+            if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: sourcePaneID) {
+                eng.registerMapping(tabID: tabID, panelID: placeholder.id)
+                sourcePlaceholderID = placeholder.id
+            }
+        }
+
+        if eng.controller.tabs(inPane: targetPaneID).count <= 1 {
+            let placeholder = createTerminalPanel(workspaceID: workspaceID)
+            if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: targetPaneID) {
+                eng.registerMapping(tabID: tabID, panelID: placeholder.id)
+                targetPlaceholderID = placeholder.id
+            }
+        }
+
         // Move source panel into target's pane, then target panel into source's pane.
         guard moveSurface(panelID: panelID, toPaneID: targetPaneID, inWorkspace: workspaceID, focus: false) else {
+            if let pid = sourcePlaceholderID { closePanel(id: pid) }
+            if let pid = targetPlaceholderID { closePanel(id: pid) }
             return false
         }
         guard moveSurface(panelID: targetPanelID, toPaneID: sourcePaneID, inWorkspace: workspaceID, focus: false) else {
+            if let pid = sourcePlaceholderID { closePanel(id: pid) }
+            if let pid = targetPlaceholderID { closePanel(id: pid) }
             return false
         }
+
+        // Remove placeholder tabs now that both moves completed.
+        if let pid = sourcePlaceholderID { closePanel(id: pid) }
+        if let pid = targetPlaceholderID { closePanel(id: pid) }
+
         if focus {
             activatePanel(id: panelID)
         }

@@ -1,5 +1,60 @@
 import Foundation
 
+/// Format for sidebar metadata display.
+enum SidebarMetadataFormat: String, Equatable {
+    case plain
+    case markdown
+}
+
+/// A status entry displayed as a pill/badge in the sidebar.
+struct SidebarStatusEntry: Equatable {
+    let key: String
+    let value: String
+    let icon: String?       // SF Symbol name or emoji
+    let color: String?      // Hex color #RRGGBB
+    let url: URL?           // Optional clickable link
+    let priority: Int       // Higher = shown first
+    let format: SidebarMetadataFormat
+    let timestamp: Date
+
+    init(
+        key: String,
+        value: String,
+        icon: String? = nil,
+        color: String? = nil,
+        url: URL? = nil,
+        priority: Int = 0,
+        format: SidebarMetadataFormat = .plain,
+        timestamp: Date = Date()
+    ) {
+        self.key = key
+        self.value = value
+        self.icon = icon
+        self.color = color
+        self.url = url
+        self.priority = priority
+        self.format = format
+        self.timestamp = timestamp
+    }
+}
+
+/// Log severity level for sidebar display.
+enum SidebarLogLevel: String, Equatable {
+    case info
+    case progress
+    case success
+    case warning
+    case error
+}
+
+/// A structured log entry displayed in the sidebar.
+struct SidebarLogEntry: Equatable {
+    let message: String
+    let level: SidebarLogLevel
+    let source: String?
+    let timestamp: Date
+}
+
 /// Metadata displayed in the sidebar for a workspace.
 /// Pure value type — updated by shell integration and port scanner.
 struct SidebarMetadata: Equatable {
@@ -17,9 +72,11 @@ struct SidebarMetadata: Equatable {
         lhs.latestNotification == rhs.latestNotification &&
         lhs.latestLog == rhs.latestLog &&
         lhs.logLevel == rhs.logLevel &&
+        lhs.logEntries == rhs.logEntries &&
         lhs.isRemoteSSH == rhs.isRemoteSSH &&
         lhs.gitDirty == rhs.gitDirty &&
         lhs.pullRequests == rhs.pullRequests &&
+        lhs.panelPullRequests == rhs.panelPullRequests &&
         lhs.panelBranches == rhs.panelBranches &&
         lhs.metadataEntries.count == rhs.metadataEntries.count &&
         zip(lhs.metadataEntries, rhs.metadataEntries).allSatisfy { $0.0 == $1.0 && $0.1 == $1.1 } &&
@@ -34,7 +91,8 @@ struct SidebarMetadata: Equatable {
         lhs.remoteDetectedPorts == rhs.remoteDetectedPorts &&
         lhs.remotePortConflicts == rhs.remotePortConflicts &&
         lhs.remoteConfiguration == rhs.remoteConfiguration &&
-        lhs.activeRemoteTerminalSessionCount == rhs.activeRemoteTerminalSessionCount
+        lhs.activeRemoteTerminalSessionCount == rhs.activeRemoteTerminalSessionCount &&
+        lhs.statusEntries == rhs.statusEntries
     }
     var workingDirectory: String?
     var gitBranch: String?
@@ -67,6 +125,12 @@ struct SidebarMetadata: Equatable {
     /// Log level of the latest log entry (info, warn, error).
     var logLevel: String?
 
+    /// Structured log entries (max 50, newest last).
+    var logEntries: [SidebarLogEntry] = []
+
+    /// Maximum number of log entries to retain per workspace.
+    static let maxLogEntries = 50
+
     /// Whether this workspace has an active SSH remote session.
     var isRemoteSSH: Bool = false
 
@@ -75,8 +139,13 @@ struct SidebarMetadata: Equatable {
     /// Whether the working tree has uncommitted changes.
     var gitDirty: Bool = false
 
-    /// Pull requests associated with the current branch.
+    /// Pull requests associated with the current branch (workspace-level).
     var pullRequests: [PullRequestDisplay] = []
+
+    /// Per-panel pull requests (for split-pane workspaces with different repos).
+    /// Keyed by panel UUID. The workspace-level `pullRequests` is derived from
+    /// the focused panel's entry when available.
+    var panelPullRequests: [UUID: PullRequestDisplay] = [:]
 
     /// Per-panel git branches (for split-pane workspaces with different repos).
     var panelBranches: [UUID: String] = [:]
@@ -85,6 +154,9 @@ struct SidebarMetadata: Equatable {
 
     /// Arbitrary key-value pairs reported by shell integration.
     var metadataEntries: [(String, String)] = []
+
+    /// Status entries keyed by unique identifier, displayed as pills in sidebar.
+    var statusEntries: [String: SidebarStatusEntry] = [:]
 
     /// Markdown blocks reported by shell integration for rich sidebar display.
     var markdownBlocks: [String] = []

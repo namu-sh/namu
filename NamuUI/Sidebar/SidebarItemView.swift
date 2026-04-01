@@ -30,6 +30,7 @@ struct SidebarItemView: View, Equatable {
         lhs.panelBranches == rhs.panelBranches &&
         lhs.metadataEntries.count == rhs.metadataEntries.count &&
         zip(lhs.metadataEntries, rhs.metadataEntries).allSatisfy({ $0 == $1 }) &&
+        lhs.statusEntries == rhs.statusEntries &&
         lhs.markdownBlocks == rhs.markdownBlocks &&
         lhs.availableWindows.map(\.id) == rhs.availableWindows.map(\.id)
     }
@@ -55,6 +56,7 @@ struct SidebarItemView: View, Equatable {
     let pullRequests: [PullRequestDisplay]
     let panelBranches: [UUID: String]
     let metadataEntries: [(String, String)]
+    let statusEntries: [String: SidebarStatusEntry]
     let markdownBlocks: [String]
 
     init(
@@ -79,6 +81,7 @@ struct SidebarItemView: View, Equatable {
         pullRequests: [PullRequestDisplay] = [],
         panelBranches: [UUID: String] = [:],
         metadataEntries: [(String, String)] = [],
+        statusEntries: [String: SidebarStatusEntry] = [:],
         markdownBlocks: [String] = [],
         onSelect: @escaping () -> Void = {},
         onRename: @escaping () -> Void = {},
@@ -111,6 +114,7 @@ struct SidebarItemView: View, Equatable {
         self.pullRequests = pullRequests
         self.panelBranches = panelBranches
         self.metadataEntries = metadataEntries
+        self.statusEntries = statusEntries
         self.markdownBlocks = markdownBlocks
         self.onSelect = onSelect
         self.onRename = onRename
@@ -277,7 +281,17 @@ struct SidebarItemView: View, Equatable {
                     pullRequestRow(pr)
                 }
 
-                // Custom metadata key-value rows
+                // Status entry pills (set via sidebar.set_status IPC)
+                let sortedStatus = statusEntries.values
+                    .sorted { lhs, rhs in
+                        if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+                        return lhs.timestamp > rhs.timestamp
+                    }
+                ForEach(Array(sortedStatus.prefix(4)), id: \.key) { entry in
+                    statusEntryPill(entry)
+                }
+
+                // Custom metadata key-value rows (legacy sidebar.report_metadata)
                 ForEach(metadataEntries.prefix(4), id: \.0) { key, value in
                     HStack(spacing: 4) {
                         Text(key)
@@ -474,6 +488,44 @@ struct SidebarItemView: View, Equatable {
         case "warn", "warning": return .orange
         default: return isSelected ? Color.white.opacity(0.5) : .secondary
         }
+    }
+
+    @ViewBuilder
+    private func statusEntryPill(_ entry: SidebarStatusEntry) -> some View {
+        let pillColor: Color = {
+            if let hex = entry.color, let c = Color(hex: hex) { return c }
+            return isSelected ? Color.white.opacity(0.25) : Color.secondary.opacity(0.15)
+        }()
+        let textColor: Color = {
+            if entry.color != nil {
+                return .white
+            }
+            return isSelected ? Color.white.opacity(0.7) : .secondary
+        }()
+        HStack(spacing: 3) {
+            if let icon = entry.icon {
+                // Use as SF Symbol if it contains a dot (e.g. "checkmark.circle"), else plain text
+                if icon.contains(".") {
+                    Image(systemName: icon)
+                        .font(.system(size: 8))
+                        .foregroundColor(textColor)
+                } else {
+                    Text(icon)
+                        .font(.system(size: 9))
+                }
+            }
+            Text(entry.key)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundColor(textColor)
+            Text(entry.value)
+                .font(.system(size: 9))
+                .foregroundColor(textColor.opacity(0.85))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(pillColor))
     }
 
     private func portBadge(_ info: PortInfo) -> some View {
