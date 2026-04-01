@@ -377,29 +377,31 @@ struct KeyboardShortcutSettingsView: View {
                 conflictBanner(c)
             }
 
-            List {
+            Form {
                 ForEach(categories, id: \.self) { category in
-                    Section(header: Text(category).font(.headline)) {
+                    Section {
                         ForEach(actionsIn(category)) { action in
                             shortcutRow(action)
                         }
+                    } header: {
+                        Text(category)
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Spacer()
+                        Button(String(localized: "keyboard.restoreDefaults.button", defaultValue: "Restore Defaults")) {
+                            KeyboardShortcutSettings.resetAll()
+                            reloadAll()
+                            conflict = nil
+                        }
+                        Spacer()
                     }
                 }
             }
-            .listStyle(.inset)
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button(String(localized: "keyboard.restoreDefaults.button", defaultValue: "Restore Defaults")) {
-                    KeyboardShortcutSettings.resetAll()
-                    reloadAll()
-                    conflict = nil
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
         }
     }
 
@@ -407,10 +409,7 @@ struct KeyboardShortcutSettingsView: View {
 
     @ViewBuilder
     private func shortcutRow(_ action: KeyboardShortcutSettings.Action) -> some View {
-        HStack {
-            Text(action.label)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
+        LabeledContent(action.label) {
             ShortcutRecorderButton(
                 shortcut: Binding(
                     get: { shortcuts[action] ?? action.defaultShortcut },
@@ -419,7 +418,6 @@ struct KeyboardShortcutSettingsView: View {
             )
             .frame(width: 130)
         }
-        .padding(.vertical, 2)
     }
 
     // MARK: - Conflict banner

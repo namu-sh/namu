@@ -3,13 +3,11 @@ import SwiftUI
 // MARK: - SettingsView
 
 struct SettingsView: View {
-    @State private var selectedSection: SettingsSection = .ai
+    @State private var selectedSection: SettingsSection = .general
 
     enum SettingsSection: String, CaseIterable, Identifiable {
         case general    = "General"
         case appearance = "Appearance"
-        case colors     = "Workspace Colors"
-        case ai         = "AI Providers"
         case keyboard   = "Keyboard"
         case updates    = "Updates"
 
@@ -19,8 +17,6 @@ struct SettingsView: View {
             switch self {
             case .general:    return String(localized: "settings.section.general", defaultValue: "General")
             case .appearance: return String(localized: "settings.section.appearance", defaultValue: "Appearance")
-            case .colors:     return String(localized: "settings.section.colors", defaultValue: "Workspace Colors")
-            case .ai:         return String(localized: "settings.section.ai", defaultValue: "AI Providers")
             case .keyboard:   return String(localized: "settings.section.keyboard", defaultValue: "Keyboard")
             case .updates:    return String(localized: "settings.section.updates", defaultValue: "Updates")
             }
@@ -30,8 +26,6 @@ struct SettingsView: View {
             switch self {
             case .general:    return "gearshape"
             case .appearance: return "paintbrush"
-            case .colors:     return "swatchpalette"
-            case .ai:         return "sparkles"
             case .keyboard:   return "keyboard"
             case .updates:    return "arrow.triangle.2.circlepath"
             }
@@ -81,10 +75,6 @@ struct SettingsView: View {
                     ScrollView { GeneralSettingsContent() }
                 case .appearance:
                     ScrollView { AppearanceSettingsView() }
-                case .colors:
-                    ScrollView { WorkspaceColorsSettingsContent() }
-                case .ai:
-                    ScrollView { AISettingsContent() }
                 case .keyboard:
                     KeyboardSettingsContent()
                 case .updates:
@@ -93,7 +83,7 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color.black.opacity(0.3))
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 

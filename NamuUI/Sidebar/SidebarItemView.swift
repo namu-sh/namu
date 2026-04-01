@@ -72,6 +72,7 @@ struct SidebarItemView: View, Equatable {
     // MARK: - State
 
     @State private var isHovering = false
+    @State private var showColorPopover = false
 
     // MARK: - Body
 
@@ -131,18 +132,55 @@ struct SidebarItemView: View, Equatable {
             if let hex = customColor, let color = Color(hex: hex) {
                 Circle()
                     .fill(color)
-                    .frame(width: 7, height: 7)
+                    .frame(width: 8, height: 8)
             } else if isPinned {
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(Color.accentColor)
                     .frame(width: 3, height: 16)
             } else {
-                // Shell state indicator
                 Circle()
                     .fill(shellDotColor)
                     .frame(width: 6, height: 6)
             }
         }
+        .frame(width: 14, height: 30)
+        .contentShape(Rectangle())
+        .onTapGesture { showColorPopover = true }
+        .popover(isPresented: $showColorPopover, arrowEdge: .trailing) {
+            colorPopoverContent
+        }
+    }
+
+    private var colorPopoverContent: some View {
+        VStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 20), spacing: 6)], spacing: 6) {
+                ForEach(WorkspaceColorPaletteSettings.allColors(), id: \.self) { hex in
+                    Circle()
+                        .fill(Color(hex: hex) ?? .gray)
+                        .frame(width: 18, height: 18)
+                        .overlay(
+                            Circle().strokeBorder(
+                                customColor == hex ? Color.primary : Color.clear,
+                                lineWidth: 2
+                            )
+                        )
+                        .onTapGesture {
+                            onSetColor(hex)
+                            showColorPopover = false
+                        }
+                }
+            }
+            if customColor != nil {
+                Button(String(localized: "sidebar.color.clear", defaultValue: "Clear Color")) {
+                    onSetColor(nil)
+                    showColorPopover = false
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(width: 160)
     }
 
     // MARK: - Title Row

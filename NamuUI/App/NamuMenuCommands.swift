@@ -30,8 +30,10 @@ struct NamuMenuCommands: Commands {
             .keyboardShortcut("w", modifiers: [.command, .shift])
         }
 
-        // View menu
-        CommandMenu(String(localized: "menu.view", defaultValue: "View")) {
+        // Add to existing View menu
+        CommandGroup(after: .toolbar) {
+            Divider()
+
             Button(String(localized: "menu.view.toggleSidebar", defaultValue: "Toggle Sidebar")) {
                 NotificationCenter.default.post(name: .namuMenuToggleSidebar, object: nil)
             }
@@ -53,13 +55,6 @@ struct NamuMenuCommands: Commands {
                 NotificationCenter.default.post(name: .namuMenuCommandPalette, object: nil)
             }
             .keyboardShortcut("k", modifiers: .command)
-
-            Divider()
-
-            Button(String(localized: "menu.view.enterFullscreen", defaultValue: "Enter Full Screen")) {
-                NotificationCenter.default.post(name: .namuMenuToggleFullscreen, object: nil)
-            }
-            .keyboardShortcut("f", modifiers: [.command, .control])
         }
 
         // Terminal menu
@@ -158,13 +153,7 @@ struct NamuMenuCommands: Commands {
             .keyboardShortcut("/", modifiers: [.command, .shift])
         }
 
-        // Settings command (Namu menu)
-        CommandGroup(after: .appSettings) {
-            Button(String(localized: "menu.namu.reloadConfig", defaultValue: "Reload Configuration")) {
-                NotificationCenter.default.post(name: .namuMenuReloadConfig, object: nil)
-            }
-            .keyboardShortcut(",", modifiers: [.command, .shift])
-        }
+        // Settings handled in NamuApp.swift via CommandGroup(replacing: .appSettings)
     }
 }
 
@@ -207,5 +196,6 @@ extension Notification.Name {
     static let namuMenuSendFeedback = Notification.Name("namu.menu.sendFeedback")
 
     // Settings
+    static let namuMenuOpenSettings = Notification.Name("namu.menu.openSettings")
     static let namuMenuReloadConfig = Notification.Name("namu.menu.reloadConfig")
 }

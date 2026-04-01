@@ -12,6 +12,18 @@ struct NamuApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             NamuMenuCommands()
+            // Show Settings in Namu menu (Cmd+,)
+            CommandGroup(replacing: .appSettings) {
+                Button(String(localized: "menu.namu.settings", defaultValue: "Settings...")) {
+                    NotificationCenter.default.post(name: .openSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+
+                Button(String(localized: "menu.namu.reloadConfig", defaultValue: "Reload Configuration")) {
+                    NotificationCenter.default.post(name: .namuMenuReloadConfig, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: [.command, .shift])
+            }
         }
     }
 }
