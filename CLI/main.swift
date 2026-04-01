@@ -2809,17 +2809,20 @@ func handleTmuxCompat(_ args: [String]) throws {
 
     case "last-window":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-        _ = parsed // accept silently — no direct mapping
+        _ = parsed
+        _ = try client.sendV2(method: "workspace.last", params: [:])
         return
 
     case "next-window", "next":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
         _ = parsed
+        _ = try client.sendV2(method: "workspace.next", params: [:])
         return
 
     case "previous-window", "prev":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
         _ = parsed
+        _ = try client.sendV2(method: "workspace.previous", params: [:])
         return
 
     case "show-buffer", "showb":

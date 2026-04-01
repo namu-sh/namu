@@ -185,19 +185,9 @@ struct BrowserPanelView: View {
             return
         }
 
-        // Local history matches — scored and sorted by relevance.
-        let localEntries = historyStore.search(query: trimmed)
-        let scoredLocal = localEntries
-            .map { entry -> (String, Double) in
-                let url = entry.url.absoluteString
-                let score = suggestionScore(query: trimmed, url: url,
-                                            title: entry.title ?? "",
-                                            visitDate: entry.visitDate)
-                return (url, score)
-            }
-            .sorted { $0.1 > $1.1 }
-            .prefix(4)
-            .map { $0.0 }
+        // Local history matches — frecency-scored and sorted by relevance.
+        let localEntries = historyStore.search(query: trimmed, limit: 4)
+        let scoredLocal = localEntries.map { $0.url.absoluteString }
 
         // Collect suggest URLs for Google, DuckDuckGo, and Bing in parallel.
         let suggestEngines: [BrowserSearchEngine] = [.google, .duckduckgo, .bing]
@@ -251,27 +241,7 @@ struct BrowserPanelView: View {
         }
     }
 
-    /// Relevance score for a local history entry against the current query.
-    private func suggestionScore(query: String, url: String, title: String, visitDate: Date) -> Double {
-        let q = query.lowercased()
-        let urlLower = url.lowercased()
-        let titleLower = title.lowercased()
-        var score: Double = 0
-
-        // Exact URL prefix match
-        if urlLower.hasPrefix(q) { score += 100 }
-        // Title contains query
-        if titleLower.contains(q) { score += 50 }
-        // URL contains query (but not prefix — already counted above)
-        if urlLower.contains(q) { score += 30 }
-
-        // Recency bonus: +20 scaled linearly over 30 days, capped at 0 minimum
-        let daysSince = Date().timeIntervalSince(visitDate) / 86_400
-        let recency = max(0.0, 1.0 - daysSince / 30.0)
-        score += 20.0 * recency
-
-        return score
-    }
+    // Suggestion scoring is handled by BrowserHistoryStore.search() using frecency.
 }
 
 // MARK: - BrowserViewModel
@@ -382,6 +352,7 @@ final class BrowserViewModel: ObservableObject, BrowserControlling {
         }
         urlText = resolved
         guard let url = URL(string: resolved) else { return }
+        namuWebView?.nextNavigationIsTyped = true
         namuWebView?.load(URLRequest(url: url))
     }
 

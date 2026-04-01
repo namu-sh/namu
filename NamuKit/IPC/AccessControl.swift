@@ -80,8 +80,20 @@ final class AccessController: @unchecked Sendable {
     // MARK: - Private
 
     private func evaluateLocalOnly(clientSocket: Int32) -> AccessState {
-        guard let peerPid = getPeerPid(clientSocket) else { return .denied }
+        guard let peerPid = getPeerPid(clientSocket) else {
+            // Peer disconnected before we could read PID (e.g., ncat --send-only).
+            // Fall back to UID check — same security boundary as socket file (0600).
+            return peerHasSameUID(clientSocket) ? .authenticated : .denied
+        }
         return isDescendant(peerPid) ? .authenticated : .denied
+    }
+
+    private func peerHasSameUID(_ socket: Int32) -> Bool {
+        var cred = xucred()
+        var credSize = socklen_t(MemoryLayout<xucred>.size)
+        let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credSize)
+        guard result == 0 else { return false }
+        return cred.cr_uid == getuid()
     }
 
     private func getPeerPid(_ socket: Int32) -> pid_t? {

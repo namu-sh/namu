@@ -34,10 +34,27 @@ final class SocketServer: @unchecked Sendable {
     private var serverFD: Int32 = -1
     private var isRunning = false
     private var acceptLoopGeneration: UInt64 = 0
+    private var acceptLoopAlive = false
 
     // Active client sockets — for clean shutdown
     private let clientsLock = NSLock()
     private var clientFDs: Set<Int32> = []
+
+    // MARK: - Health
+
+    /// Snapshot of socket server health for external monitoring.
+    struct Health: Sendable {
+        let isRunning: Bool
+        let acceptLoopAlive: Bool
+        let socketPathExists: Bool
+        var isHealthy: Bool { isRunning && acceptLoopAlive && socketPathExists }
+    }
+
+    func health() -> Health {
+        let (running, loopAlive) = stateLock.withLock { (isRunning, acceptLoopAlive) }
+        let pathExists = FileManager.default.fileExists(atPath: config.socketPath)
+        return Health(isRunning: running, acceptLoopAlive: loopAlive, socketPathExists: pathExists)
+    }
 
     // MARK: - Init
 
@@ -126,6 +143,11 @@ final class SocketServer: @unchecked Sendable {
     // MARK: - Accept Loop
 
     private func runAcceptLoop(generation: UInt64) {
+        stateLock.withLock { acceptLoopAlive = true }
+        defer { stateLock.withLock { acceptLoopAlive = false } }
+
+        var consecutiveFailures = 0
+
         while shouldContinue(generation: generation) {
             let serverFD = stateLock.withLock { self.serverFD }
             guard serverFD >= 0 else { break }
@@ -138,15 +160,23 @@ final class SocketServer: @unchecked Sendable {
 
             if clientFD < 0 {
                 let code = errno
-                switch code {
-                case EINTR, ECONNABORTED, EAGAIN:
+                consecutiveFailures += 1
+                NamuMetrics.socketAcceptError(errno: code)
+
+                switch Self.classifyAcceptError(code, consecutiveFailures: consecutiveFailures) {
+                case .immediateRetry:
                     continue
-                default:
-                    // Brief back-off then retry
-                    Thread.sleep(forTimeInterval: 0.05)
+                case .backoff(let ms):
+                    Thread.sleep(forTimeInterval: Double(ms) / 1000.0)
                     continue
+                case .fatal:
+                    // Unrecoverable — exit the loop so the server can be restarted.
+                    break
                 }
+                break
             }
+
+            consecutiveFailures = 0
 
             // Configure timeouts
             Self.configureTimeout(fd: clientFD, timeout: config.clientTimeout)
@@ -339,6 +369,39 @@ final class SocketServer: @unchecked Sendable {
 
     private func shouldContinue(generation: UInt64) -> Bool {
         stateLock.withLock { isRunning && generation == acceptLoopGeneration }
+    }
+
+    // MARK: - Accept Error Recovery
+
+    private enum AcceptRecovery {
+        case immediateRetry
+        case backoff(milliseconds: Int)
+        case fatal
+    }
+
+    /// Classify accept() errors into recovery strategies.
+    private static func classifyAcceptError(_ code: Int32, consecutiveFailures: Int) -> AcceptRecovery {
+        switch code {
+        case EINTR, ECONNABORTED, EAGAIN, EWOULDBLOCK:
+            return .immediateRetry
+        case EMFILE, ENFILE, ENOBUFS, ENOMEM:
+            // Resource pressure — back off to let the system recover.
+            return .backoff(milliseconds: backoffMs(consecutiveFailures))
+        case EBADF, EINVAL, ENOTSOCK:
+            // Fatal socket corruption after many retries.
+            return consecutiveFailures >= 50 ? .fatal : .backoff(milliseconds: backoffMs(consecutiveFailures))
+        default:
+            return .backoff(milliseconds: backoffMs(consecutiveFailures))
+        }
+    }
+
+    /// Exponential backoff: 10ms → 20ms → 40ms → ... → 5s max.
+    private static func backoffMs(_ consecutiveFailures: Int) -> Int {
+        var delay = 10
+        for _ in 0..<min(consecutiveFailures, 20) {
+            delay = min(delay * 2, 5000)
+        }
+        return delay
     }
 
     // MARK: - Static Socket Utilities

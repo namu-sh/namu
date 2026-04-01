@@ -74,6 +74,11 @@ final class NamuWebView: WKWebView {
     /// When set, the next HTTP navigation to this host is allowed through once without an alert.
     var insecureHTTPBypassHost: String?
 
+    /// Set to `true` before calling `load()` to mark the navigation as user-typed.
+    /// The delegate callback reads and resets this flag to distinguish typed URLs
+    /// from link clicks / JS navigations for frecency scoring.
+    var nextNavigationIsTyped = false
+
     /// Queue of dialogs waiting to be dismissed.
     private var pendingDialogs: [PendingDialog] = []
 
@@ -1177,6 +1182,20 @@ extension NamuWebView: WKNavigationDelegate {
         handleNavigationDidFail(navigation, error: error)
     }
 
+    /// Schemes that the embedded browser can handle natively.
+    /// Any other scheme (e.g. mailto:, tel:, slack://, zoommtg://) is handed off
+    /// to macOS so the owning app can open it.
+    private static let embeddedNavigationSchemes: Set<String> = [
+        "about",
+        "applewebdata",
+        "blob",
+        "data",
+        "file",
+        "http",
+        "https",
+        "javascript",
+    ]
+
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -1184,6 +1203,13 @@ extension NamuWebView: WKNavigationDelegate {
     ) {
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
+            return
+        }
+        // Hand off non-web URL schemes (discord://, mailto:, tel:, etc.) to macOS.
+        if let scheme = url.scheme?.lowercased(), !scheme.isEmpty,
+           !Self.embeddedNavigationSchemes.contains(scheme) {
+            decisionHandler(.cancel)
+            NSWorkspace.shared.open(url)
             return
         }
         // Check insecure HTTP and block if needed — allow bypass for one-time or allowlisted hosts.

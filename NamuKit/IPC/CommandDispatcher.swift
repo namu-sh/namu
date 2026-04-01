@@ -47,6 +47,8 @@ final class CommandDispatcher: @unchecked Sendable {
 
         // Notifications (no id) are fire-and-forget: dispatch but don't respond.
         let isNotification = request.id == nil
+        let start = CFAbsoluteTimeGetCurrent()
+        NamuMetrics.ipcRequestReceived(method: request.method)
 
         do {
             let response: JSONRPCResponse
@@ -66,11 +68,16 @@ final class CommandDispatcher: @unchecked Sendable {
                 }
                 response = try await handler(request)
             }
+            NamuMetrics.ipcRequestDuration(method: request.method, ms: (CFAbsoluteTimeGetCurrent() - start) * 1000)
             return isNotification ? nil : encode(response)
         } catch let rpcError as JSONRPCError {
+            NamuMetrics.ipcRequestError(method: request.method, code: rpcError.code)
+            NamuMetrics.ipcRequestDuration(method: request.method, ms: (CFAbsoluteTimeGetCurrent() - start) * 1000)
             if isNotification { return nil }
             return encode(JSONRPCResponse.failure(id: request.id, error: rpcError))
         } catch {
+            NamuMetrics.ipcRequestError(method: request.method, code: -32603)
+            NamuMetrics.ipcRequestDuration(method: request.method, ms: (CFAbsoluteTimeGetCurrent() - start) * 1000)
             if isNotification { return nil }
             return encode(JSONRPCResponse.failure(
                 id: request.id,

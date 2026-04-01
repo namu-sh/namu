@@ -351,6 +351,8 @@ final class NotificationService: ObservableObject {
             allNotifications.removeFirst()
         }
         allNotifications.append(notification)
+        NamuMetrics.notificationCreated()
+        NamuMetrics.notificationUnreadCount(unreadCount)
         playSound()
         runCustomCommand(for: notification)
         updateDockBadge()

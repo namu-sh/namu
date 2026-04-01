@@ -210,8 +210,18 @@ extension BrowserPanel: NamuWebViewDelegate {
     func namuWebView(_ webView: NamuWebView, didNavigateTo url: URL) {
         self.url = url
         // Record the visit in the per-profile history store.
+        // If the navigation was user-typed (address bar), track it for frecency scoring.
+        let isTyped = webView.nextNavigationIsTyped
+        webView.nextNavigationIsTyped = false
+        NamuMetrics.browserNavigation(typed: isTyped)
         Task { @MainActor in
-            BrowserProfileStore.shared.historyStore(for: profile).recordVisit(url: url, title: self.title.isEmpty ? nil : self.title)
+            let store = BrowserProfileStore.shared.historyStore(for: profile)
+            let title = self.title.isEmpty ? nil : self.title
+            if isTyped {
+                store.recordTypedNavigation(url: url, title: title)
+            } else {
+                store.recordVisit(url: url, title: title)
+            }
         }
         // Re-open devtools if a profile switch requested it.
         if requestDeveloperToolsRefreshAfterNextAttach {

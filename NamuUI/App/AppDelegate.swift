@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 // MARK: - AppDelegate
@@ -27,7 +28,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var panelManager: PanelManager?
 
     // Centralised service container — set by ContentView.onAppear, owns IPC/persistence/AI.
-    var serviceContainer: ServiceContainer?
+    var serviceContainer: ServiceContainer? {
+        didSet { installNotificationBadgeObserver() }
+    }
+
+    private var notificationCancellable: AnyCancellable?
 
     // Callback to toggle command palette — set by ContentView.
     var toggleCommandPalette: (() -> Void)?
@@ -87,6 +92,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 setenv("PATH", "\(binPath):\(currentPath)", 1)
             }
         }
+
+        // 0. Initialize telemetry — exports metrics and logs to Sentry via OTLP.
+        //    See: https://docs.sentry.io/concepts/otlp/direct/
+        NamuTelemetry.shared.configureSentry(
+            dsn: "https://60c3de4faff5b84f36c464c1b81f4ec2@o4511118486142976.ingest.us.sentry.io/4511145299607552"
+        )
 
         // 1. Initialize Ghostty (ghostty_init + config + ghostty_app_new) via GhosttyApp.
         //    GhosttyApp.init() handles ghostty_init, config load, and ghostty_app_new.
@@ -622,6 +633,140 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func markAllReadFromMenu() {
+        Task { @MainActor in
+            serviceContainer?.notificationService.markAllRead()
+        }
+    }
+
+    // MARK: - Menu Bar Badge
+
+    /// Subscribe to notification changes and refresh the status item icon + menu.
+    private func installNotificationBadgeObserver() {
+        Task { @MainActor [weak self] in
+            guard let self, let ns = self.serviceContainer?.notificationService else { return }
+            self.notificationCancellable = ns.$allNotifications
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    Task { @MainActor in
+                        self?.refreshMenuBarBadge()
+                        self?.rebuildStatusMenu()
+                    }
+                }
+            // Initial refresh
+            self.refreshMenuBarBadge()
+            self.rebuildStatusMenu()
+        }
+    }
+
+    /// Redraw the menu bar icon with an unread badge overlay.
+    @MainActor private func refreshMenuBarBadge() {
+        guard let button = statusItem?.button else { return }
+        let count = serviceContainer?.notificationService.unreadCount ?? 0
+        button.image = Self.menuBarIcon(unreadCount: count)
+        button.image?.size = NSSize(width: 18, height: 18)
+        button.toolTip = count == 0
+            ? "Namu"
+            : "Namu: \(count) unread notification\(count == 1 ? "" : "s")"
+    }
+
+    /// Rebuild the status item menu with recent unread notifications inline.
+    @MainActor private func rebuildStatusMenu() {
+        guard let item = statusItem else { return }
+        let ns = serviceContainer?.notificationService
+        let unread = ns?.unreadCount ?? 0
+
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(
+            title: String(localized: "statusmenu.showNamu", defaultValue: "Show Namu"),
+            action: #selector(showMainWindow), keyEquivalent: ""))
+        menu.addItem(.separator())
+
+        // State hint
+        let hint: String
+        if unread == 0 {
+            hint = String(localized: "statusmenu.noUnread", defaultValue: "No unread notifications")
+        } else if unread == 1 {
+            hint = String(localized: "statusmenu.oneUnread", defaultValue: "1 unread notification")
+        } else {
+            hint = "\(unread) " + String(localized: "statusmenu.unreadSuffix", defaultValue: "unread notifications")
+        }
+        let hintItem = NSMenuItem(title: hint, action: nil, keyEquivalent: "")
+        hintItem.isEnabled = false
+        menu.addItem(hintItem)
+
+        // Recent unread notifications (up to 6)
+        if let notifications = ns?.allNotifications {
+            let recent = Array(notifications.suffix(100).filter { !$0.isRead }.suffix(6).reversed())
+            if !recent.isEmpty {
+                menu.addItem(.separator())
+                for notif in recent {
+                    let title = notif.title.isEmpty ? notif.body : "\(notif.title) — \(notif.body)"
+                    let truncated = title.count > 60 ? String(title.prefix(57)) + "…" : title
+                    let menuItem = NSMenuItem(title: truncated, action: #selector(jumpToUnreadFromMenu), keyEquivalent: "")
+                    menu.addItem(menuItem)
+                }
+                menu.addItem(.separator())
+                menu.addItem(NSMenuItem(
+                    title: String(localized: "statusmenu.markAllRead", defaultValue: "Mark All Read"),
+                    action: #selector(markAllReadFromMenu), keyEquivalent: ""))
+            }
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(
+            title: String(localized: "statusmenu.newWorkspace", defaultValue: "New Workspace"),
+            action: #selector(newWorkspaceFromMenu), keyEquivalent: "t"))
+        let jumpItem = NSMenuItem(
+            title: String(localized: "statusmenu.jumpToUnread", defaultValue: "Jump to Unread"),
+            action: #selector(jumpToUnreadFromMenu), keyEquivalent: "")
+        jumpItem.isEnabled = unread > 0
+        menu.addItem(jumpItem)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(
+            title: String(localized: "statusmenu.quit", defaultValue: "Quit Namu"),
+            action: #selector(quitApp), keyEquivalent: "q"))
+
+        item.menu = menu
+    }
+
+    /// Render the menu bar icon with an optional unread count badge.
+    private static func menuBarIcon(unreadCount: Int) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            // Draw base terminal icon
+            if let symbol = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Namu") {
+                symbol.draw(in: NSRect(x: 1, y: 1, width: 16, height: 16))
+            }
+
+            // Draw badge circle with count
+            if unreadCount > 0 {
+                let badgeSize: CGFloat = 9
+                let badgeRect = NSRect(x: rect.maxX - badgeSize, y: rect.maxY - badgeSize, width: badgeSize, height: badgeSize)
+                let circle = NSBezierPath(ovalIn: badgeRect)
+                NSColor.systemRed.setFill()
+                circle.fill()
+
+                let label = unreadCount > 99 ? "…" : "\(unreadCount)"
+                let font = NSFont.systemFont(ofSize: unreadCount > 9 ? 5 : 6, weight: .bold)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor.white,
+                ]
+                let str = label as NSString
+                let textSize = str.size(withAttributes: attrs)
+                let textOrigin = NSPoint(
+                    x: badgeRect.midX - textSize.width / 2,
+                    y: badgeRect.midY - textSize.height / 2
+                )
+                str.draw(at: textOrigin, withAttributes: attrs)
+            }
+            return true
+        }
+        image.isTemplate = unreadCount == 0 // template only when no badge (for dark mode auto-tinting)
+        return image
     }
 }
 

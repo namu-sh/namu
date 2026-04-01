@@ -170,6 +170,26 @@ final class BrowserPopupWindowController: NSObject {
 
         // MARK: - WKNavigationDelegate
 
+        /// Schemes the embedded browser handles natively; everything else goes to macOS.
+        private static let embeddedNavigationSchemes: Set<String> = [
+            "about", "applewebdata", "blob", "data", "file", "http", "https", "javascript",
+        ]
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+        ) {
+            if let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(), !scheme.isEmpty,
+               !Self.embeddedNavigationSchemes.contains(scheme) {
+                decisionHandler(.cancel)
+                NSWorkspace.shared.open(url)
+                return
+            }
+            decisionHandler(.allow)
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             if let title = webView.title, !title.isEmpty {
                 window.title = title
