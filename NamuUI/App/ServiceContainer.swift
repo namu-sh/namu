@@ -288,11 +288,10 @@ final class ServiceContainer {
 
     /// Final cleanup before the process exits.
     func stop() {
-        // Autosave one final snapshot synchronously (best-effort).
+        // Final save — must be synchronous because applicationWillTerminate
+        // returns immediately and the process exits before async Tasks complete.
         sessionPersistence.stopAutosave()
-        Task { @MainActor in
-            await sessionPersistence.save()
-        }
+        sessionPersistence.saveSync()
 
         socketServer?.stop()
         alertEngine.stop()

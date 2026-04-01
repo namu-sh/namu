@@ -6,28 +6,31 @@ struct SettingsView: View {
     @State private var selectedSection: SettingsSection = .general
 
     enum SettingsSection: String, CaseIterable, Identifiable {
-        case general    = "General"
-        case appearance = "Appearance"
-        case keyboard   = "Keyboard"
-        case updates    = "Updates"
+        case general       = "General"
+        case appearance    = "Appearance"
+        case notifications = "Notifications"
+        case keyboard      = "Keyboard"
+        case updates       = "Updates"
 
         var id: String { rawValue }
 
         var localizedTitle: String {
             switch self {
-            case .general:    return String(localized: "settings.section.general", defaultValue: "General")
-            case .appearance: return String(localized: "settings.section.appearance", defaultValue: "Appearance")
-            case .keyboard:   return String(localized: "settings.section.keyboard", defaultValue: "Keyboard")
-            case .updates:    return String(localized: "settings.section.updates", defaultValue: "Updates")
+            case .general:       return String(localized: "settings.section.general", defaultValue: "General")
+            case .appearance:    return String(localized: "settings.section.appearance", defaultValue: "Appearance")
+            case .notifications: return String(localized: "settings.section.notifications", defaultValue: "Notifications")
+            case .keyboard:      return String(localized: "settings.section.keyboard", defaultValue: "Keyboard")
+            case .updates:       return String(localized: "settings.section.updates", defaultValue: "Updates")
             }
         }
 
         var icon: String {
             switch self {
-            case .general:    return "gearshape"
-            case .appearance: return "paintbrush"
-            case .keyboard:   return "keyboard"
-            case .updates:    return "arrow.triangle.2.circlepath"
+            case .general:       return "gearshape"
+            case .appearance:    return "paintbrush"
+            case .notifications: return "bell"
+            case .keyboard:      return "keyboard"
+            case .updates:       return "arrow.triangle.2.circlepath"
             }
         }
     }
@@ -75,6 +78,8 @@ struct SettingsView: View {
                     ScrollView { GeneralSettingsContent() }
                 case .appearance:
                     ScrollView { AppearanceSettingsView() }
+                case .notifications:
+                    ScrollView { NotificationSettingsView() }
                 case .keyboard:
                     KeyboardSettingsContent()
                 case .updates:

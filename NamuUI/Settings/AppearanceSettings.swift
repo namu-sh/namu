@@ -137,30 +137,58 @@ struct AppearanceSettingsView: View {
     // MARK: - Workspace Colors Content
 
     @State private var colorOverrides: [String: String] = WorkspaceColorPaletteSettings.colorOverrides()
+    @State private var editingColorName: String?
+    @State private var editingColor: Color = .white
 
     @ViewBuilder
     private var workspaceColorsContent: some View {
         let isDark = colorScheme == .dark
         let colors = WorkspaceColorPaletteSettings.namedDefaults
 
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 28), spacing: 6)], spacing: 6) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 32), spacing: 8)], spacing: 8) {
             ForEach(colors, id: \.name) { entry in
                 let effectiveHex = colorOverrides[entry.name] ?? entry.hex
                 let displayHex = WorkspaceColorPaletteSettings.adjustedColor(hex: effectiveHex, isDarkMode: isDark)
                 Circle()
                     .fill(Color(hex: displayHex) ?? .gray)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
                     .overlay(
                         Circle()
-                            .strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
+                            .strokeBorder(
+                                editingColorName == entry.name ? Color.primary : Color.primary.opacity(0.15),
+                                lineWidth: editingColorName == entry.name ? 2 : 1
+                            )
                     )
+                    .onTapGesture {
+                        editingColorName = entry.name
+                        editingColor = Color(hex: effectiveHex) ?? .white
+                    }
                     .help(entry.name)
+            }
+        }
+
+        if let name = editingColorName {
+            HStack {
+                Text(name)
+                    .font(.system(size: 12, weight: .medium))
+                ColorPicker("", selection: $editingColor, supportsOpacity: false)
+                    .labelsHidden()
+                    .onChange(of: editingColor) { _, newColor in
+                        if let hex = newColor.hexString {
+                            WorkspaceColorPaletteSettings.setOverride(name: name, hex: hex)
+                            colorOverrides = WorkspaceColorPaletteSettings.colorOverrides()
+                        }
+                    }
+                Spacer()
+                Button("Done") { editingColorName = nil }
+                    .font(.system(size: 12))
             }
         }
 
         Button(String(localized: "settings.appearance.colors.reset", defaultValue: "Reset to Defaults")) {
             WorkspaceColorPaletteSettings.resetToDefaults()
             colorOverrides = WorkspaceColorPaletteSettings.colorOverrides()
+            editingColorName = nil
         }
         .font(.system(size: 12))
     }

@@ -121,6 +121,9 @@ struct SidebarItemView: View, Equatable {
         .onTapGesture { onSelect() }
         .animation(.easeInOut(duration: 0.2), value: isSelected)
         .animation(.easeOut(duration: 0.15), value: isHovering)
+        .popover(isPresented: $showColorPopover, arrowEdge: .trailing) {
+            colorPopoverContent
+        }
         .contextMenu { contextMenuContent }
     }
 
@@ -146,9 +149,6 @@ struct SidebarItemView: View, Equatable {
         .frame(width: 14, height: 30)
         .contentShape(Rectangle())
         .onTapGesture { showColorPopover = true }
-        .popover(isPresented: $showColorPopover, arrowEdge: .trailing) {
-            colorPopoverContent
-        }
     }
 
     private var colorPopoverContent: some View {

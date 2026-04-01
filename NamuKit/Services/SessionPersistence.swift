@@ -115,6 +115,24 @@ final class SessionPersistence: ObservableObject {
 
     // MARK: - Save
 
+    /// Synchronous save for use during app termination (applicationWillTerminate
+    /// returns immediately — async Tasks won't complete before the process exits).
+    func saveSync() {
+        let snapshot = buildSnapshot()
+        do {
+            try writeSnapshot(snapshot)
+            let activePanelIDs = Set(snapshot.windows.flatMap { win in
+                win.workspaces.flatMap { ws in collectPanelIDs(from: ws.layout) }
+            })
+            cleanStaleScrollbackFiles(keepingPanelIDs: activePanelIDs)
+            let windowCount = snapshot.windows.count
+            let workspaceCount = snapshot.windows.reduce(0) { $0 + $1.workspaces.count }
+            logger.info("Session saved (sync): \(windowCount) window(s), \(workspaceCount) workspace(s)")
+        } catch {
+            logger.error("Session save (sync) failed: \(error.localizedDescription)")
+        }
+    }
+
     /// Snapshot and persist the current session atomically.
     func save() async {
         saveStatus = .saving
