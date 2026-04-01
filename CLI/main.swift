@@ -526,6 +526,8 @@ func usageString() -> String {
       --password <pw>    Auth password (default: $NAMU_SOCKET_PASSWORD or ~/.namu/socket-password)
       --json             Output raw JSON response
       --timeout <secs>   Request timeout in seconds (default: 5, 30 for long-running commands)
+      --id-format <mode> Output ID format: refs (default), uuids, or both
+      --no-focus         Don't focus the created/selected item
     """
 }
 
@@ -634,6 +636,74 @@ func authenticateIfNeeded(client: SocketClient, password: String?) throws {
     }
 }
 
+// MARK: - Ref Resolution
+
+/// Keys in IPC params that may contain ref-style IDs (e.g., "workspace:1").
+private let refResolvableKeys: Set<String> = ["id", "workspace_id", "pane_id", "surface_id", "target_pane_id"]
+
+/// Resolve ref-style IDs (e.g., "workspace:1", "surface:0") in params to UUIDs.
+/// Queries the server's list commands to map refs/indexes to actual UUIDs.
+func resolveRefParams(_ params: [String: Any], client: SocketClient, timeout: TimeInterval) -> [String: Any] {
+    var resolved = params
+    for (key, value) in params {
+        guard refResolvableKeys.contains(key), let strValue = value as? String else { continue }
+        // Skip if already a valid UUID
+        if UUID(uuidString: strValue) != nil { continue }
+        // Try to resolve ref or bare index
+        if let uuid = resolveRefToUUID(strValue, key: key, client: client, timeout: timeout) {
+            resolved[key] = uuid
+        }
+    }
+    return resolved
+}
+
+private func resolveRefToUUID(_ ref: String, key: String, client: SocketClient, timeout: TimeInterval) -> String? {
+    // Determine which list command to call based on the key/ref prefix
+    let listMethod: String
+    let refPrefix: String
+    if key.contains("workspace") || ref.hasPrefix("workspace:") {
+        listMethod = "workspace.list"
+        refPrefix = "workspace:"
+    } else if key.contains("surface") || ref.hasPrefix("surface:") {
+        listMethod = "surface.list"
+        refPrefix = "surface:"
+    } else if key.contains("pane") || ref.hasPrefix("pane:") {
+        listMethod = "pane.list"
+        refPrefix = "pane:"
+    } else {
+        return nil
+    }
+
+    // Extract the index from "kind:N" or bare "N"
+    let indexStr: String
+    if ref.hasPrefix(refPrefix) {
+        indexStr = String(ref.dropFirst(refPrefix.count))
+    } else {
+        indexStr = ref
+    }
+    guard let targetIndex = Int(indexStr) else { return nil }
+
+    // Query the server
+    guard let response = try? client.sendRequest(method: listMethod, params: [:], timeout: timeout),
+          let result = response["result"] as? [String: Any] else { return nil }
+
+    // Find the item matching the index
+    let itemsKey = listMethod == "workspace.list" ? "workspaces" : (listMethod == "surface.list" ? "surfaces" : "panes")
+    guard let items = result[itemsKey] as? [[String: Any]] else { return nil }
+
+    for item in items {
+        if let itemIndex = item["index"] as? Int, itemIndex == targetIndex,
+           let id = item["id"] as? String {
+            return id
+        }
+        if let itemRef = item["ref"] as? String, itemRef == ref,
+           let id = item["id"] as? String {
+            return id
+        }
+    }
+    return nil
+}
+
 // MARK: - Main
 
 func run() throws {
@@ -656,9 +726,12 @@ func run() throws {
 
     try authenticateIfNeeded(client: client, password: parsed.password)
 
+    // Resolve ref-style IDs (e.g., "workspace:1") to UUIDs before sending.
+    let resolvedParams = resolveRefParams(parsed.params, client: client, timeout: parsed.timeout)
+
     let response = try client.sendRequest(
         method: method,
-        params: parsed.params,
+        params: resolvedParams,
         timeout: parsed.timeout
     )
 
