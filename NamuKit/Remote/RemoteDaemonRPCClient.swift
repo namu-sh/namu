@@ -104,6 +104,8 @@ final class RemoteDaemonRPCClient {
         }
 
         stateQueue.sync {
+            self.pendingCalls.failAll("transport restarting")
+            self.pendingCalls.reset()
             self.process = process
             self.stdinHandle = stdinPipe.fileHandleForWriting
             self.stdoutHandle = stdoutPipe.fileHandleForReading
@@ -114,7 +116,6 @@ final class RemoteDaemonRPCClient {
             self.stderrBuffer = ""
             self.streamSubscriptions.removeAll(keepingCapacity: false)
         }
-        pendingCalls.reset()
 
         do {
             let hello = try call(method: "hello", params: [:], timeout: 8.0)

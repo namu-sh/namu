@@ -350,9 +350,8 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
     }
 
     deinit {
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-        }
+        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+        if let attentionObserver { NotificationCenter.default.removeObserver(attentionObserver) }
     }
 
     // MARK: - Focus

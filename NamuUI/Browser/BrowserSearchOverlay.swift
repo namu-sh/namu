@@ -189,7 +189,8 @@ struct BrowserSearchOverlay: View {
             });
             if (!"\(escaped)") return 0;
             var count = 0;
-            var regex = new RegExp("\(escaped)", "gi");
+            var safeQuery = "\(escaped)".replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');
+            var regex = new RegExp(safeQuery, "gi");
             function walk(node) {
                 if (node.nodeType === 3) {
                     var text = node.nodeValue;

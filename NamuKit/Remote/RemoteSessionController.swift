@@ -121,6 +121,8 @@ final class RemoteSessionController {
             stopAllLocked()
             return
         }
+        // Intentional strong capture: ensures teardown completes even if the
+        // caller releases its reference to the controller before the queue drains.
         queue.async { [self] in
             stopAllLocked()
         }
@@ -147,6 +149,9 @@ final class RemoteSessionController {
     }
 
     private func flushResizeLocked() {
+        // NOTE: Each resize creates a short-lived SSH connection. This is debounced to 100ms
+        // to limit frequency, but a long-lived RPC connection would be more efficient.
+        // Future improvement: reuse the proxy broker's RPC client for resize calls.
         guard !isStopping, let sessionID = pendingResizeSessionID,
               daemonReady, let remotePath = daemonRemotePath else { return }
         pendingResizeSessionID = nil
@@ -460,7 +465,7 @@ final class RemoteSessionController {
         if let existing = cliRelayServer {
             return existing
         }
-        let server = RemoteCLIRelayServer(
+        let server = try RemoteCLIRelayServer(
             localSocketPath: localSocketPath,
             relayID: relayID,
             relayTokenHex: relayToken

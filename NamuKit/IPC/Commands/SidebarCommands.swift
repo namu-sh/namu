@@ -433,6 +433,8 @@ final class SidebarCommands {
            let id = UUID(uuidString: wsStr) {
             return id
         }
+        // WorkspaceManager prevents deleting the last workspace, so .first should
+        // always succeed. The UUID() fallback is an unreachable last resort.
         return workspaceManager.selectedWorkspaceID
             ?? workspaceManager.workspaces.first?.id
             ?? UUID()

@@ -98,6 +98,7 @@ struct BrowserPanelView: View {
             viewModel.paneID = paneID
         }
         .onDisappear {
+            suggestTask?.cancel()
             viewModel.unregister()
         }
     }

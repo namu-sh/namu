@@ -18,6 +18,13 @@ final class WorkspaceCommands {
         self.remoteSessionService = remoteSessionService
     }
 
+    // MARK: - SSH option deny-list
+
+    private static let dangerousSSHOptionPrefixes = [
+        "proxycommand", "localcommand", "permitlocalcommand", "proxyusefdpass",
+        "localforward", "remoteforward", "dynamicforward",
+    ]
+
     // MARK: - Registration
 
     func register(in registry: CommandRegistry) {
@@ -325,6 +332,9 @@ final class WorkspaceCommands {
                           !trimmed.contains("\n"),
                           !trimmed.contains("\r"),
                           !trimmed.contains("\0") else { return nil }
+                    guard !Self.dangerousSSHOptionPrefixes.contains(where: {
+                        trimmed.lowercased().hasPrefix($0)
+                    }) else { return nil }
                     return trimmed
                 }
                 return nil
@@ -514,6 +524,9 @@ final class WorkspaceCommands {
                           !trimmed.contains("\n"),
                           !trimmed.contains("\r"),
                           !trimmed.contains("\0") else { return nil }
+                    guard !Self.dangerousSSHOptionPrefixes.contains(where: {
+                        trimmed.lowercased().hasPrefix($0)
+                    }) else { return nil }
                     return trimmed
                 }
                 return nil

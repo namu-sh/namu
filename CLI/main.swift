@@ -1112,7 +1112,7 @@ func handleSSH(_ args: [String]) throws {
     let relayID = randomHex(16)
     let relayToken = randomHex(32)
     let relayPort = findFreePort() ?? 0
-    let localSocketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+    let localSocketPath = resolveSocketPath(explicit: nil)
 
     let client = SocketClient(path: localSocketPath)
     defer { client.close() }
@@ -1259,7 +1259,7 @@ func handleSSHSessionEnd(remaining: [String]) {
     if let sid = surfaceID { params["surface_id"] = sid }
 
     // Best effort — don't fail if socket unavailable.
-    let socketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+    let socketPath = resolveSocketPath(explicit: nil)
     let client = SocketClient(path: socketPath)
     defer { client.close() }
     if (try? client.connect()) != nil {
@@ -1273,18 +1273,22 @@ func handleSSHSessionEnd(remaining: [String]) {
     // Best-effort ControlMaster cleanup using the known ControlPath template.
     if let rp = relayPort {
         let uid = getuid()
-        let controlPathPattern = "/tmp/namu-ssh-\(uid)-\(rp)-*"
-        let cleanupProcess = Process()
-        cleanupProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
-        cleanupProcess.arguments = ["-c", """
-            for sock in \(controlPathPattern); do
-                [ -S "$sock" ] && ssh -O exit -o ControlPath="$sock" dummy 2>/dev/null || true
-            done
-        """]
-        cleanupProcess.standardOutput = FileHandle.nullDevice
-        cleanupProcess.standardError = FileHandle.nullDevice
-        try? cleanupProcess.run()
-        cleanupProcess.waitUntilExit()
+        let prefix = "namu-ssh-\(uid)-\(rp)-"
+        let tmpDir = "/tmp"
+        if let items = try? FileManager.default.contentsOfDirectory(atPath: tmpDir) {
+            for item in items where item.hasPrefix(prefix) {
+                let sockPath = "\(tmpDir)/\(item)"
+                var statBuf = stat()
+                guard stat(sockPath, &statBuf) == 0, (statBuf.st_mode & S_IFSOCK) != 0 else { continue }
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+                proc.arguments = ["-O", "exit", "-o", "ControlPath=\(sockPath)", "dummy"]
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+                proc.waitUntilExit()
+            }
+        }
     }
 }
 

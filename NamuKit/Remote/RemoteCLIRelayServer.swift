@@ -89,7 +89,11 @@ final class RemoteCLIRelayServer {
 
         private func sendChallenge() {
             challengeSentAt = Date()
-            challengeNonce = Self.randomHex(16)
+            guard let nonce = try? Self.randomHex(16) else {
+                sendFailureAndClose()
+                return
+            }
+            challengeNonce = nonce
             let challenge: [String: Any] = [
                 "protocol": challengeProtocol,
                 "version": challengeVersion,
@@ -265,10 +269,12 @@ final class RemoteCLIRelayServer {
             return data
         }
 
-        fileprivate static func randomHex(_ byteCount: Int) -> String {
+        fileprivate static func randomHex(_ byteCount: Int) throws -> String {
             var bytes = [UInt8](repeating: 0, count: byteCount)
             guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-                fatalError("System random number generator failed")
+                throw NSError(domain: "namu.remote.relay", code: 31, userInfo: [
+                    NSLocalizedDescriptionKey: "System random number generator failed",
+                ])
             }
             return bytes.map { String(format: "%02x", $0) }.joined()
         }
@@ -389,11 +395,16 @@ final class RemoteCLIRelayServer {
     private var isStopped = false
     private var localPort: Int?
 
-    init(localSocketPath: String, relayID: String, relayTokenHex: String) {
+    init(localSocketPath: String, relayID: String, relayTokenHex: String) throws {
+        guard let tokenData = Session.hexToData(relayTokenHex) else {
+            throw NSError(domain: "namu.remote.relay", code: 30, userInfo: [
+                NSLocalizedDescriptionKey: "Invalid relay token hex: must be even-length hex string",
+            ])
+        }
         self.localSocketPath = localSocketPath
         self.relayID = relayID
         self.relayToken = relayTokenHex
-        self.relayTokenData = Session.hexToData(relayTokenHex)!
+        self.relayTokenData = tokenData
     }
 
     /// Starts the listener and returns the allocated TCP port.
