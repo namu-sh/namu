@@ -24,6 +24,8 @@ final class NamuMetalLayer: CAMetalLayer {
     private let lock = NSLock()
     private(set) var drawableCount: Int = 0
     private(set) var lastDrawableTime: CFTimeInterval = 0
+    private(set) var presentCount: Int = 0
+    private(set) var lastPresentTime: CFTimeInterval = 0
 
     // MARK: - Lifecycle
 
@@ -69,4 +71,35 @@ final class NamuMetalLayer: CAMetalLayer {
         defer { lock.unlock() }
         return (drawableCount, lastDrawableTime)
     }
+
+    /// Track present/display calls.
+    func trackPresent() {
+        lock.lock()
+        presentCount += 1
+        lastPresentTime = CACurrentMediaTime()
+        lock.unlock()
+    }
+
+    /// Extended stats for debug.render_stats — includes present counts and layer metadata.
+    func extendedDebugStats() -> ExtendedRenderStats {
+        lock.lock()
+        defer { lock.unlock() }
+        return ExtendedRenderStats(
+            drawCount: drawableCount,
+            lastDrawTime: lastDrawableTime,
+            presentCount: presentCount,
+            lastPresentTime: lastPresentTime,
+            layerClass: String(describing: type(of: self))
+        )
+    }
+}
+
+// MARK: - Extended Render Stats
+
+struct ExtendedRenderStats: Sendable {
+    let drawCount: Int
+    let lastDrawTime: CFTimeInterval
+    let presentCount: Int
+    let lastPresentTime: CFTimeInterval
+    let layerClass: String
 }

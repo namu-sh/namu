@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 // MARK: - AppDelegate
@@ -22,20 +21,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Menu bar status item
     private var statusItem: NSStatusItem?
 
-    // Cancellable for observing unread notification count changes.
-    private var unreadCountCancellable: AnyCancellable?
-
     // Services — injected after NamuApp sets them up.
     // These are weak to avoid a retain cycle; they're owned by the SwiftUI environment.
     weak var workspaceManager: WorkspaceManager?
     weak var panelManager: PanelManager?
 
     // Centralised service container — set by ContentView.onAppear, owns IPC/persistence/AI.
-    var serviceContainer: ServiceContainer? {
-        didSet {
-            Task { @MainActor [weak self] in self?.startObservingUnreadCount() }
-        }
-    }
+    var serviceContainer: ServiceContainer?
 
     // Callback to toggle command palette — set by ContentView.
     var toggleCommandPalette: (() -> Void)?
@@ -59,6 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shortcutMap = map
         return map
     }
+
+    // MARK: - Debug: Focus Override
+
+    /// Override app focus state for testing. nil = no override, true = forced active, false = forced inactive.
+    static var focusOverride: Bool?
 
     // MARK: - Multi-window state
 
@@ -589,79 +586,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApp() {
         NSApp.terminate(nil)
-    }
-
-    // MARK: - Menu bar badge
-
-    /// Begin observing the notification service's unread count and update the status item image.
-    /// Called whenever serviceContainer is set (after ContentView.onAppear wires it up).
-    @MainActor private func startObservingUnreadCount() {
-        guard let ns = serviceContainer?.notificationService else {
-            unreadCountCancellable = nil
-            updateMenuBarBadge(unreadCount: 0)
-            return
-        }
-        unreadCountCancellable = ns.$allNotifications
-            .map { notifications in notifications.filter { !$0.isRead }.count }
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] count in
-                MainActor.assumeIsolated {
-                    self?.updateMenuBarBadge(unreadCount: count)
-                }
-            }
-    }
-
-    @MainActor private func updateMenuBarBadge(unreadCount: Int) {
-        guard let button = statusItem?.button else { return }
-        button.image = Self.renderMenuBarIcon(unreadCount: unreadCount)
-    }
-
-    /// Render the terminal SF symbol with an optional red badge overlay showing the unread count.
-    static func renderMenuBarIcon(unreadCount: Int) -> NSImage {
-        let baseImage = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Namu") ?? NSImage()
-        baseImage.size = NSSize(width: 16, height: 16)
-
-        guard unreadCount > 0 else {
-            baseImage.isTemplate = true
-            return baseImage
-        }
-
-        let badgeText = unreadCount > 9 ? "9+" : "\(unreadCount)"
-        let size = NSSize(width: 20, height: 16)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
-
-        // Draw the base terminal glyph on the left.
-        baseImage.draw(in: NSRect(origin: .zero, size: NSSize(width: 16, height: 16)))
-
-        // Draw red badge circle in the top-right corner.
-        let badgeSize: CGFloat = 9
-        let badgeRect = NSRect(
-            x: size.width - badgeSize,
-            y: size.height - badgeSize,
-            width: badgeSize,
-            height: badgeSize
-        )
-        NSColor.systemRed.setFill()
-        NSBezierPath(ovalIn: badgeRect).fill()
-
-        // Draw count text centred in the badge.
-        let fontSize: CGFloat = badgeText.count > 1 ? 5.5 : 6.5
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
-            .foregroundColor: NSColor.white,
-        ]
-        let textSize = badgeText.size(withAttributes: attrs)
-        let textPoint = NSPoint(
-            x: badgeRect.midX - textSize.width / 2,
-            y: badgeRect.midY - textSize.height / 2
-        )
-        badgeText.draw(at: textPoint, withAttributes: attrs)
-
-        image.isTemplate = false
-        return image
     }
 }
 

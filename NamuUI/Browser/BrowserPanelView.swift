@@ -83,10 +83,12 @@ struct BrowserPanelView: View {
 
             // Find-in-page overlay
             if showSearch, let wv = viewModel.namuWebView {
-                BrowserSearchOverlay(isVisible: $showSearch, webView: wv)
-                    .padding(.top, 8)
-                    .zIndex(10)
-                    .animation(.easeInOut(duration: 0.15), value: showSearch)
+                BrowserSearchOverlay(isVisible: $showSearch, webView: wv, onQueryChange: { q in
+                    viewModel.currentFindQuery = q.isEmpty ? nil : q
+                })
+                .padding(.top, 8)
+                .zIndex(10)
+                .animation(.easeInOut(duration: 0.15), value: showSearch)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .toggleFindOverlayBrowser)) { _ in
@@ -281,6 +283,9 @@ final class BrowserViewModel: ObservableObject, BrowserControlling {
     @Published var isLoading: Bool = false
     @Published var pageTitle: String = ""
 
+    /// Last active find-in-page query; restored after navigation completes.
+    var currentFindQuery: String?
+
     // MARK: BrowserControlling
 
     /// The pane ID this browser occupies — set externally when the panel is placed in a pane.
@@ -305,6 +310,54 @@ final class BrowserViewModel: ObservableObject, BrowserControlling {
 
     func unregister() {
         BrowserRegistry.shared.unregister(paneID: paneID)
+    }
+
+    // MARK: - Find-in-page restoration
+
+    func restoreFindQuery() {
+        guard let query = currentFindQuery, !query.isEmpty else { return }
+        if #available(macOS 13.0, *) {
+            namuWebView?.find(query) { _ in }
+        }
+    }
+
+    // MARK: - Theme mode
+
+    func applyThemeMode() {
+        let mode = UserDefaults.standard.string(forKey: "namu.browserThemeMode") ?? "system"
+        switch mode {
+        case "light":
+            namuWebView?.appearance = NSAppearance(named: .aqua)
+        case "dark":
+            namuWebView?.appearance = NSAppearance(named: .darkAqua)
+        default:
+            namuWebView?.appearance = nil
+        }
+
+        let colorScheme: String
+        switch mode {
+        case "light": colorScheme = "'light'"
+        case "dark": colorScheme = "'dark'"
+        default: colorScheme = "null"
+        }
+
+        let js = """
+        (() => {
+            const root = document.documentElement || document.body;
+            const scheme = \(colorScheme);
+            if (scheme) {
+                root.style.setProperty('color-scheme', scheme, 'important');
+                let meta = document.querySelector('meta[name="color-scheme"]');
+                if (!meta) { meta = document.createElement('meta'); meta.name = 'color-scheme'; (document.head || root).appendChild(meta); }
+                meta.content = scheme;
+            } else {
+                root.style.removeProperty('color-scheme');
+                const meta = document.querySelector('meta[name="color-scheme"]');
+                if (meta) meta.remove();
+            }
+        })()
+        """
+        namuWebView?.evaluateJavaScript(js, completionHandler: nil)
     }
 
     // MARK: - Navigation
@@ -777,6 +830,8 @@ struct BrowserWebView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.viewModel.isLoading = false
                 self?.syncState(webView)
+                self?.viewModel.restoreFindQuery()
+                self?.viewModel.applyThemeMode()
             }
         }
 
@@ -788,7 +843,20 @@ struct BrowserWebView: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.viewModel.isLoading = false
                 self?.syncState(webView)
+                self?.viewModel.restoreFindQuery()
             }
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            // Reset loading state on provisional navigation failure.
+            DispatchQueue.main.async { [weak self] in
+                self?.viewModel.isLoading = false
+                self?.syncState(webView)
+            }
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            webView.reload()
         }
 
         // MARK: WKUIDelegate (popup support + dialog forwarding)

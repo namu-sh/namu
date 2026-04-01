@@ -188,9 +188,14 @@ struct CommandPaletteView: View {
         .onAppear {
             fieldFocused = true
             selection.index = 0
+            updateDebugSnapshot()
         }
         .onChange(of: query) { _, _ in
             selection.index = 0
+            updateDebugSnapshot()
+        }
+        .onDisappear {
+            PaletteDebugSnapshot.current = nil
         }
         // Keyboard navigation handled via NSEvent monitor installed in onAppear
         .background(KeyEventHandler { event in
@@ -268,8 +273,22 @@ struct CommandPaletteView: View {
     }
 
     private func dismiss() {
+        PaletteDebugSnapshot.current = nil
         query = ""
         isPresented = false
+    }
+
+    /// Publish current palette state for debug.command_palette.* introspection.
+    private func updateDebugSnapshot() {
+        let filtered = filteredCommands
+        PaletteDebugSnapshot.current = PaletteDebugSnapshot(
+            isVisible: isPresented,
+            query: query,
+            selectedIndex: selection.index,
+            results: filtered.map { cmd in
+                PaletteDebugSnapshot.PaletteResultSnapshot(title: cmd.title, score: 0)
+            }
+        )
     }
 
     // MARK: - Fuzzy match

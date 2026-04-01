@@ -37,6 +37,21 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
 
     override var acceptsFirstResponder: Bool { true }
 
+    // MARK: - Debug counters
+
+    /// Number of flash animations triggered on this surface. Tracked for debug.flash.count.
+    private(set) var flashCount: Int = 0
+
+    /// Reset the flash counter for this surface.
+    func resetFlashCount() { flashCount = 0 }
+
+    /// Capture a snapshot of this surface view as a CGImage for visual regression testing.
+    func captureSnapshot() -> CGImage? {
+        guard let bitmapRep = bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        cacheDisplay(in: bounds, to: bitmapRep)
+        return bitmapRep.cgImage
+    }
+
     // needsPanelToBecomeKey = false ensures correct focus in split panes without
     // requiring the panel to become key first (avoids focus race conditions).
     override var needsPanelToBecomeKey: Bool { false }
@@ -228,6 +243,7 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         let peak = reason.flashPeakOpacity
         guard peak > 0 else { return }
+        flashCount += 1
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.flashLayer.frame = self.bounds

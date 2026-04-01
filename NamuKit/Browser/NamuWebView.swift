@@ -71,6 +71,9 @@ final class NamuWebView: WKWebView {
     weak var namuDelegate: (any NamuWebViewDelegate)?
     private(set) var config: Config
 
+    /// When set, the next HTTP navigation to this host is allowed through once without an alert.
+    var insecureHTTPBypassHost: String?
+
     /// Queue of dialogs waiting to be dismissed.
     private var pendingDialogs: [PendingDialog] = []
 
@@ -1173,6 +1176,32 @@ extension NamuWebView: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         handleNavigationDidFail(navigation, error: error)
     }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.allow)
+            return
+        }
+        // Check insecure HTTP and block if needed — allow bypass for one-time or allowlisted hosts.
+        if BrowserInsecureHTTPSettings.shouldBlockInsecureHTTP(url: url) {
+            let host = url.host?.lowercased()
+            if let bypass = insecureHTTPBypassHost, bypass == host {
+                insecureHTTPBypassHost = nil
+                decisionHandler(.allow)
+                return
+            }
+            decisionHandler(.cancel)
+            DispatchQueue.main.async { [weak self] in
+                self?.presentInsecureHTTPAlert(for: url)
+            }
+            return
+        }
+        decisionHandler(.allow)
+    }
 }
 
 // MARK: - WKUIDelegate (dialog handling)
@@ -1219,6 +1248,101 @@ extension NamuWebView: WKUIDelegate {
             }
             completionHandler(result.accepted ? result.text : nil)
         }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        decisionHandler(.prompt)
+    }
+}
+
+// MARK: - Insecure HTTP alert
+
+extension NamuWebView {
+    func presentInsecureHTTPAlert(for url: URL) {
+        guard let window = self.window else { return }
+        let host = url.host ?? "this site"
+        let alert = NSAlert()
+        alert.messageText = "Connection isn't secure"
+        alert.informativeText = "The connection to \(host) is not encrypted. Your data may be visible to others."
+        alert.alertStyle = .warning
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Always allow HTTP for this host"
+        alert.addButton(withTitle: "Open in Default Browser")
+        alert.addButton(withTitle: "Proceed in Namu")
+        alert.addButton(withTitle: "Cancel")
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            let shouldPersist = alert.suppressionButton?.state == .on
+            switch response {
+            case .alertFirstButtonReturn:
+                NSWorkspace.shared.open(url)
+            case .alertSecondButtonReturn:
+                if shouldPersist, let host = url.host {
+                    BrowserInsecureHTTPSettings.addAllowedHost(host)
+                } else {
+                    self?.insecureHTTPBypassHost = url.host?.lowercased()
+                }
+                self?.load(URLRequest(url: url))
+            default:
+                break
+            }
+        }
+    }
+}
+
+// MARK: - Insecure HTTP Settings
+
+enum BrowserInsecureHTTPSettings {
+    static let defaultAllowlistPatterns = [
+        "localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me",
+    ]
+
+    private static let allowlistKey = "namu.browserInsecureHTTPAllowlist"
+
+    static func allowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
+        defaults.stringArray(forKey: allowlistKey) ?? defaultAllowlistPatterns
+    }
+
+    static func addAllowedHost(_ host: String, defaults: UserDefaults = .standard) {
+        var patterns = allowlistPatterns(defaults: defaults)
+        guard let normalized = normalizeHost(host), !patterns.contains(normalized) else { return }
+        patterns.append(normalized)
+        defaults.set(patterns, forKey: allowlistKey)
+    }
+
+    static func normalizeHost(_ rawHost: String) -> String? {
+        var host = rawHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !host.isEmpty else { return nil }
+        if let schemeEnd = host.range(of: "://") { host = String(host[schemeEnd.upperBound...]) }
+        if let pathStart = host.firstIndex(of: "/") { host = String(host[..<pathStart]) }
+        if !host.contains("["), let colonIdx = host.lastIndex(of: ":") { host = String(host[..<colonIdx]) }
+        while host.hasSuffix(".") { host = String(host.dropLast()) }
+        return host.isEmpty ? nil : host
+    }
+
+    static func isHostAllowed(_ rawHost: String) -> Bool {
+        guard let normalized = normalizeHost(rawHost) else { return false }
+        for pattern in allowlistPatterns() {
+            let p = pattern.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if p == normalized { return true }
+            if p.hasPrefix("*.") {
+                let suffix = String(p.dropFirst(2))
+                if normalized.hasSuffix(suffix) || normalized == suffix { return true }
+            }
+        }
+        return false
+    }
+
+    static func shouldBlockInsecureHTTP(url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "http" else { return false }
+        guard let host = normalizeHost(url.host ?? "") else { return true }
+        return !isHostAllowed(host)
     }
 }
 

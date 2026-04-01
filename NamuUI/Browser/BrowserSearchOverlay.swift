@@ -13,6 +13,9 @@ struct BrowserSearchOverlay: View {
     @Binding var isVisible: Bool
     let webView: WKWebView
 
+    /// Called whenever the search query changes (or is cleared with "").
+    var onQueryChange: ((String) -> Void)?
+
     @State private var query: String = ""
     @State private var matchCount: Int = 0
     @State private var currentMatch: Int = 0
@@ -123,8 +126,10 @@ struct BrowserSearchOverlay: View {
             clearHighlights()
             matchCount = 0
             currentMatch = 0
+            onQueryChange?("")
             return
         }
+        onQueryChange?(query)
         if #available(macOS 13.0, *) {
             webView.find(query) { result in
                 // WKFindResult only tells us found/not-found, not the count.
@@ -163,6 +168,7 @@ struct BrowserSearchOverlay: View {
         matchCount = 0
         currentMatch = 0
         clearHighlights()
+        onQueryChange?("")
     }
 
     // MARK: - JS helpers (macOS 12 fallback)

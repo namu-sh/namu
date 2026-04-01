@@ -54,6 +54,10 @@ final class ServiceContainer {
     private var systemCommands: SystemCommands?
     private var aiCommands: AICommands?
     private var sidebarCommands: SidebarCommands?
+    private var windowCommands: WindowCommands?
+    private var debugCommands: DebugCommands?
+    private var fullscreenCommands: FullscreenCommands?
+    private var paletteDebugCommands: PaletteDebugCommands?
 
     // Held so registerCommands() can wire SidebarCommands after init
     private weak var sidebarViewModelForCommands: SidebarViewModel?
@@ -390,6 +394,22 @@ final class ServiceContainer {
             sidebar.register(in: commandRegistry)
             sidebarCommands = sidebar
         }
+
+        let wnd = WindowCommands()
+        wnd.register(in: commandRegistry)
+        windowCommands = wnd
+
+        let dbg = DebugCommands(workspaceManager: workspaceManager, panelManager: panelManager)
+        dbg.register(in: commandRegistry)
+        debugCommands = dbg
+
+        let fs = FullscreenCommands()
+        fs.register(in: commandRegistry)
+        fullscreenCommands = fs
+
+        let pd = PaletteDebugCommands()
+        pd.register(in: commandRegistry)
+        paletteDebugCommands = pd
     }
 
     private func startSocketServer() {
