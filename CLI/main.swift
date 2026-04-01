@@ -2,6 +2,14 @@ import Foundation
 import Darwin
 import Security
 
+// MARK: - ID Format
+
+enum CLIIDFormat: String {
+    case refs
+    case uuids
+    case both
+}
+
 // MARK: - Errors
 
 struct CLIError: Error, CustomStringConvertible {
@@ -13,7 +21,7 @@ struct CLIError: Error, CustomStringConvertible {
 
 final class SocketClient {
     private let path: String
-    private var socketFD: Int32 = -1
+    var socketFD: Int32 = -1
 
     init(path: String) {
         self.path = path
@@ -168,6 +176,58 @@ final class SocketClient {
     }
 }
 
+// MARK: - Socket Path Resolution
+
+func readPasswordFromFile() -> String? {
+    let path = NSHomeDirectory() + "/.namu/socket-password"
+    guard let data = FileManager.default.contents(atPath: path),
+          let str = String(data: data, encoding: .utf8) else { return nil }
+    return str.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func resolveSocketPath(explicit: String?) -> String {
+    // 1. Explicit --socket flag
+    if let explicit = explicit, !explicit.isEmpty { return explicit }
+
+    // 2. NAMU_SOCKET env var
+    if let envPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"], !envPath.isEmpty {
+        return envPath
+    }
+
+    // 3. Stable path in Application Support
+    let stablePath = NSHomeDirectory() + "/.local/share/namu/namu.sock"
+    if FileManager.default.fileExists(atPath: stablePath) {
+        return stablePath
+    }
+
+    // 4. Last-socket-path file (saved by previous session)
+    let lastSocketFile = NSHomeDirectory() + "/.local/share/namu/last-socket-path"
+    if let lastPath = try? String(contentsOfFile: lastSocketFile, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+       !lastPath.isEmpty,
+       FileManager.default.fileExists(atPath: lastPath) {
+        return lastPath
+    }
+
+    // 5. User-scoped tmp path
+    let uid = getuid()
+    let userPath = "/tmp/namu-\(uid).sock"
+    if FileManager.default.fileExists(atPath: userPath) {
+        return userPath
+    }
+
+    // 6. Tagged socket (for debug builds)
+    if let tag = ProcessInfo.processInfo.environment["NAMU_TAG"], !tag.isEmpty {
+        let taggedPath = "/tmp/namu-\(tag).sock"
+        if FileManager.default.fileExists(atPath: taggedPath) {
+            return taggedPath
+        }
+    }
+
+    // 7. Default fallback
+    return "/tmp/namu.sock"
+}
+
 // MARK: - Argument Parsing
 
 struct ParsedArgs {
@@ -175,16 +235,20 @@ struct ParsedArgs {
     let command: String
     let params: [String: Any]
     let socketPath: String
+    let password: String?
     let jsonOutput: Bool
     let timeout: TimeInterval
+    let idFormat: CLIIDFormat
 }
 
 func parseArguments(_ args: [String]) throws -> ParsedArgs {
     let remaining = Array(args.dropFirst()) // drop executable name
 
-    var socketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
+    var explicitSocketPath: String? = nil
+    var explicitPassword: String? = nil
     var jsonOutput = false
     var timeout: TimeInterval = 5.0
+    var idFormat: CLIIDFormat = .refs
 
     // Extract flags before namespace/command
     var i = 0
@@ -198,9 +262,29 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
             guard i < remaining.count else {
                 throw CLIError(message: "--socket requires a path argument")
             }
-            socketPath = remaining[i]
+            explicitSocketPath = remaining[i]
+        } else if arg == "--password" {
+            i += 1
+            guard i < remaining.count else {
+                throw CLIError(message: "--password requires a value argument")
+            }
+            explicitPassword = remaining[i]
         } else if arg == "--json" {
             jsonOutput = true
+        } else if arg == "--no-focus" {
+            paramMap["focus"] = false
+        } else if arg == "--id-format" {
+            i += 1
+            guard i < remaining.count else {
+                throw CLIError(message: "--id-format requires a value: refs, uuids, or both")
+            }
+            switch remaining[i].lowercased() {
+            case "refs":  idFormat = .refs
+            case "uuids": idFormat = .uuids
+            case "both":  idFormat = .both
+            default:
+                throw CLIError(message: "--id-format must be refs, uuids, or both")
+            }
         } else if arg == "--timeout" {
             i += 1
             guard i < remaining.count, let t = TimeInterval(remaining[i]) else {
@@ -266,9 +350,11 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
                 namespace: mappedNS,
                 command: mappedCmd,
                 params: paramMap,
-                socketPath: socketPath,
+                socketPath: resolveSocketPath(explicit: explicitSocketPath),
+                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
                 jsonOutput: jsonOutput,
-                timeout: timeout
+                timeout: timeout,
+                idFormat: idFormat
             )
         }
         throw CLIError(message: "Unknown window command '\(command)'. Valid commands: new, list, focus, close")
@@ -281,9 +367,11 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
                 namespace: "system",
                 command: "status",
                 params: paramMap,
-                socketPath: socketPath,
+                socketPath: resolveSocketPath(explicit: explicitSocketPath),
+                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
                 jsonOutput: jsonOutput,
-                timeout: timeout
+                timeout: timeout,
+                idFormat: idFormat
             )
         }
         if command == "capabilities" || command == "caps" {
@@ -291,9 +379,11 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
                 namespace: "system",
                 command: "capabilities",
                 params: paramMap,
-                socketPath: socketPath,
+                socketPath: resolveSocketPath(explicit: explicitSocketPath),
+                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
                 jsonOutput: jsonOutput,
-                timeout: timeout
+                timeout: timeout,
+                idFormat: idFormat
             )
         }
         throw CLIError(message: "Unknown debug command '\(command)'. Valid commands: stats, capabilities")
@@ -331,9 +421,11 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
                 namespace: namespace,
                 command: resolvedCommand,
                 params: paramMap,
-                socketPath: socketPath,
+                socketPath: resolveSocketPath(explicit: explicitSocketPath),
+                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
                 jsonOutput: jsonOutput,
-                timeout: timeout
+                timeout: timeout,
+                idFormat: idFormat
             )
         }
 
@@ -341,9 +433,11 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
             namespace: namespace,
             command: resolvedCommand,
             params: paramMap,
-            socketPath: socketPath,
+            socketPath: resolveSocketPath(explicit: explicitSocketPath),
+            password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
             jsonOutput: jsonOutput,
-            timeout: timeout
+            timeout: timeout,
+            idFormat: idFormat
         )
     }
 
@@ -357,9 +451,11 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
         namespace: namespace,
         command: command,
         params: paramMap,
-        socketPath: socketPath,
+        socketPath: resolveSocketPath(explicit: explicitSocketPath),
+        password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
         jsonOutput: jsonOutput,
-        timeout: timeout
+        timeout: timeout,
+        idFormat: idFormat
     )
 }
 
@@ -426,7 +522,8 @@ func usageString() -> String {
       namu notification create --title "Build done" --body "Success"
 
     Flags:
-      --socket <path>    Custom socket path (default: $NAMU_SOCKET or /tmp/namu.sock)
+      --socket <path>    Custom socket path (default: $NAMU_SOCKET or auto-discovered)
+      --password <pw>    Auth password (default: $NAMU_SOCKET_PASSWORD or ~/.namu/socket-password)
       --json             Output raw JSON response
       --timeout <secs>   Request timeout in seconds (default: 5, 30 for long-running commands)
     """
@@ -471,6 +568,72 @@ func jsonString(_ object: Any) -> String {
     return str
 }
 
+func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
+    let ref = item["ref"] as? String
+    let id  = item["id"] as? String
+    switch idFormat {
+    case .refs:  return ref ?? id ?? "?"
+    case .uuids: return id ?? ref ?? "?"
+    case .both:  return [ref, id].compactMap { $0 }.joined(separator: " ")
+    }
+}
+
+/// Print a workspace list in text mode.
+private func printWorkspaceList(_ workspaces: [Any], idFormat: CLIIDFormat) {
+    for item in workspaces {
+        guard let ws = item as? [String: Any] else { continue }
+        let handle   = textHandle(ws, idFormat: idFormat)
+        let title    = ws["title"] as? String ?? ""
+        let selected = (ws["selected"] as? Bool) == true
+        let suffix   = selected ? "  (selected)" : ""
+        print("\(handle)  \"\(title)\"\(suffix)")
+    }
+}
+
+/// Print a surface list in text mode.
+private func printSurfaceList(_ surfaces: [Any], idFormat: CLIIDFormat) {
+    for item in surfaces {
+        guard let surf = item as? [String: Any] else { continue }
+        let handle  = textHandle(surf, idFormat: idFormat)
+        let title   = surf["title"] as? String ?? ""
+        let focused = (surf["focused"] as? Bool) == true
+        let suffix  = focused ? "  (focused)" : ""
+        print("\(handle)  \"\(title)\"\(suffix)")
+    }
+}
+
+// MARK: - Auth
+
+func authenticateIfNeeded(client: SocketClient, password: String?) throws {
+    guard let pw = password, !pw.isEmpty else { return }
+    let authRequest: [String: Any] = [
+        "id": 0,
+        "method": "auth",
+        "params": ["password": pw]
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: authRequest),
+          let line = String(data: data, encoding: .utf8) else {
+        throw CLIError(message: "Failed to encode auth request")
+    }
+    let message = line + "\n"
+    try message.withCString { ptr in
+        let sent = Darwin.write(client.socketFD, ptr, strlen(ptr))
+        if sent < 0 {
+            throw CLIError(message: "Failed to send auth request")
+        }
+    }
+    // Read auth response (best effort)
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    let n = Darwin.read(client.socketFD, &buffer, buffer.count)
+    if n > 0 {
+        if let responseStr = String(bytes: buffer[..<n], encoding: .utf8),
+           responseStr.contains("\"error\"") {
+            fputs("namu: Authentication failed\n", stderr)
+            exit(1)
+        }
+    }
+}
+
 // MARK: - Main
 
 func run() throws {
@@ -490,6 +653,8 @@ func run() throws {
         }
         throw error
     }
+
+    try authenticateIfNeeded(client: client, password: parsed.password)
 
     let response = try client.sendRequest(
         method: method,
@@ -525,12 +690,20 @@ func run() throws {
         print(jsonString(response))
     } else {
         // If there's a result key, pretty-print it; otherwise print the whole response
-        if let result = response["result"] {
-            if let dict = result as? [String: Any], dict.isEmpty {
+        if let result = response["result"] as? [String: Any] {
+            if result.isEmpty {
                 print("OK")
+            } else if parsed.namespace == "workspace" && parsed.command == "list",
+                      let workspaces = result["workspaces"] as? [Any] {
+                printWorkspaceList(workspaces, idFormat: parsed.idFormat)
+            } else if (parsed.namespace == "surface" || parsed.namespace == "pane") && parsed.command == "list",
+                      let surfaces = result["surfaces"] as? [Any] {
+                printSurfaceList(surfaces, idFormat: parsed.idFormat)
             } else {
                 prettyPrint(result)
             }
+        } else if let result = response["result"] {
+            prettyPrint(result)
         } else {
             // Filter out jsonrpc/id metadata for cleaner output
             var display = response

@@ -138,6 +138,7 @@ final class SurfaceCommands {
         }
 
         var surfaces: [JSONRPCValue] = []
+        var globalIndex = 0
         for ws in workspaces {
             let panelIDs = panelManager.allPanelIDs(in: ws.id)
             let focusedID = panelManager.focusedPanelID(in: ws.id)
@@ -145,11 +146,14 @@ final class SurfaceCommands {
                 let title = panelManager.panel(for: panelID)?.title ?? ""
                 surfaces.append(.object([
                     "id":           .string(panelID.uuidString),
+                    "ref":          .string("surface:\(globalIndex)"),
+                    "index":        .int(globalIndex),
                     "workspace_id": .string(ws.id.uuidString),
                     "type":         .string("terminal"),
                     "title":        .string(title),
                     "focused":      .bool(panelID == focusedID)
                 ]))
+                globalIndex += 1
             }
         }
 

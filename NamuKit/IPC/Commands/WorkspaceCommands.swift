@@ -47,13 +47,15 @@ final class WorkspaceCommands {
         let workspaces = workspaceManager.workspaces
         let selectedID = workspaceManager.selectedWorkspaceID
 
-        let items: [JSONRPCValue] = workspaces.map { ws in
+        let items: [JSONRPCValue] = workspaces.enumerated().map { (index, ws) in
             .object([
-                "id":       .string(ws.id.uuidString),
-                "title":    .string(ws.title),
-                "order":    .int(ws.order),
-                "selected": .bool(ws.id == selectedID),
-                "pinned":   .bool(ws.isPinned),
+                "id":         .string(ws.id.uuidString),
+                "ref":        .string("workspace:\(index)"),
+                "index":      .int(index),
+                "title":      .string(ws.title),
+                "order":      .int(ws.order),
+                "selected":   .bool(ws.id == selectedID),
+                "pinned":     .bool(ws.isPinned),
                 "pane_count": .int(panelManager.allPanelIDs(in: ws.id).count)
             ])
         }
@@ -75,9 +77,24 @@ final class WorkspaceCommands {
             title = String(localized: "workspace.default.title", defaultValue: "New Workspace")
         }
 
+        let focus: Bool
+        if let fValue = params["focus"], case .bool(let f) = fValue {
+            focus = f
+        } else {
+            focus = true
+        }
+
         let ws = panelManager.createWorkspace(title: title)
+
+        if focus {
+            workspaceManager.selectWorkspace(id: ws.id)
+        }
+
+        let wsIndex = workspaceManager.workspaces.firstIndex(where: { $0.id == ws.id }) ?? 0
         return .success(id: req.id, result: .object([
             "id":    .string(ws.id.uuidString),
+            "ref":   .string("workspace:\(wsIndex)"),
+            "index": .int(wsIndex),
             "title": .string(ws.title),
             "order": .int(ws.order)
         ]))
