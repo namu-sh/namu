@@ -1288,6 +1288,67 @@ func handleSSHSessionEnd(remaining: [String]) {
     }
 }
 
+// MARK: - Claude Hook Session Store
+
+struct ClaudeHookSessionRecord: Codable {
+    var sessionId: String
+    var workspaceId: String?
+    var surfaceId: String?
+    var cwd: String?
+    var pid: String?
+    var lastSubtitle: String?
+    var lastBody: String?
+    var createdAt: Date
+    var updatedAt: Date
+}
+
+struct ClaudeHookSessionStore {
+    private static let storePath = NSHomeDirectory() + "/.namu/claude-hook-sessions.json"
+    private static let maxAgeSeconds: TimeInterval = 7 * 24 * 3600  // 7 days
+
+    static func load() -> [String: ClaudeHookSessionRecord] {
+        guard let data = FileManager.default.contents(atPath: storePath),
+              let records = try? JSONDecoder().decode([String: ClaudeHookSessionRecord].self, from: data) else {
+            return [:]
+        }
+        // Reap stale records
+        let cutoff = Date().addingTimeInterval(-maxAgeSeconds)
+        return records.filter { $0.value.updatedAt > cutoff }
+    }
+
+    static func save(_ records: [String: ClaudeHookSessionRecord]) {
+        let dir = (storePath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(records) else { return }
+        try? data.write(to: URL(fileURLWithPath: storePath), options: .atomic)
+    }
+
+    static func upsert(sessionId: String, update: (inout ClaudeHookSessionRecord) -> Void) {
+        var records = load()
+        var record = records[sessionId] ?? ClaudeHookSessionRecord(
+            sessionId: sessionId,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        update(&record)
+        record.updatedAt = Date()
+        records[sessionId] = record
+        save(records)
+    }
+
+    static func remove(sessionId: String) {
+        var records = load()
+        records.removeValue(forKey: sessionId)
+        save(records)
+    }
+
+    static func lookup(sessionId: String) -> ClaudeHookSessionRecord? {
+        load()[sessionId]
+    }
+}
+
 // MARK: - Claude Hook
 
 /// Handle Claude Code hook events fired by the claude wrapper.
@@ -1333,6 +1394,13 @@ func handleClaudeHook(_ args: [String]) throws {
     case "session-start":
         if let sessionID = context["session_id"] as? String {
             params["session_id"] = sessionID
+            let cwd = context["cwd"] as? String
+            ClaudeHookSessionStore.upsert(sessionId: sessionID) { record in
+                record.workspaceId = workspaceID.isEmpty ? nil : workspaceID
+                record.surfaceId = surfaceID.isEmpty ? nil : surfaceID
+                record.pid = claudePID.isEmpty ? nil : claudePID
+                record.cwd = cwd
+            }
         }
         params["status"] = "running"
         _ = try? client.sendRequest(method: "system.claude_hook", params: params, timeout: 5)
@@ -1359,6 +1427,9 @@ func handleClaudeHook(_ args: [String]) throws {
     case "session-end":
         params["status"] = "ended"
         _ = try? client.sendRequest(method: "system.claude_hook", params: params, timeout: 1)
+        if let sessionID = context["session_id"] as? String {
+            ClaudeHookSessionStore.remove(sessionId: sessionID)
+        }
 
     case "notification":
         let notifTitle = (context["title"] as? String) ?? "Claude Code"
@@ -1370,6 +1441,12 @@ func handleClaudeHook(_ args: [String]) throws {
             "workspace_id": workspaceID,
         ]
         _ = try? client.sendRequest(method: "notification.create", params: notifParams, timeout: 5)
+        if let sessionID = context["session_id"] as? String {
+            ClaudeHookSessionStore.upsert(sessionId: sessionID) { record in
+                record.lastSubtitle = notifTitle
+                record.lastBody = notifBody
+            }
+        }
 
     case "prompt-submit":
         params["status"] = "running"

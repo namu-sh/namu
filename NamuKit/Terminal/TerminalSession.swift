@@ -283,6 +283,24 @@ final class TerminalSession: ObservableObject, TerminalBackend {
             }
         }
 
+        // Bundle identifier
+        if let bundleID = Bundle.main.bundleIdentifier {
+            env["NAMU_BUNDLE_ID"] = bundleID
+        }
+
+        // Bundled CLI path
+        if let cliPath = Bundle.main.resourceURL?.appendingPathComponent("bin/namu").path {
+            env["NAMU_BUNDLED_CLI_PATH"] = cliPath
+        }
+
+        // Claude hooks disabled setting
+        let hooksEnabled = UserDefaults.standard.object(forKey: "namu.claudeHooksEnabled") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "namu.claudeHooksEnabled")
+        if !hooksEnabled {
+            env["NAMU_CLAUDE_HOOKS_DISABLED"] = "1"
+        }
+
         // Shell integration via ZDOTDIR override (zsh) or PROMPT_COMMAND (bash).
         if let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
             env["NAMU_SHELL_INTEGRATION_DIR"] = integrationDir

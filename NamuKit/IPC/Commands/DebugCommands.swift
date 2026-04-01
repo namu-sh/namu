@@ -54,6 +54,34 @@ final class DebugCommands {
             handler: { [weak self] req in try await self?.panelSnapshotReset(req) ?? .notAvailable(req) }
         ))
 
+        // Bonsplit underflow counters
+        registry.register(HandlerRegistration(
+            method: "debug.bonsplit_underflow.count",
+            execution: .mainActor,
+            safety: .safe,
+            handler: { [weak self] req in try await self?.bonsplitUnderflowCount(req) ?? .notAvailable(req) }
+        ))
+        registry.register(HandlerRegistration(
+            method: "debug.bonsplit_underflow.reset",
+            execution: .mainActor,
+            safety: .safe,
+            handler: { [weak self] req in try await self?.bonsplitUnderflowReset(req) ?? .notAvailable(req) }
+        ))
+
+        // Empty panel counters
+        registry.register(HandlerRegistration(
+            method: "debug.empty_panel.count",
+            execution: .mainActor,
+            safety: .safe,
+            handler: { [weak self] req in try await self?.emptyPanelCount(req) ?? .notAvailable(req) }
+        ))
+        registry.register(HandlerRegistration(
+            method: "debug.empty_panel.reset",
+            execution: .mainActor,
+            safety: .safe,
+            handler: { [weak self] req in try await self?.emptyPanelReset(req) ?? .notAvailable(req) }
+        ))
+
         // Flash counters
         registry.register(HandlerRegistration(
             method: "debug.flash.count",
@@ -289,6 +317,46 @@ final class DebugCommands {
         return .success(id: req.id, result: .object(["reset": .bool(true), "all": .bool(true)]))
     }
 
+    // MARK: - debug.bonsplit_underflow.count / reset
+
+    private func bonsplitUnderflowCount(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
+        #if DEBUG
+        return .success(id: req.id, result: .object([
+            "count": .int(BonsplitDebugCounters.arrangedSubviewUnderflowCount),
+        ]))
+        #else
+        return .success(id: req.id, result: .object([
+            "count": .null,
+            "note": .string("BonsplitDebugCounters only available in DEBUG builds"),
+        ]))
+        #endif
+    }
+
+    private func bonsplitUnderflowReset(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
+        #if DEBUG
+        BonsplitDebugCounters.reset()
+        return .success(id: req.id, result: .object(["reset": .bool(true)]))
+        #else
+        return .success(id: req.id, result: .object([
+            "reset": .bool(false),
+            "note": .string("BonsplitDebugCounters only available in DEBUG builds"),
+        ]))
+        #endif
+    }
+
+    // MARK: - debug.empty_panel.count / reset
+
+    private func emptyPanelCount(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
+        return .success(id: req.id, result: .object([
+            "count": .int(DebugCounters.emptyPanelCount),
+        ]))
+    }
+
+    private func emptyPanelReset(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
+        DebugCounters.resetEmptyPanel()
+        return .success(id: req.id, result: .object(["reset": .bool(true)]))
+    }
+
     // MARK: - debug.flash.count
 
     private func flashCount(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
@@ -390,6 +458,14 @@ final class DebugCommands {
             let hasSurface = view.surface != nil
             result["has_surface"] = .bool(hasSurface)
             result["is_active"] = .bool(view.window?.isKeyWindow ?? false && view.window?.firstResponder === view)
+            // Metal drawable stats — aggregate across all layers associated with this surface's window
+            let windowLayers = NamuMetalLayer.all
+            let totalDrawableCount = windowLayers.reduce(0) { $0 + $1.drawableCount }
+            let maxLastDrawableTime = windowLayers.map(\.lastDrawableTime).max() ?? 0
+            result["metal_drawable_count"] = .int(totalDrawableCount)
+            result["metal_last_drawable_time"] = .double(maxLastDrawableTime)
+            // desiredFocus: not exposed by Ghostty surface API — placeholder
+            result["desired_focus"] = .null
         }
 
         return .success(id: req.id, result: .object(result))
@@ -551,6 +627,15 @@ final class DebugCommands {
 
         return count
     }
+}
+
+// MARK: - Debug Counters
+
+/// Simple static counters for debug instrumentation not covered by Bonsplit's own counters.
+enum DebugCounters {
+    static var emptyPanelCount: Int = 0
+
+    static func resetEmptyPanel() { emptyPanelCount = 0 }
 }
 
 // MARK: - Panel Snapshot State

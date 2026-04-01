@@ -101,6 +101,9 @@ struct SettingsView: View {
 
 private struct GeneralSettingsContent: View {
     @State private var autoReorderEnabled: Bool = WorkspaceAutoReorderSettings.isEnabled()
+    @AppStorage("namu.ui.showMenuBarExtra") private var showMenuBarExtra = true
+    @AppStorage("namu.analytics.optIn") private var telemetryEnabled = false
+    @AppStorage("namu.claudeHooksEnabled") private var claudeHooksEnabled = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -130,6 +133,40 @@ private struct GeneralSettingsContent: View {
                             WorkspaceAutoReorderSettings.setEnabled(newValue)
                         }
                     Text(String(localized: "settings.notifications.autoReorder.description", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(4)
+            }
+
+            GroupBox {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle(String(localized: "settings.general.showMenuBarExtra", defaultValue: "Show in Menu Bar"), isOn: $showMenuBarExtra)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .help("Show Namu icon in the menu bar")
+                    Text(String(localized: "settings.general.showMenuBarExtra.description", defaultValue: "Display the Namu icon in the macOS menu bar for quick access."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+
+                    Divider().opacity(0.3)
+
+                    Toggle(String(localized: "settings.general.telemetry", defaultValue: "Send Anonymous Telemetry"), isOn: $telemetryEnabled)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .help("Help improve Namu by sending anonymous usage data")
+                    Text(String(localized: "settings.general.telemetry.description", defaultValue: "Help improve Namu by sending anonymous usage data. No personal information is collected."))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+
+                    Divider().opacity(0.3)
+
+                    Toggle("Claude Code Integration", isOn: $claudeHooksEnabled)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .help("When disabled, Claude Code hooks are not injected into terminal sessions")
+                    Text("Inject Claude Code hooks into terminal sessions for status indicators and notifications.")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                 }

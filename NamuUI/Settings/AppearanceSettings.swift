@@ -120,6 +120,43 @@ struct AppearanceSettingsView: View {
                         .frame(width: 36, alignment: .trailing)
                 }
 
+                // Per-appearance tint overrides
+                HStack {
+                    Text(String(localized: "settings.appearance.sidebar.lightModeTint", defaultValue: "Light Mode Tint"))
+                        .font(.system(size: 12))
+                        .frame(width: 110, alignment: .leading)
+                    ColorPicker("Light Mode Tint", selection: sidebarTintColorLightBinding, supportsOpacity: false)
+                        .labelsHidden()
+                        .frame(width: 36)
+                    if appearance.sidebarTintColorHexLight == nil {
+                        Text(String(localized: "settings.appearance.sidebar.usingDefault", defaultValue: "Using default"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                HStack {
+                    Text(String(localized: "settings.appearance.sidebar.darkModeTint", defaultValue: "Dark Mode Tint"))
+                        .font(.system(size: 12))
+                        .frame(width: 110, alignment: .leading)
+                    ColorPicker("Dark Mode Tint", selection: sidebarTintColorDarkBinding, supportsOpacity: false)
+                        .labelsHidden()
+                        .frame(width: 36)
+                    if appearance.sidebarTintColorHexDark == nil {
+                        Text(String(localized: "settings.appearance.sidebar.usingDefault", defaultValue: "Using default"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                Button(String(localized: "settings.appearance.sidebar.resetTint", defaultValue: "Reset Sidebar Tint")) {
+                    appearance.sidebarTintColorHexLight = nil
+                    appearance.sidebarTintColorHexDark = nil
+                    appearance.sidebarTintOpacity = 0.15
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
                 Text(String(localized: "settings.appearance.sidebar.tintNote", defaultValue: "Tint overlays the sidebar background material."))
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
@@ -137,6 +174,32 @@ struct AppearanceSettingsView: View {
             set: { newColor in
                 if let hex = newColor.hexString {
                     appearance.sidebarTintColorHex = hex
+                }
+            }
+        )
+    }
+
+    private var sidebarTintColorLightBinding: Binding<Color> {
+        Binding(
+            get: {
+                Color(hex: appearance.sidebarTintColorHexLight ?? appearance.sidebarTintColorHex) ?? .black
+            },
+            set: { newColor in
+                if let hex = newColor.hexString {
+                    appearance.sidebarTintColorHexLight = hex
+                }
+            }
+        )
+    }
+
+    private var sidebarTintColorDarkBinding: Binding<Color> {
+        Binding(
+            get: {
+                Color(hex: appearance.sidebarTintColorHexDark ?? appearance.sidebarTintColorHex) ?? .black
+            },
+            set: { newColor in
+                if let hex = newColor.hexString {
+                    appearance.sidebarTintColorHexDark = hex
                 }
             }
         )

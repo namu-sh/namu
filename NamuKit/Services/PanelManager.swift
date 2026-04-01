@@ -1041,6 +1041,12 @@ final class PanelManager: ObservableObject {
         ]
         if let wsID = workspaceID {
             env["NAMU_WORKSPACE_ID"] = wsID.uuidString
+            // Per-workspace port range (base port + 100 ports per workspace)
+            let workspaceIndex = workspaceManager.workspaces.firstIndex(where: { $0.id == wsID }) ?? 0
+            let portBase = 18100 + (workspaceIndex * 100)
+            env["NAMU_PORT"] = String(portBase)
+            env["NAMU_PORT_END"] = String(portBase + 99)
+            env["NAMU_PORT_RANGE"] = "100"
         }
         return env
     }
