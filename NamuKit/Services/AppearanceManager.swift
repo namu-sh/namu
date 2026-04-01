@@ -79,11 +79,44 @@ final class AppearanceManager: ObservableObject {
         }
     }
 
-    /// Sidebar tint color stored as hex string.
+    /// Sidebar tint color stored as hex string (fallback / unified).
     @Published var sidebarTintColorHex: String {
         didSet {
             UserDefaults.standard.set(sidebarTintColorHex, forKey: Keys.sidebarTintColor)
         }
+    }
+
+    /// Sidebar tint color for light mode. When set, overrides `sidebarTintColorHex` in light appearance.
+    @Published var sidebarTintColorHexLight: String? {
+        didSet {
+            if let hex = sidebarTintColorHexLight {
+                UserDefaults.standard.set(hex, forKey: Keys.sidebarTintColorLight)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Keys.sidebarTintColorLight)
+            }
+        }
+    }
+
+    /// Sidebar tint color for dark mode. When set, overrides `sidebarTintColorHex` in dark appearance.
+    @Published var sidebarTintColorHexDark: String? {
+        didSet {
+            if let hex = sidebarTintColorHexDark {
+                UserDefaults.standard.set(hex, forKey: Keys.sidebarTintColorDark)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Keys.sidebarTintColorDark)
+            }
+        }
+    }
+
+    /// Resolved sidebar tint hex for the current system appearance.
+    var resolvedSidebarTintColorHex: String {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if isDark, let dark = sidebarTintColorHexDark {
+            return dark
+        } else if !isDark, let light = sidebarTintColorHexLight {
+            return light
+        }
+        return sidebarTintColorHex
     }
 
     /// Sidebar tint opacity (0.0 – 1.0).
@@ -141,6 +174,8 @@ final class AppearanceManager: ObservableObject {
         windowOpacity = savedOpacity > 0 ? savedOpacity : 1.0
 
         sidebarTintColorHex = defaults.string(forKey: Keys.sidebarTintColor) ?? "#101010"
+        sidebarTintColorHexLight = defaults.string(forKey: Keys.sidebarTintColorLight)
+        sidebarTintColorHexDark = defaults.string(forKey: Keys.sidebarTintColorDark)
         let savedTintOpacity = defaults.object(forKey: Keys.sidebarTintOpacity) as? Double ?? 0.54
         sidebarTintOpacity = savedTintOpacity
 
@@ -246,8 +281,10 @@ final class AppearanceManager: ObservableObject {
         static let theme             = "namu.appearance.theme"
         static let accentColor       = "namu.appearance.accentColor"
         static let windowOpacity     = "namu.appearance.windowOpacity"
-        static let sidebarTintColor  = "namu.appearance.sidebarTintColor"
-        static let sidebarTintOpacity = "namu.appearance.sidebarTintOpacity"
+        static let sidebarTintColor      = "namu.appearance.sidebarTintColor"
+        static let sidebarTintColorLight = "namu.appearance.sidebarTintColorLight"
+        static let sidebarTintColorDark  = "namu.appearance.sidebarTintColorDark"
+        static let sidebarTintOpacity    = "namu.appearance.sidebarTintOpacity"
         static let sidebarMaterial   = "namu.appearance.sidebarMaterial"
         static let autoLightHour     = "namu.appearance.autoLightHour"
         static let autoDarkHour      = "namu.appearance.autoDarkHour"

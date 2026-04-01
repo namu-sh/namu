@@ -105,8 +105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NamuDebug.log("[Namu] GhosttyApp initialized successfully, shared=\(GhosttyApp.shared != nil)")
         ghosttyApp = app
 
-        // 2. Set up menu bar status item
+        // 2. Set up menu bar status item + visibility observer
         setupStatusItem()
+        installMenuBarVisibilityObserver()
 
         // 3. Force dark appearance by default.
         NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -183,6 +184,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Cmd+, → Open Settings (not remappable)
         if cmd && event.keyCode == 43 {
             NotificationCenter.default.post(name: .openSettings, object: nil)
+            return nil
+        }
+
+        // Cmd+Shift+, → Reload Configuration (not remappable)
+        if mods == [.command, .shift] && event.keyCode == 43 {
+            GhosttyApp.shared?.reloadConfig()
             return nil
         }
 
@@ -533,7 +540,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu Bar Status Item
 
+    /// UserDefaults key for menu bar visibility. Defaults to true.
+    static let showMenuBarExtraKey = "namu.ui.showMenuBarExtra"
+
+    private var menuBarVisibilityObserver: Any?
+
     private func setupStatusItem() {
+        guard UserDefaults.standard.object(forKey: Self.showMenuBarExtraKey) as? Bool ?? true else {
+            return // User disabled menu bar extra
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem?.button else { return }
         button.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "Namu")
@@ -549,6 +564,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: String(localized: "statusmenu.quit", defaultValue: "Quit Namu"), action: #selector(quitApp), keyEquivalent: "q"))
         statusItem?.menu = menu
+    }
+
+    /// Observe UserDefaults changes to sync menu bar visibility at runtime.
+    private func installMenuBarVisibilityObserver() {
+        menuBarVisibilityObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.syncMenuBarExtraVisibility()
+        }
+    }
+
+    private func syncMenuBarExtraVisibility() {
+        let show = UserDefaults.standard.object(forKey: Self.showMenuBarExtraKey) as? Bool ?? true
+        if show && statusItem == nil {
+            setupStatusItem()
+        } else if !show, let item = statusItem {
+            NSStatusBar.system.removeStatusItem(item)
+            statusItem = nil
+        }
     }
 
     @objc private func statusItemClicked() {

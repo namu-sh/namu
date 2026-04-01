@@ -655,7 +655,8 @@ final class GhosttyApp {
         return nil
     }
 
-    private func reloadConfig() {
+    /// Reload Ghostty configuration from disk. Called by Cmd+Shift+, shortcut and internal Ghostty action.
+    func reloadConfig() {
         guard let oldConfig = config else { return }
 
         guard let newConfig = ghostty_config_new() else { return }
