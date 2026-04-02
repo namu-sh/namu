@@ -339,9 +339,10 @@ struct ContentView: View {
 
                 Spacer()
             }
+            .offset(y: 1)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 38)
-            .padding(.leading, isSidebarVisible && !isMinimalMode ? 12 : 76)
+            .padding(.leading, isSidebarVisible && !isMinimalMode ? 12 : 86)
             .padding(.trailing, 12)
             .background(Color.primary.opacity(0.03))
 

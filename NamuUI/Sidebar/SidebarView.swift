@@ -275,7 +275,7 @@ struct SidebarView: View {
             .animation(.easeOut(duration: 0.12), value: isSearchHovered)
         }
         .padding(.horizontal, 12)
-        .padding(.top, 10)
+        .padding(.top, 7)
         .padding(.bottom, 8)
     }
 
