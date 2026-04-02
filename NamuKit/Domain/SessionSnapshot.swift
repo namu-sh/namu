@@ -94,6 +94,7 @@ struct WorkspaceSnapshot: Codable, Identifiable {
     var isPinned: Bool
     var customTitle: String?
     var processTitle: String?
+    var customColor: String?
     var layout: WorkspaceLayoutSnapshot
     var activePanelID: UUID?
 
@@ -104,6 +105,7 @@ struct WorkspaceSnapshot: Codable, Identifiable {
         case isPinned
         case customTitle
         case processTitle
+        case customColor
         case layout
         case activePanelID = "activePanelId"
     }
