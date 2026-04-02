@@ -53,16 +53,7 @@ final class WindowToolbarController: NSObject {
             window.styleMask.insert(.fullSizeContentView)
         }
 
-        // Hide the NSTitlebarContainerView entirely — this eliminates the safe area
-        // inset that SwiftUI uses for the titlebar, allowing content to extend to the
-        // very top of the window. Same technique used by Ghostty's HiddenTitlebarTerminalWindow.
-        if let themeFrame = window.contentView?.superview {
-            for subview in themeFrame.subviews {
-                if type(of: subview).description() == "NSTitlebarContainerView" {
-                    subview.isHidden = true
-                    break
-                }
-            }
-        }
+        // Note: NSTitlebarContainerView is NOT hidden — it's repositioned by
+        // WindowDecorationsController to align traffic lights with sidebar buttons.
     }
 }

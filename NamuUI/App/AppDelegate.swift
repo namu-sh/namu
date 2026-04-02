@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Menu bar status item
     private var statusItem: NSStatusItem?
 
+    // Window controllers
+    private let windowDecorationsController = WindowDecorationsController()
+
     // Services — injected after NamuApp sets them up.
     // These are weak to avoid a retain cycle; they're owned by the SwiftUI environment.
     weak var workspaceManager: WorkspaceManager?
@@ -116,7 +119,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NamuDebug.log("[Namu] GhosttyApp initialized successfully, shared=\(GhosttyApp.shared != nil)")
         ghosttyApp = app
 
-        // 2. Set up menu bar status item + visibility observer
+        // 2. Reposition traffic light buttons
+        windowDecorationsController.start()
+
+        // 3. Set up menu bar status item + visibility observer
         setupStatusItem()
         installMenuBarVisibilityObserver()
 

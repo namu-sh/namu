@@ -1,38 +1,34 @@
 import AppKit
 
+/// Repositions traffic light buttons (close/minimize/zoom) to align with
+/// the sidebar header. Uses the Tauri approach: resize the NSTitlebarContainerView
+/// frame, then reposition buttons within it.
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
     private var didStart = false
-    private var trafficLightBaseFrames: [ObjectIdentifier: [NSWindow.ButtonType: NSRect]] = [:]
+
+    /// Desired traffic light position (points from top-left of window content).
+    var trafficLightPosition = NSPoint(x: 14, y: 14)
 
     func start() {
         guard !didStart else { return }
         didStart = true
-        attachToExistingWindows()
         installObservers()
+        // Delay initial apply to let SwiftUI finish window setup
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.applyToAllWindows()
+        }
     }
+
+    // MARK: - Public
 
     func apply(to window: NSWindow) {
-        let shouldHide = shouldHideTrafficLights(for: window)
-        hideStandardButtons(window, hidden: shouldHide)
-        applyTrafficLightOffset(window, hidden: shouldHide)
-    }
-
-    // MARK: - Public API
-
-    func hideStandardButtons(_ window: NSWindow) {
-        hideStandardButtons(window, hidden: true)
-    }
-
-    func showStandardButtons(_ window: NSWindow) {
-        hideStandardButtons(window, hidden: false)
-    }
-
-    func applyTrafficLightOffset(_ window: NSWindow, x: CGFloat, y: CGFloat) {
-        DispatchQueue.main.async { [weak self, weak window] in
-            guard let self, let window else { return }
-            self.applyTrafficLightOffsetNow(on: window, offset: NSPoint(x: x, y: y))
+        if shouldHideTrafficLights(for: window) {
+            hideStandardButtons(window, hidden: true)
+            return
         }
+        hideStandardButtons(window, hidden: false)
+        repositionTrafficLights(in: window)
     }
 
     // MARK: - Private
@@ -41,15 +37,57 @@ final class WindowDecorationsController {
         let center = NotificationCenter.default
         let handler: (Notification) -> Void = { [weak self] notification in
             guard let self, let window = notification.object as? NSWindow else { return }
-            self.apply(to: window)
+            // Delay slightly — macOS resets positions during layout
+            DispatchQueue.main.async { [weak self] in
+                self?.apply(to: window)
+            }
         }
-        observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: handler))
-        observers.append(center.addObserver(forName: NSWindow.didBecomeMainNotification, object: nil, queue: .main, using: handler))
+        for name in [
+            NSWindow.didBecomeKeyNotification,
+            NSWindow.didBecomeMainNotification,
+            NSWindow.didResizeNotification,
+            NSWindow.didEndLiveResizeNotification,
+            NSWindow.didExitFullScreenNotification,
+        ] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
+        }
     }
 
-    private func attachToExistingWindows() {
+    private func applyToAllWindows() {
         for window in NSApp.windows {
             apply(to: window)
+        }
+    }
+
+    /// Core repositioning logic — resize the titlebar container, then move buttons.
+    private func repositionTrafficLights(in window: NSWindow) {
+        guard let closeButton = window.standardWindowButton(.closeButton),
+              let titlebarContainerView = closeButton.superview?.superview else { return }
+
+        let buttonHeight = closeButton.frame.height
+
+        // Resize the titlebar container to accommodate the new Y position
+        let containerHeight = buttonHeight + trafficLightPosition.y * 2
+        var containerFrame = titlebarContainerView.frame
+        containerFrame.size.height = containerHeight
+        containerFrame.origin.y = window.frame.height - containerHeight
+        titlebarContainerView.frame = containerFrame
+
+        // Reposition each button within the container
+        let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
+        let spaceBetween: CGFloat = {
+            guard let close = window.standardWindowButton(.closeButton),
+                  let minimize = window.standardWindowButton(.miniaturizeButton) else { return 20 }
+            return minimize.frame.origin.x - close.frame.origin.x
+        }()
+
+        for (i, type) in buttons.enumerated() {
+            guard let button = window.standardWindowButton(type) else { continue }
+            var btnFrame = button.frame
+            btnFrame.origin.x = trafficLightPosition.x + CGFloat(i) * spaceBetween
+            // Center vertically in the resized container's superview
+            btnFrame.origin.y = (closeButton.superview!.frame.height - buttonHeight) / 2
+            button.setFrameOrigin(btnFrame.origin)
         }
     }
 
@@ -57,42 +95,6 @@ final class WindowDecorationsController {
         window.standardWindowButton(.closeButton)?.isHidden = hidden
         window.standardWindowButton(.miniaturizeButton)?.isHidden = hidden
         window.standardWindowButton(.zoomButton)?.isHidden = hidden
-    }
-
-    private func applyTrafficLightOffset(_ window: NSWindow, hidden: Bool) {
-        DispatchQueue.main.async { [weak self, weak window] in
-            guard let self, let window else { return }
-            let offset = hidden ? NSPoint.zero : self.trafficLightOffset(for: window)
-            self.applyTrafficLightOffsetNow(on: window, offset: offset)
-        }
-    }
-
-    private func applyTrafficLightOffsetNow(on window: NSWindow, offset: NSPoint) {
-        let key = ObjectIdentifier(window)
-        let buttonTypes: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-        var baseFrames = trafficLightBaseFrames[key] ?? [:]
-
-        for type in buttonTypes {
-            guard let button = window.standardWindowButton(type) else { continue }
-            if baseFrames[type] == nil {
-                baseFrames[type] = button.frame
-            }
-        }
-
-        trafficLightBaseFrames[key] = baseFrames
-
-        for type in buttonTypes {
-            guard let button = window.standardWindowButton(type), let base = baseFrames[type] else { continue }
-            button.setFrameOrigin(NSPoint(x: base.origin.x + offset.x, y: base.origin.y + offset.y))
-        }
-    }
-
-    private func trafficLightOffset(for window: NSWindow) -> NSPoint {
-        let id = window.identifier?.rawValue ?? ""
-        if id == "namu.settings" || id == "namu-primary" || id.hasPrefix("namu-secondary-") {
-            return NSPoint(x: 7, y: -4)
-        }
-        return .zero
     }
 
     private func shouldHideTrafficLights(for window: NSWindow) -> Bool {
