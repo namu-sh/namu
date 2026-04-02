@@ -87,6 +87,10 @@ struct ContentView: View {
                         }
                 }
 
+                VStack(spacing: 0) {
+                    // Content header — sidebar toggle + drag area
+                    contentHeader
+
                     ZStack {
                     ForEach(workspaceManager.workspaces) { workspace in
                         let isSelectedWorkspace = workspace.id == workspaceManager.selectedWorkspaceID
@@ -137,6 +141,7 @@ struct ContentView: View {
                         .zIndex(50)
                         .transition(.opacity.combined(with: .move(edge: .top)))
                     }
+                }
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("namu-workspace-content")
@@ -287,7 +292,62 @@ struct ContentView: View {
         }
     }
 
-    // Content toolbar removed — all controls in sidebar titlebar
+    // MARK: - Content Header
+
+    /// Title and icon for the focused pane's active tab.
+    private var focusedPaneInfo: (title: String, icon: String, isDirectory: Bool) {
+        guard let wsID = workspaceManager.selectedWorkspaceID,
+              let panelID = panelManager.focusedPanelID(in: wsID),
+              let panel = panelManager.panel(for: panelID) else {
+            return ("Namu", "terminal", false)
+        }
+
+        let isBrowser = panel is BrowserPanel
+        let dir = panel.workingDirectory
+
+        let icon: String
+        if isBrowser {
+            icon = "globe"
+        } else if dir != nil {
+            icon = "folder.fill"
+        } else {
+            icon = "terminal.fill"
+        }
+
+        // Build Terminal.app-style title: "name — shell"
+        var parts: [String] = []
+        let name = panel.title.isEmpty ? "Terminal" : panel.title
+        parts.append(name)
+
+        return (parts.joined(separator: " \u{2014} "), icon, dir != nil && !isBrowser)
+    }
+
+    private var contentHeader: some View {
+        let info = focusedPaneInfo
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: info.icon)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+
+                Text(info.title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 38)
+            .padding(.leading, isSidebarVisible && !isMinimalMode ? 12 : 76)
+            .padding(.trailing, 12)
+            .background(Color.primary.opacity(0.03))
+
+            Divider()
+        }
+    }
 }
 
 // MARK: - SidebarResizeHandle
@@ -303,11 +363,18 @@ private struct SidebarResizeHandle: View {
     @State private var isDragging = false
 
     var body: some View {
-        ZStack {
-            // Invisible hit area — overlaps sidebar edge
+        ZStack(alignment: .leading) {
+            // Invisible hit area
             Color.clear
                 .contentShape(Rectangle())
                 .frame(width: 6)
+
+            // Visible indicator on hover/drag
+            Rectangle()
+                .fill(Color.primary.opacity(isHovered || isDragging ? 0.15 : 0))
+                .frame(width: 2)
+                .animation(.easeOut(duration: 0.15), value: isHovered)
+                .animation(.easeOut(duration: 0.15), value: isDragging)
         }
         .frame(maxHeight: .infinity)
         .onHover { hovering in

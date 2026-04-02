@@ -118,7 +118,7 @@ struct SidebarItemView: View, Equatable {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
         }
-        .onTapGesture { onSelect() }
+        // Selection handled by SidebarView wrapper to avoid blocking .onDrag
         .animation(.easeInOut(duration: 0.2), value: isSelected)
         .animation(.easeOut(duration: 0.15), value: isHovering)
         .popover(isPresented: $showColorPopover, arrowEdge: .trailing) {
@@ -131,15 +131,11 @@ struct SidebarItemView: View, Equatable {
 
     @ViewBuilder
     private var leadingIndicator: some View {
-        VStack(spacing: 4) {
+        ZStack {
             if let hex = customColor, let color = Color(hex: hex) {
                 Circle()
                     .fill(color)
                     .frame(width: 8, height: 8)
-            } else if isPinned {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.accentColor)
-                    .frame(width: 3, height: 16)
             } else {
                 Circle()
                     .fill(shellDotColor)
@@ -392,7 +388,7 @@ struct SidebarItemView: View, Equatable {
                     .background(.red, in: Capsule())
                     .transition(.scale.combined(with: .opacity))
             }
-            if isPinned && customColor == nil {
+            if isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 8))
                     .foregroundStyle(.tertiary)

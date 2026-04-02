@@ -76,6 +76,7 @@ struct SidebarView: View {
                                 // Note: .equatable() removed — live isSelected from viewModel.selection
                                 // ensures sidebar always reflects current selection state.
                                 .padding(.horizontal, 8)
+                                .onTapGesture { viewModel.selectWorkspace(id: item.id) }
                                 .opacity(draggingID == item.id ? 0.4 : 1.0)
                                 .overlay(
                                     dropTargetID == item.id
@@ -186,28 +187,41 @@ struct SidebarView: View {
     /// Callback to open the command palette — injected by ContentView.
     var onOpenCommandPalette: () -> Void = {}
 
+    @State private var isAddHovered = false
+    @State private var isBellHovered = false
+    @State private var isSearchHovered = false
+
     private var sidebarTitlebarButtons: some View {
-        VStack(spacing: 14) {
-            // Row 1: traffic light row — buttons pushed right to avoid overlap
-            HStack(spacing: 6) {
+        VStack(spacing: 12) {
+            // Row 1: traffic light row — buttons pushed right
+            HStack(spacing: 4) {
                 Spacer()
 
                 Button(action: { viewModel.createWorkspace() }) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
+                        .foregroundStyle(isAddHovered ? .primary : .secondary)
+                        .frame(width: 26, height: 26)
+                        .background(
+                            isAddHovered ? Color.primary.opacity(0.08) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
+                .onHover { isAddHovered = $0 }
+                .animation(.easeOut(duration: 0.12), value: isAddHovered)
                 .help(String(localized: "sidebar.addButton.tooltip", defaultValue: "New Workspace (⌘N)"))
                 .accessibilityIdentifier("namu-new-workspace-button")
 
                 Button(action: { viewModel.toggleNotifications() }) {
                     ZStack(alignment: .topTrailing) {
                         Image(systemName: viewModel.selection == .notifications ? "bell.fill" : "bell")
-                            .font(.system(size: 11))
-                            .foregroundStyle(viewModel.selection == .notifications ? Color.accentColor : .secondary)
+                            .font(.system(size: 12))
+                            .foregroundStyle(
+                                viewModel.selection == .notifications ? Color.accentColor
+                                : isBellHovered ? .primary : .secondary
+                            )
 
                         if viewModel.notificationUnreadCount > 0 {
                             Text(viewModel.notificationUnreadCount > 99 ? "99+" : "\(viewModel.notificationUnreadCount)")
@@ -215,41 +229,54 @@ struct SidebarView: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 3)
                                 .padding(.vertical, 1)
-                                .background(Color.accentColor, in: Capsule())
-                                .offset(x: 6, y: -4)
+                                .background(Color.red, in: Capsule())
+                                .offset(x: 7, y: -5)
                         }
                     }
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
+                    .frame(width: 26, height: 26)
+                    .background(
+                        isBellHovered ? Color.primary.opacity(0.08) : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
+                .onHover { isBellHovered = $0 }
+                .animation(.easeOut(duration: 0.12), value: isBellHovered)
                 .help(String(localized: "sidebar.notifications.tooltip", defaultValue: "Notifications (⌘⇧I)"))
             }
-            .frame(height: 22)
 
             // Row 2: Search bar
             Button(action: onOpenCommandPalette) {
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10))
+                        .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                     Text(String(localized: "sidebar.search.placeholder", defaultValue: "Search..."))
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                     Spacer()
                     Text("⌘K")
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.quaternary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    isSearchHovered ? Color.primary.opacity(0.06) : Color.primary.opacity(0.03),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                )
             }
             .buttonStyle(.plain)
+            .onHover { isSearchHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isSearchHovered)
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 10)   // Vertically centered with traffic lights
-        .padding(.bottom, 10)
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
     @ViewBuilder
