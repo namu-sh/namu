@@ -28,6 +28,8 @@ final class SidebarCommands {
         registry.register("sidebar.list_status")     { [weak self] req in try await self?.listStatus(req) ?? .notAvailable(req) }
         registry.register("sidebar.set_progress")    { [weak self] req in try await self?.setProgress(req) ?? .notAvailable(req) }
         registry.register("sidebar.clear_progress")  { [weak self] req in try await self?.clearProgress(req) ?? .notAvailable(req) }
+        registry.register("report_git_branch")       { [weak self] req in try await self?.reportGitBranch(req) ?? .notAvailable(req) }
+        registry.register("clear_git_branch")        { [weak self] req in try await self?.clearGitBranch(req) ?? .notAvailable(req) }
     }
 
     // MARK: - sidebar.report_pr
@@ -493,6 +495,66 @@ final class SidebarCommands {
         return .success(id: req.id, result: .object([
             "workspace_id": .string(workspaceID.uuidString),
             "cleared": .bool(true),
+        ]))
+    }
+
+    // MARK: - report_git_branch
+    //
+    // Update the git branch and dirty state for a workspace.
+    // Params:
+    //   branch       (string, required) — current branch name
+    //   dirty        (bool, optional)   — whether the working tree has uncommitted changes
+    //   workspace_id (string, optional) — defaults to selected workspace
+
+    private func reportGitBranch(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+        let workspaceID = resolveWorkspaceID(params)
+        NSLog("[SidebarCommands] report_git_branch received for workspace %@, params: %@", workspaceID.uuidString, "\(params)")
+
+        guard let branchValue = params["branch"], case .string(let branch) = branchValue, !branch.isEmpty else {
+            NSLog("[SidebarCommands] report_git_branch: missing branch param")
+            throw JSONRPCError(code: -32602, message: "Missing required param: branch")
+        }
+
+        let dirty: Bool
+        if let dirtyValue = params["dirty"], case .bool(let d) = dirtyValue {
+            dirty = d
+        } else {
+            dirty = false
+        }
+
+        NSLog("[SidebarCommands] report_git_branch: setting branch=%@ dirty=%d for workspace %@", branch, dirty ? 1 : 0, workspaceID.uuidString)
+        updateMetadata(for: workspaceID) { meta in
+            meta.gitBranch = branch
+            meta.gitDirty = dirty
+        }
+
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "branch":       .string(branch),
+            "dirty":        .bool(dirty)
+        ]))
+    }
+
+    // MARK: - clear_git_branch
+    //
+    // Clear git branch info for a workspace (e.g. when leaving a git repo).
+    // Params:
+    //   workspace_id (string, optional) — defaults to selected workspace
+
+    private func clearGitBranch(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+        let workspaceID = resolveWorkspaceID(params)
+        NSLog("[SidebarCommands] clear_git_branch received for workspace %@", workspaceID.uuidString)
+
+        updateMetadata(for: workspaceID) { meta in
+            meta.gitBranch = nil
+            meta.gitDirty = false
+        }
+
+        return .success(id: req.id, result: .object([
+            "workspace_id": .string(workspaceID.uuidString),
+            "cleared":      .bool(true)
         ]))
     }
 

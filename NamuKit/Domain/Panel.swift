@@ -146,7 +146,14 @@ final class TerminalPanel: Panel, ObservableObject {
             .assign(to: &$title)
     }
 
-    // MARK: - Restore helpers
+    // MARK: - Shell integration updates
+
+    /// Update the working directory from Ghostty's OSC 7 / PWD action.
+    func updateWorkingDirectory(_ pwd: String) {
+        if pwd != workingDirectory {
+            workingDirectory = pwd
+        }
+    }
 
     /// Seed the git branch from a persisted snapshot (avoids waiting for shell integration to report).
     func restoreGitBranch(_ branch: String) {

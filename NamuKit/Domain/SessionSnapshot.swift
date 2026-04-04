@@ -28,7 +28,7 @@ struct WindowSnapshot: Codable {
 /// v1: single flat workspaces array (single-window era)
 /// v2: windows array of WindowSnapshot; v1 snapshots auto-migrated to one-window array
 struct SessionSnapshot: Codable {
-    static let currentVersion: UInt = 3
+    static let currentVersion: UInt = 4
 
     let version: UInt
     let timestamp: Date
@@ -82,6 +82,7 @@ struct SessionSnapshot: Codable {
         guard version <= Self.currentVersion else { return nil }
         // v1→v2 migration is handled in init(from:) above.
         // v2→v3 migration: panelIds defaults to [id] when nil (handled by PaneSnapshot decode).
+        // v3→v4 migration: new optional fields decode as nil automatically; no transform needed.
         return self
     }
 }
@@ -97,6 +98,12 @@ struct WorkspaceSnapshot: Codable, Identifiable {
     var customColor: String?
     var layout: WorkspaceLayoutSnapshot
     var activePanelID: UUID?
+    // v4: deeper workspace state
+    var currentDirectory: String?
+    var gitBranch: GitBranchSnapshot?
+    var statusEntries: [StatusEntrySnapshot]?
+    var logEntries: [LogEntrySnapshot]?
+    var progress: ProgressSnapshot?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -108,7 +115,39 @@ struct WorkspaceSnapshot: Codable, Identifiable {
         case customColor
         case layout
         case activePanelID = "activePanelId"
+        case currentDirectory
+        case gitBranch
+        case statusEntries
+        case logEntries
+        case progress
     }
+}
+
+// MARK: - Sidebar metadata snapshots (v4)
+
+struct GitBranchSnapshot: Codable {
+    var branch: String
+    var isDirty: Bool
+}
+
+struct StatusEntrySnapshot: Codable {
+    var key: String
+    var value: String
+    var icon: String?
+    var color: String?
+    var timestamp: TimeInterval
+}
+
+struct LogEntrySnapshot: Codable {
+    var message: String
+    var level: String
+    var source: String?
+    var timestamp: TimeInterval
+}
+
+struct ProgressSnapshot: Codable {
+    var value: Double
+    var label: String?
 }
 
 /// Recursive layout snapshot matching PaneTree structure.
@@ -155,37 +194,27 @@ indirect enum WorkspaceLayoutSnapshot: Codable {
 
 /// Snapshot of a leaf pane — holds the panel type and optional restore data.
 /// v3 adds panelIds (tab support) and selectedPanelId.
+/// v4 adds gitDirty, listeningPorts for immediate sidebar display on restore.
 struct PaneSnapshot: Codable {
     let id: UUID
     var panelType: PanelType
     var workingDirectory: String?
-    /// Path to a temp file containing scrollback content for replay on restore.
     var scrollbackFile: String?
-    /// Git branch active in this pane at snapshot time.
     var gitBranch: String?
-    /// User-supplied custom title for this pane (overrides process title).
     var customTitle: String?
-    /// URL string for browser panels.
     var browserURL: String?
-    /// Browser page zoom level (1.0 = 100%).
     var browserZoom: Double?
-    /// Whether the Web Inspector was visible at snapshot time.
     var browserDevToolsVisible: Bool?
-    /// Back-navigation history URLs for the browser panel.
     var browserBackHistory: [String]?
-    /// Forward-navigation history URLs for the browser panel.
     var browserForwardHistory: [String]?
-    /// v3: All panel UUIDs in this pane (for tab support). Single panel → [id].
     var panelIds: [UUID]?
-    /// v3: The selected/active panel UUID within this pane.
     var selectedPanelId: UUID?
-    /// The UUID string of the browser profile active in this pane at snapshot time.
-    /// Used during restore to re-initialise the correct WKWebsiteDataStore for the panel.
     var browserProfileID: String?
-    /// Whether the web view should be rendered immediately on restore (vs. lazy/deferred).
     var browserShouldRender: Bool?
-    /// Whether this panel was pinned at snapshot time. Restored by calling togglePanelPin.
     var isPinned: Bool?
+    // v4: deeper panel state
+    var gitDirty: Bool?
+    var listeningPorts: [UInt16]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -204,6 +233,8 @@ struct PaneSnapshot: Codable {
         case browserProfileID
         case browserShouldRender
         case isPinned
+        case gitDirty
+        case listeningPorts
     }
 }
 

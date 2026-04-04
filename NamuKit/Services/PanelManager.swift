@@ -259,13 +259,15 @@ final class PanelManager: ObservableObject {
     @discardableResult
     func restoreTerminalPanel(
         id: UUID,
+        workspaceID: UUID? = nil,
         workingDirectory: String?,
         scrollbackFile: String?,
         gitBranch: String? = nil,
         customTitle: String? = nil
     ) -> TerminalPanel {
-        let session = TerminalSession(id: id, workingDirectory: workingDirectory)
-        let panel = TerminalPanel(id: id, workingDirectory: workingDirectory, session: session)
+        let env = namuEnvironment(paneID: id, workspaceID: workspaceID)
+        let session = TerminalSession(id: id, workingDirectory: workingDirectory, environmentVariables: env)
+        let panel = TerminalPanel(id: id, workingDirectory: workingDirectory, environmentVariables: env, session: session)
         panel.scrollbackRestoreFile = scrollbackFile
         panel.customTitle = customTitle
         if let branch = gitBranch {
@@ -379,7 +381,8 @@ final class PanelManager: ObservableObject {
     /// Convenience: split the active pane in the selected workspace.
     func splitActivePanel(direction: SplitDirection) {
         guard let wsID = workspaceManager.selectedWorkspaceID else { return }
-        splitPane(in: wsID, direction: direction)
+        let cwd = focusedPanelID(in: wsID).flatMap { panels[$0]?.workingDirectory }
+        splitPane(in: wsID, direction: direction, workingDirectory: cwd)
     }
 
     // MARK: - Close

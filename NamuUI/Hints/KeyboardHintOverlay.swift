@@ -58,7 +58,7 @@ struct KeyboardHintOverlay: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                .strokeBorder(NamuColors.separator, lineWidth: 1)
         )
         .frame(width: 280)
     }

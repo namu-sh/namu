@@ -75,6 +75,7 @@ final class GhosttyApp {
 
         ghostty_config_load_default_files(primaryConfig)
         ghostty_config_load_recursive_files(primaryConfig)
+        Self.loadAppSupportConfig(into: primaryConfig)
         ghostty_config_finalize(primaryConfig)
 
         // Build runtime callbacks.
@@ -181,6 +182,52 @@ final class GhosttyApp {
         guard let app else { return }
         ghostty_app_update_config(app, config)
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+    }
+
+    // MARK: - Appearance sync
+
+    /// Tracks the last color scheme so we only reload when it actually changes.
+    private var lastColorScheme: String?
+
+    /// Reload Ghostty config if the system color scheme changed.
+    /// Called from GhosttySurfaceView.viewDidChangeEffectiveAppearance —
+    /// deduplicates across multiple surfaces so config reloads once per change.
+    func synchronizeThemeIfNeeded(_ appearance: NSAppearance) {
+        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let scheme = isDark ? "dark" : "light"
+        guard scheme != lastColorScheme else { return }
+        lastColorScheme = scheme
+        reloadConfig()
+    }
+
+    // MARK: - App Support config
+
+    /// Load Namu-specific Ghostty config from ~/Library/Application Support/Namu/config.ghostty.
+    /// Loaded after user's default Ghostty config so it can override per-app settings
+    /// (e.g. theme for light/dark mode) without touching the global Ghostty config.
+    /// Creates a default config on first launch with appearance-aware theme.
+    static func loadAppSupportConfig(into config: ghostty_config_t) {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else { return }
+
+        let namuDir = appSupport.appendingPathComponent("Namu", isDirectory: true)
+        let configFile = namuDir.appendingPathComponent("config.ghostty")
+
+        // Create default config on first launch.
+        if !FileManager.default.fileExists(atPath: configFile.path) {
+            let defaults = """
+            # Namu terminal config — overrides ~/.config/ghostty/config for this app.
+            # Uses Ghostty's built-in light/dark themes to follow system appearance.
+            theme = light:GhosttyLight dark:GhosttyDark
+
+            """
+            try? FileManager.default.createDirectory(at: namuDir, withIntermediateDirectories: true)
+            try? defaults.write(to: configFile, atomically: true, encoding: .utf8)
+        }
+
+        configFile.path.withCString { ghostty_config_load_file(config, $0) }
     }
 
     /// Ring the bell according to current config bell-features.
@@ -677,6 +724,7 @@ final class GhosttyApp {
         }
         ghostty_config_load_default_files(newConfig)
         ghostty_config_load_recursive_files(newConfig)
+        Self.loadAppSupportConfig(into: newConfig)
         ghostty_config_finalize(newConfig)
 
         if let app {

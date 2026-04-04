@@ -102,8 +102,8 @@ final class UpdateViewModel: ObservableObject {
         switch state {
         case .updateAvailable: return .accentColor
         case .error: return .orange.opacity(0.2)
-        case .upToDate: return Color(nsColor: .controlBackgroundColor)
-        default: return Color(nsColor: .controlBackgroundColor)
+        case .upToDate: return NamuColors.headerBackground
+        default: return NamuColors.headerBackground
         }
     }
 

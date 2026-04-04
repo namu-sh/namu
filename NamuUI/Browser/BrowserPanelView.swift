@@ -34,7 +34,7 @@ struct BrowserPanelView: View {
                 BrowserWebView(viewModel: viewModel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(NamuColors.contentBackground)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("namu-browser-panel")
 
@@ -59,7 +59,7 @@ struct BrowserPanelView: View {
                                     .padding(.vertical, 7)
                             }
                             .buttonStyle(.plain)
-                            .background(Color.white.opacity(0.04))
+                            .background(NamuColors.hoverBackground)
                             if suggestion != suggestions.last {
                                 Divider().opacity(0.2)
                             }
@@ -67,7 +67,7 @@ struct BrowserPanelView: View {
                     }
                     .background(
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+                            .fill(NamuColors.headerBackground.opacity(0.96))
                             .shadow(color: .black.opacity(0.35), radius: 8, y: 4)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 8))

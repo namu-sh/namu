@@ -87,13 +87,17 @@ _namu_urlencode() {
 _namu_report_pwd() {
     local encoded
     encoded=$(_namu_urlencode "$PWD")
+    # Always emit OSC 133 property for Ghostty's internal state.
     _namu_prop "cwd" "$encoded"
-    # Also send via socket if available and IDs are set.
-    if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
-        local qpwd="${PWD//\"/\\\"}"
-        {
-            _namu_send "report_pwd \"${qpwd}\" --workspace=$NAMU_WORKSPACE_ID --surface=$NAMU_SURFACE_ID"
-        } >/dev/null 2>&1 &!
+    # Send IPC only when PWD actually changed (avoid redundant socket traffic).
+    if [[ "$PWD" != "$_NAMU_PWD_LAST_PWD" ]]; then
+        _NAMU_PWD_LAST_PWD="$PWD"
+        if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
+            local qpwd="${PWD//\"/\\\"}"
+            {
+                _namu_send "{\"jsonrpc\":\"2.0\",\"method\":\"report_pwd\",\"params\":{\"pwd\":\"${qpwd}\",\"surface_id\":\"$NAMU_SURFACE_ID\",\"workspace_id\":\"$NAMU_WORKSPACE_ID\"}}"
+            } >/dev/null 2>&1 &!
+        fi
     fi
 }
 
@@ -140,22 +144,23 @@ _namu_report_git_branch_for_path() {
 
     git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1 || return 0
 
-    local branch dirty_flag=""
+    local branch
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
     if [[ -n "$branch" ]]; then
-        local first
+        local first dirty_bool="false"
         first="$(git -C "$repo_path" status --porcelain -uno 2>/dev/null | head -1)"
-        [[ -n "$first" ]] && dirty_flag="--status=dirty"
+        [[ -n "$first" ]] && dirty_bool="true"
         # OSC-based report
         _namu_prop "git_branch" "$branch"
-        # Socket-based report
+        # Socket-based report (JSON-RPC)
         if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
-            _namu_send "report_git_branch $branch $dirty_flag --workspace=$NAMU_WORKSPACE_ID --surface=$NAMU_SURFACE_ID"
+            local escaped_branch="${branch//\"/\\\"}"
+            _namu_send "{\"jsonrpc\":\"2.0\",\"method\":\"report_git_branch\",\"params\":{\"branch\":\"${escaped_branch}\",\"dirty\":${dirty_bool},\"workspace_id\":\"$NAMU_WORKSPACE_ID\",\"surface_id\":\"$NAMU_SURFACE_ID\"}}"
         fi
     else
         _namu_prop "git_branch" ""
         if [[ -S "${NAMU_SOCKET:-}" && -n "${NAMU_WORKSPACE_ID:-}" && -n "${NAMU_SURFACE_ID:-}" ]]; then
-            _namu_send "clear_git_branch --workspace=$NAMU_WORKSPACE_ID --surface=$NAMU_SURFACE_ID"
+            _namu_send "{\"jsonrpc\":\"2.0\",\"method\":\"clear_git_branch\",\"params\":{\"workspace_id\":\"$NAMU_WORKSPACE_ID\",\"surface_id\":\"$NAMU_SURFACE_ID\"}}"
         fi
     fi
 }
@@ -473,12 +478,8 @@ _namu_precmd() {
     local pwd="$PWD"
 
     # CWD: keep the app in sync with the actual shell directory.
-    if [[ "$pwd" != "$_NAMU_PWD_LAST_PWD" ]]; then
-        _NAMU_PWD_LAST_PWD="$pwd"
-        _namu_report_pwd
-    else
-        _namu_report_pwd
-    fi
+    # Always emit OSC 133 property (Ghostty needs it), but only send IPC on change.
+    _namu_report_pwd
 
     # Set terminal title to current directory basename.
     printf '\e]0;%s\e\\' "${PWD##*/}"

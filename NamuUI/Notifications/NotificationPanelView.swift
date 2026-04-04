@@ -58,6 +58,7 @@ struct NotificationPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NamuColors.headerBackground)
     }
 
     // MARK: - Keyboard navigation helpers
@@ -135,7 +136,7 @@ struct NotificationPanelView: View {
                     .font(.system(size: 10, weight: .semibold, design: .rounded))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .controlBackgroundColor)))
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(0.08)))
                     .foregroundStyle(.secondary)
             }
 

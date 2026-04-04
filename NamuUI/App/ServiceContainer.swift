@@ -266,6 +266,8 @@ final class ServiceContainer {
 
         // Route terminal OSC notifications through NotificationService
         // (handles Claude session suppression, sound, and desktop notification).
+        // Resolve the owning workspace from the surface pointer so the notification
+        // is attributed to the correct workspace, not the currently selected one.
         notificationObservers.append(
             NotificationCenter.default.addObserver(
                 forName: .namuTerminalNotification,
@@ -275,9 +277,20 @@ final class ServiceContainer {
                 guard let self else { return }
                 let title = notification.userInfo?["title"] as? String ?? ""
                 let body = notification.userInfo?["body"] as? String ?? ""
+                // Resolve owning workspace and panel from surface pointer
+                var owningWorkspaceID: UUID? = self.workspaceManager.selectedWorkspaceID
+                var owningPanelID: UUID?
+                if let surfacePtr = notification.userInfo?["surface"] as? UnsafeMutableRawPointer,
+                   let userdata = ghostty_surface_userdata(surfacePtr) {
+                    let session = Unmanaged<TerminalSession>.fromOpaque(userdata).takeUnretainedValue()
+                    owningPanelID = session.id
+                    owningWorkspaceID = self.panelManager.workspaceIDForPanel(session.id) ?? owningWorkspaceID
+                }
                 self.notificationService.handleTerminalNotification(
                     title: title,
                     body: body,
+                    workspaceID: owningWorkspaceID,
+                    panelID: owningPanelID,
                     workspaceManager: self.workspaceManager
                 )
             }

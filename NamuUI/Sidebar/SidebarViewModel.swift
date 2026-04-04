@@ -25,11 +25,16 @@ struct SidebarItemData: Equatable, Identifiable {
     let listeningPorts: [PortInfo]
     let shellState: ShellState
     let lastExitCode: Int?
+    let lastCommand: String?
+    let unreadCount: Int
     let notificationSubtitle: String?
     let progressLabel: String?
     let latestLog: String?
     let logLevel: String?
     let isRemoteSSH: Bool
+    let remoteConnectionDetail: String?
+    let remoteConnectionState: String?
+    let remoteForwardedPorts: [PortInfo]?
     let pullRequests: [PullRequestDisplay]
     let panelBranches: [UUID: String]
     let metadataEntries: [(String, String)]
@@ -49,11 +54,16 @@ struct SidebarItemData: Equatable, Identifiable {
         lhs.listeningPorts == rhs.listeningPorts &&
         lhs.shellState == rhs.shellState &&
         lhs.lastExitCode == rhs.lastExitCode &&
+        lhs.lastCommand == rhs.lastCommand &&
+        lhs.unreadCount == rhs.unreadCount &&
         lhs.notificationSubtitle == rhs.notificationSubtitle &&
         lhs.progressLabel == rhs.progressLabel &&
         lhs.latestLog == rhs.latestLog &&
         lhs.logLevel == rhs.logLevel &&
         lhs.isRemoteSSH == rhs.isRemoteSSH &&
+        lhs.remoteConnectionDetail == rhs.remoteConnectionDetail &&
+        lhs.remoteConnectionState == rhs.remoteConnectionState &&
+        lhs.remoteForwardedPorts == rhs.remoteForwardedPorts &&
         lhs.pullRequests == rhs.pullRequests &&
         lhs.panelBranches == rhs.panelBranches &&
         lhs.metadataEntries.count == rhs.metadataEntries.count &&
@@ -85,6 +95,7 @@ final class SidebarViewModel: ObservableObject {
 
     private let workspaceManager: WorkspaceManager
     private weak var panelManager: PanelManager?
+    private weak var notificationService: NotificationService?
     private var cancellables = Set<AnyCancellable>()
     private var notificationCancellable: AnyCancellable?
 
@@ -140,12 +151,15 @@ final class SidebarViewModel: ObservableObject {
 
     /// Wire up a NotificationService so the bell badge stays current.
     func setNotificationService(_ service: NotificationService) {
+        self.notificationService = service
         notificationUnreadCount = service.unreadCount
         notificationCancellable = service.$allNotifications
             .receive(on: RunLoop.main)
-            .map { $0.filter { !$0.isRead }.count }
-            .removeDuplicates()
-            .assign(to: \.notificationUnreadCount, on: self)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.notificationUnreadCount = service.unreadCount
+                self.rebuildItems()
+            }
     }
 
     func renameWorkspace(id: UUID, title: String) {
@@ -264,6 +278,8 @@ final class SidebarViewModel: ObservableObject {
         case .workspace(let id):
             lastWorkspaceID = id
             workspaceManager.selectWorkspace(id: id)
+            // Mark notifications for this workspace as read when selected.
+            notificationService?.markAllRead(workspaceID: id)
         case .settings, .notifications:
             break
         }
@@ -323,7 +339,6 @@ final class SidebarViewModel: ObservableObject {
                 let body = notification.userInfo?["body"] as? String ?? ""
                 var meta = self.metadataCache[wsID] ?? SidebarMetadata()
                 meta.latestNotification = body
-                meta.unreadCount += 1
                 self.metadataCache[wsID] = meta
                 self.rebuildItems()
             }
@@ -361,11 +376,43 @@ final class SidebarViewModel: ObservableObject {
 
                 var meta = self.metadataCache[wsID] ?? SidebarMetadata()
                 meta.latestNotification = displayText
-                meta.unreadCount += 1
                 self.metadataCache[wsID] = meta
                 self.rebuildItems()
             }
             .store(in: &cancellables)
+    }
+
+    /// Sync live panel state (shell state, working directory) into the metadata cache.
+    /// Called before rebuildItems() so the cache is up-to-date and rebuildItems() stays a pure read.
+    private func syncPanelStateToMetadata() {
+        guard let pm = panelManager else { return }
+        for workspace in workspaceManager.workspaces {
+            if metadataCache[workspace.id] == nil { metadataCache[workspace.id] = SidebarMetadata() }
+
+            // Sync unread count from NotificationService (derived, not accumulated)
+            metadataCache[workspace.id]?.unreadCount = notificationService?.unreadCountForWorkspace(workspace.id) ?? 0
+
+            guard let panelID = pm.focusedPanelID(in: workspace.id),
+                  let panel = pm.panel(for: panelID) else { continue }
+
+            // Sync working directory from panel (updated by IPC report_pwd)
+            metadataCache[workspace.id]?.workingDirectory = panel.workingDirectory
+
+            // Sync shell state and derive lastCommand/lastExitCode
+            let state = panel.shellState
+            metadataCache[workspace.id]?.shellState = state
+            switch state {
+            case .running(let cmd):
+                if !cmd.isEmpty { metadataCache[workspace.id]?.lastCommand = cmd }
+                metadataCache[workspace.id]?.lastExitCode = nil
+            case .idle(let code):
+                metadataCache[workspace.id]?.lastExitCode = code
+            case .prompt:
+                metadataCache[workspace.id]?.lastExitCode = nil
+            default:
+                break
+            }
+        }
     }
 
     /// Rebuild sidebar items using the current `selection` so workspace
@@ -378,6 +425,9 @@ final class SidebarViewModel: ObservableObject {
            managerID != currentID {
             selection = .workspace(managerID)
         }
+
+        // Sync live panel state into metadata before building items.
+        syncPanelStateToMetadata()
 
         let sel = selection
         // Pinned workspaces sort to top, then by order within each group.
@@ -402,11 +452,16 @@ final class SidebarViewModel: ObservableObject {
                 listeningPorts: meta?.listeningPorts ?? [],
                 shellState: meta?.shellState ?? .unknown,
                 lastExitCode: meta?.lastExitCode,
+                lastCommand: meta?.lastCommand,
+                unreadCount: meta?.unreadCount ?? 0,
                 notificationSubtitle: meta?.latestNotification,
                 progressLabel: meta?.progressLabel,
                 latestLog: meta?.latestLog,
                 logLevel: meta?.logLevel,
                 isRemoteSSH: meta?.isRemoteSSH ?? false,
+                remoteConnectionDetail: meta?.remoteConnectionDetail,
+                remoteConnectionState: meta?.remoteConnectionState,
+                remoteForwardedPorts: meta?.remoteForwardedPorts,
                 pullRequests: meta?.pullRequests ?? [],
                 panelBranches: meta?.panelBranches ?? [:],
                 metadataEntries: meta?.metadataEntries ?? [],

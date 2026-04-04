@@ -6,6 +6,7 @@ import AppKit
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
     private var didStart = false
+    private var burstTimer: Timer?
 
     /// Desired traffic light position (points from top-left of window content).
     var trafficLightPosition = NSPoint(x: 14, y: 14)
@@ -50,6 +51,30 @@ final class WindowDecorationsController {
             NSWindow.didExitFullScreenNotification,
         ] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main, using: handler))
+        }
+
+        // Reapply after appearance/config change — macOS resets titlebar layout when theme switches.
+        // Rapidly reapply for 0.5s to override macOS's layout resets during the transition.
+        for name: Notification.Name in [
+            .ghosttyConfigDidReload,
+            NSApplication.didChangeScreenParametersNotification,
+        ] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.reapplyBurst()
+            })
+        }
+    }
+
+    /// Rapidly reapply traffic light positions for 0.5s to override
+    /// macOS's layout resets during appearance transitions.
+    private func reapplyBurst() {
+        burstTimer?.invalidate()
+        var remaining = 10 // 10 ticks × 50ms = 0.5s
+        applyToAllWindows()
+        burstTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+            remaining -= 1
+            self?.applyToAllWindows()
+            if remaining <= 0 { timer.invalidate() }
         }
     }
 

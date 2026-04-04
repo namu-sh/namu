@@ -299,3 +299,81 @@ private extension Double {
         min(range.upperBound, max(range.lowerBound, self))
     }
 }
+
+// MARK: - NamuColors
+
+import SwiftUI
+
+/// Centralized semantic color definitions for the Namu UI.
+/// Uses Apple's system semantic colors so dark/light mode and fullscreen are consistent.
+/// All UI components should reference these instead of hardcoding colors.
+enum NamuColors {
+
+    // MARK: - Backgrounds
+
+    /// Primary content area background — reads from Ghostty's terminal background
+    /// so the content area matches the terminal seamlessly (no border artifacts between splits).
+    static var contentBackground: Color {
+        if let config = GhosttyApp.shared?.config {
+            var color = ghostty_config_color_s()
+            let key = "background"
+            if ghostty_config_get(config, &color, key, UInt(key.utf8.count)) {
+                return Color(
+                    red: Double(color.r) / 255,
+                    green: Double(color.g) / 255,
+                    blue: Double(color.b) / 255
+                )
+            }
+        }
+        return Color(nsColor: .controlBackgroundColor)
+    }
+
+    /// Sidebar background — warm off-white in light, dark gray in dark.
+    /// Uses an adaptive NSColor so SwiftUI re-evaluates on appearance change.
+    static var sidebarBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            if isDark {
+                return NSColor.underPageBackgroundColor
+            }
+            return NSColor(red: 0.96, green: 0.94, blue: 0.92, alpha: 1.0)
+        })
+    }
+
+    /// Content header / toolbar background.
+    static var headerBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark ? NSColor.windowBackgroundColor : .white
+        })
+    }
+
+    // MARK: - Surfaces
+
+    /// Selected item background (sidebar rows, list selections).
+    static var selectedBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark
+                ? NSColor.white.withAlphaComponent(0.1)
+                : NSColor.black.withAlphaComponent(0.06)
+        })
+    }
+
+    /// Hovered item background.
+    static var hoverBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return isDark
+                ? NSColor.white.withAlphaComponent(0.06)
+                : NSColor.black.withAlphaComponent(0.04)
+        })
+    }
+
+    // MARK: - Separators
+
+    /// Standard separator line.
+    static var separator: Color {
+        Color(nsColor: .separatorColor)
+    }
+}

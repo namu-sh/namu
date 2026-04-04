@@ -178,7 +178,7 @@ struct CommandPaletteView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    .strokeBorder(NamuColors.separator, lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.5), radius: 24, x: 0, y: 8)
             .frame(width: 480)

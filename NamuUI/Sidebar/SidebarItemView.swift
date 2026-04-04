@@ -14,20 +14,14 @@ struct SidebarItemView: View, Equatable {
         lhs.workingDirectory == rhs.workingDirectory &&
         lhs.listeningPorts == rhs.listeningPorts &&
         lhs.shellState == rhs.shellState &&
+        lhs.lastExitCode == rhs.lastExitCode &&
+        lhs.lastCommand == rhs.lastCommand &&
         lhs.hasActivity == rhs.hasActivity &&
         lhs.progress == rhs.progress &&
         lhs.unreadCount == rhs.unreadCount &&
-        lhs.notificationSubtitle == rhs.notificationSubtitle &&
-        lhs.progressLabel == rhs.progressLabel &&
-        lhs.latestLog == rhs.latestLog &&
-        lhs.logLevel == rhs.logLevel &&
         lhs.isRemoteSSH == rhs.isRemoteSSH &&
-        lhs.pullRequests == rhs.pullRequests &&
-        lhs.panelBranches == rhs.panelBranches &&
-        lhs.metadataEntries.count == rhs.metadataEntries.count &&
-        zip(lhs.metadataEntries, rhs.metadataEntries).allSatisfy({ $0 == $1 }) &&
-        lhs.statusEntries == rhs.statusEntries &&
-        lhs.markdownBlocks == rhs.markdownBlocks &&
+        lhs.remoteConnectionDetail == rhs.remoteConnectionDetail &&
+        lhs.remoteConnectionState == rhs.remoteConnectionState &&
         lhs.availableWindows.map(\.id) == rhs.availableWindows.map(\.id)
     }
 
@@ -43,14 +37,19 @@ struct SidebarItemView: View, Equatable {
     let workingDirectory: String?
     let listeningPorts: [PortInfo]
     let shellState: ShellState
+    var lastExitCode: Int? = nil
+    var lastCommand: String? = nil
     var hasActivity: Bool = false
     var progress: Double? = nil
     var unreadCount: Int = 0
+    var isRemoteSSH: Bool = false
+    var remoteConnectionDetail: String? = nil
+    var remoteConnectionState: String? = nil
+    var remoteForwardedPorts: [PortInfo]? = nil
     var notificationSubtitle: String? = nil
     var progressLabel: String? = nil
     var latestLog: String? = nil
     var logLevel: String? = nil
-    var isRemoteSSH: Bool = false
     var pullRequests: [PullRequestDisplay] = []
     var panelBranches: [UUID: String] = [:]
     var metadataEntries: [(String, String)] = []
@@ -78,49 +77,49 @@ struct SidebarItemView: View, Equatable {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Leading color indicator
+            // Leading indicator column
             leadingIndicator
-                .frame(width: 14)
+                .frame(width: 16)
+                .padding(.trailing, 4)
 
-            VStack(alignment: .leading, spacing: 0) {
-                // Always visible: title row
-                titleRow
-                    .padding(.bottom, 3)
-
-                // Always visible: subtitle row
-                subtitleRow
-
-                // Detail drawer — only when selected (hover just highlights)
-                if isSelected {
-                    detailDrawer
-                        .padding(.top, 6)
-                        .transition(.opacity)
-                }
-
-                // Progress always visible when active
-                if progress != nil || hasActivity {
-                    progressView
-                        .padding(.top, 5)
-                }
+            // Content: 2 fixed lines
+            VStack(alignment: .leading, spacing: 2) {
+                titleLine
+                contextLine
             }
 
             Spacer(minLength: 4)
 
-            // Trailing accessories
-            trailingAccessories
+            // Trailing column — badges or close button
+            trailingArea
+                .frame(width: 28, alignment: .trailing)
         }
-        .padding(.vertical, 10)
-        .padding(.trailing, 12)
+        .padding(.vertical, 4)
+        .padding(.leading, 4)
+        .padding(.trailing, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) {
+            // Progress strip — 2pt, overlaid at bottom edge
+            if let pct = progress {
+                ProgressView(value: max(0, min(1, pct)))
+                    .progressViewStyle(.linear)
+                    .tint(.accentColor)
+                    .scaleEffect(y: 0.4, anchor: .bottom)
+                    .padding(.horizontal, 4)
+            } else if hasActivity {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(.accentColor)
+                    .scaleEffect(y: 0.4, anchor: .bottom)
+                    .padding(.horizontal, 4)
+            }
+        }
         .background(rowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) { isHovering = hovering }
+            withAnimation(.easeOut(duration: 0.12)) { isHovering = hovering }
         }
-        // Selection handled by SidebarView wrapper to avoid blocking .onDrag
-        .animation(.easeInOut(duration: 0.2), value: isSelected)
-        .animation(.easeOut(duration: 0.15), value: isHovering)
         .popover(isPresented: $showColorPopover, arrowEdge: .trailing) {
             colorPopoverContent
         }
@@ -131,21 +130,174 @@ struct SidebarItemView: View, Equatable {
 
     @ViewBuilder
     private var leadingIndicator: some View {
-        ZStack {
-            if let hex = customColor, let color = Color(hex: hex) {
+        Group {
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(pinColor)
+            } else if let hex = customColor, let color = Color(hex: hex) {
                 Circle()
                     .fill(color)
-                    .frame(width: 8, height: 8)
+                    .frame(width: 7, height: 7)
             } else {
                 Circle()
                     .fill(shellDotColor)
                     .frame(width: 6, height: 6)
             }
         }
-        .frame(width: 14, height: 30)
+        .frame(width: 16, height: 32)
         .contentShape(Rectangle())
         .onTapGesture { showColorPopover = true }
     }
+
+    private var pinColor: Color {
+        if let hex = customColor, let c = Color(hex: hex) { return c }
+        return .accentColor
+    }
+
+    // MARK: - Title Line
+
+    private var titleLine: some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("namu-workspace-title")
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    // MARK: - Context Line
+
+    private var contextLine: some View {
+        HStack(spacing: 0) {
+            Text(contextString)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var contextString: String {
+        // Error state takes priority
+        if let code = lastExitCode, code != 0 {
+            let base = "exit \(code)"
+            if let cmd = lastCommand { return "\(base) \u{b7} \(cmd)" }
+            return base
+        }
+
+        // Running command takes priority
+        if case .running(let cmd) = shellState, !cmd.isEmpty {
+            return cmd
+        }
+
+        // Normal: build segments joined by " · "
+        var parts: [String] = []
+
+        if isRemoteSSH {
+            if let detail = remoteConnectionDetail {
+                parts.append(detail)
+            }
+            if let state = remoteConnectionState, state != "connected" {
+                parts.append(state)
+            }
+        }
+
+        if let branch = gitBranch {
+            parts.append(branch + (gitDirty ? "*" : ""))
+        }
+
+        if let dir = workingDirectory {
+            parts.append(shortenedPath(dir))
+        }
+
+        if !listeningPorts.isEmpty {
+            parts.append(listeningPorts.prefix(2).map { ":\($0.port)" }.joined(separator: " "))
+        }
+
+        return parts.joined(separator: " \u{b7} ")
+    }
+
+    // MARK: - Trailing Area
+
+    @ViewBuilder
+    private var trailingArea: some View {
+        ZStack {
+            // Badges — hidden on hover
+            HStack(spacing: 3) {
+                if panelCount > 1 {
+                    Text("\(panelCount)")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                }
+                if unreadCount > 0 {
+                    Text(unreadCount < 100 ? "\(unreadCount)" : "99+")
+                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(.red, in: Capsule())
+                }
+            }
+            .opacity(isHovering ? 0 : 1)
+
+            // Close button — visible on hover
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 16, height: 16)
+                    .background(.quaternary, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .opacity(isHovering ? 1 : 0)
+            .help(String(localized: "sidebar.item.close.tooltip", defaultValue: "Close Workspace"))
+        }
+    }
+
+    // MARK: - Row Background
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if isSelected {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(NamuColors.selectedBackground)
+        } else if isHovering {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(NamuColors.hoverBackground)
+        }
+    }
+
+    // MARK: - Shell Dot Color
+
+    private var shellDotColor: Color {
+        switch shellState {
+        case .idle(let code):
+            if let c = code, c != 0 { return .red }
+            return .secondary.opacity(0.3)
+        case .prompt:       return .green
+        case .running:      return .orange
+        case .commandInput: return .yellow
+        case .unknown:      return .secondary.opacity(0.15)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func shortenedPath(_ path: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
+    // MARK: - Color Popover
 
     private var colorPopoverContent: some View {
         VStack(spacing: 8) {
@@ -177,344 +329,6 @@ struct SidebarItemView: View, Equatable {
         }
         .padding(12)
         .frame(width: 160)
-    }
-
-    // MARK: - Title Row
-
-    private var titleRow: some View {
-        HStack(spacing: 6) {
-            Text(title)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityIdentifier("namu-workspace-title")
-
-            if panelCount > 1 {
-                Text("\(panelCount)")
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(.quaternary, in: Capsule())
-            }
-
-            Spacer(minLength: 0)
-
-            if isHovering {
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 18, height: 18)
-                        .background(.quaternary, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .transition(.scale(scale: 0.5).combined(with: .opacity))
-                .help(String(localized: "sidebar.item.close.tooltip", defaultValue: "Close Workspace"))
-            }
-        }
-    }
-
-    // MARK: - Subtitle Row
-
-    private var subtitleRow: some View {
-        HStack(spacing: 5) {
-            if isRemoteSSH {
-                Image(systemName: "globe")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.orange)
-            }
-
-            if let branch = gitBranch {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                Text(branch)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if gitDirty {
-                    Circle()
-                        .fill(.orange)
-                        .frame(width: 5, height: 5)
-                }
-            } else if let dir = workingDirectory {
-                Image(systemName: "folder")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                Text(shortenedPath(dir))
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            if !listeningPorts.isEmpty {
-                Text(listeningPorts.prefix(2).map { ":\($0.port)" }.joined(separator: " "))
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-            }
-
-            Spacer(minLength: 0)
-        }
-    }
-
-    // MARK: - Detail Drawer (progressive disclosure)
-
-    @ViewBuilder
-    private var detailDrawer: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            if let subtitle = notificationSubtitle, !subtitle.isEmpty {
-                Label(subtitle, systemImage: "bell.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            if !panelBranches.isEmpty && panelBranches.count > 1 {
-                let branches = Array(panelBranches.values).filter { $0 != gitBranch }
-                if !branches.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.tertiary)
-                        Text(branches.prefix(3).joined(separator: ", "))
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-            }
-
-            ForEach(pullRequests, id: \.number) { pr in
-                pullRequestRow(pr)
-            }
-
-            let sortedStatus = statusEntries.values
-                .sorted { lhs, rhs in
-                    if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
-                    return lhs.timestamp > rhs.timestamp
-                }
-            if !sortedStatus.isEmpty {
-                FlowLayout(spacing: 4) {
-                    ForEach(Array(sortedStatus.prefix(4)), id: \.key) { entry in
-                        statusPill(entry)
-                    }
-                }
-            }
-
-            ForEach(metadataEntries.prefix(3), id: \.0) { key, value in
-                HStack(spacing: 4) {
-                    Text(key).font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
-                    Text(value).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-
-            ForEach(markdownBlocks.prefix(2), id: \.self) { block in
-                if let attributed = try? AttributedString(
-                    markdown: block,
-                    options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-                ) {
-                    Text(attributed).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(3)
-                }
-            }
-
-            if listeningPorts.count > 2 {
-                HStack(spacing: 4) {
-                    ForEach(listeningPorts.prefix(4), id: \.port) { info in
-                        portBadge(info)
-                    }
-                    if listeningPorts.count > 4 {
-                        Text("+\(listeningPorts.count - 4)")
-                            .font(.system(size: 9.5, weight: .medium))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-            }
-
-            if let log = latestLog, !log.isEmpty {
-                HStack(spacing: 4) {
-                    Image(systemName: logLevelIcon)
-                        .font(.system(size: 9))
-                        .foregroundStyle(logLevelColor)
-                    Text(log)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-    }
-
-    // MARK: - Progress
-
-    @ViewBuilder
-    private var progressView: some View {
-        if let pct = progress {
-            VStack(alignment: .leading, spacing: 2) {
-                if let label = progressLabel, !label.isEmpty {
-                    Text(label)
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(.tertiary)
-                }
-                ProgressView(value: max(0, min(1, pct)))
-                    .progressViewStyle(.linear)
-                    .tint(.accentColor)
-                    .scaleEffect(y: 0.6, anchor: .center)
-            }
-        } else if hasActivity {
-            ProgressView()
-                .progressViewStyle(.linear)
-                .tint(.accentColor)
-                .scaleEffect(y: 0.6, anchor: .center)
-        }
-    }
-
-    // MARK: - Trailing Accessories
-
-    @ViewBuilder
-    private var trailingAccessories: some View {
-        VStack(alignment: .trailing, spacing: 4) {
-            if unreadCount > 0 {
-                Text(unreadCount < 100 ? "\(unreadCount)" : "99+")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(.red, in: Capsule())
-                    .transition(.scale.combined(with: .opacity))
-            }
-            if isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 8))
-                    .foregroundStyle(.tertiary)
-                    .rotationEffect(.degrees(45))
-            }
-        }
-    }
-
-    // MARK: - Row Background
-
-    @ViewBuilder
-    private var rowBackground: some View {
-        if isSelected {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.selection)
-        } else if isHovering {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-        }
-    }
-
-    // MARK: - Shell Dot Color
-
-    private var shellDotColor: Color {
-        switch shellState {
-        case .idle:         return .secondary.opacity(0.3)
-        case .prompt:       return .green
-        case .running:      return .orange
-        case .commandInput: return .yellow
-        case .unknown:      return .secondary.opacity(0.15)
-        }
-    }
-
-    // MARK: - Sub-views
-
-    private func statusPill(_ entry: SidebarStatusEntry) -> some View {
-        HStack(spacing: 3) {
-            if let icon = entry.icon {
-                Image(systemName: icon)
-                    .font(.system(size: 8))
-            }
-            Text(entry.key.isEmpty ? entry.value : entry.key)
-                .font(.system(size: 9.5, weight: .medium))
-            if !entry.key.isEmpty && !entry.value.isEmpty {
-                Text(entry.value)
-                    .font(.system(size: 9.5))
-            }
-        }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(
-            entry.color.flatMap { Color(hex: $0) }?.opacity(0.15) ?? Color.primary.opacity(0.05),
-            in: Capsule()
-        )
-    }
-
-    private func portBadge(_ info: PortInfo) -> some View {
-        Text(info.processName.map { "\($0):\(info.port)" } ?? ":\(info.port)")
-            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-    }
-
-    @ViewBuilder
-    private func pullRequestRow(_ pr: PullRequestDisplay) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: "arrow.triangle.pull")
-                .font(.system(size: 9))
-                .foregroundStyle(prStateColor(pr.state))
-            Text("#\(pr.number)")
-                .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.primary)
-            Text(prStateLabel(pr.state))
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1.5)
-                .background(prStateColor(pr.state), in: Capsule())
-            if let checks = pr.checksStatus, checks != .none {
-                Image(systemName: checks == .pass ? "checkmark.circle.fill" : checks == .fail ? "xmark.circle.fill" : "circle.dotted")
-                    .font(.system(size: 10))
-                    .foregroundStyle(checks == .pass ? .green : checks == .fail ? .red : .secondary)
-            }
-        }
-    }
-
-    private func prStateLabel(_ state: PRState) -> String {
-        switch state {
-        case .open: return "Open"
-        case .merged: return "Merged"
-        case .closed: return "Closed"
-        }
-    }
-
-    private func prStateColor(_ state: PRState) -> Color {
-        switch state {
-        case .open: return .green
-        case .merged: return .purple
-        case .closed: return .red
-        }
-    }
-
-    private func shortenedPath(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
-    }
-
-    private var logLevelIcon: String {
-        switch logLevel {
-        case "error": return "exclamationmark.circle.fill"
-        case "warning": return "exclamationmark.triangle.fill"
-        case "success": return "checkmark.circle.fill"
-        default: return "info.circle.fill"
-        }
-    }
-
-    private var logLevelColor: Color {
-        switch logLevel {
-        case "error": return .red
-        case "warning": return .orange
-        case "success": return .green
-        default: return .secondary
-        }
     }
 
     // MARK: - Context Menu
@@ -559,46 +373,5 @@ struct SidebarItemView: View, Equatable {
 
         Divider()
         Button(String(localized: "sidebar.item.menu.closeWorkspace", defaultValue: "Close Workspace"), role: .destructive) { onClose() }
-    }
-}
-
-// MARK: - FlowLayout (horizontal wrapping for pills)
-
-private struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = arrange(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
-        }
-    }
-
-    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (positions: [CGPoint], size: CGSize) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth && x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            positions.append(CGPoint(x: x, y: y))
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-            totalWidth = max(totalWidth, x - spacing)
-        }
-        return (positions, CGSize(width: totalWidth, height: y + rowHeight))
     }
 }

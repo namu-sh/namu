@@ -48,14 +48,21 @@ struct SidebarView: View {
                                     workingDirectory: item.workingDirectory,
                                     listeningPorts: item.listeningPorts,
                                     shellState: item.shellState,
+                                    lastExitCode: item.lastExitCode,
+                                    lastCommand: item.lastCommand,
+                                    unreadCount: item.unreadCount,
+                                    isRemoteSSH: item.isRemoteSSH,
+                                    remoteConnectionDetail: item.remoteConnectionDetail,
+                                    remoteConnectionState: item.remoteConnectionState,
+                                    remoteForwardedPorts: item.remoteForwardedPorts,
                                     notificationSubtitle: item.notificationSubtitle,
                                     progressLabel: item.progressLabel,
                                     latestLog: item.latestLog,
                                     logLevel: item.logLevel,
-                                    isRemoteSSH: item.isRemoteSSH,
                                     pullRequests: item.pullRequests,
                                     panelBranches: item.panelBranches,
                                     metadataEntries: item.metadataEntries,
+                                    statusEntries: item.statusEntries,
                                     markdownBlocks: item.markdownBlocks,
                                     onSelect: {
                                         viewModel.selectWorkspace(id: item.id)
@@ -164,7 +171,7 @@ struct SidebarView: View {
                             .padding(.vertical, 10)
                             .background(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(.selection)
+                                    .fill(NamuColors.selectedBackground)
                             )
                             .padding(.horizontal, 8)
                         }
@@ -175,7 +182,7 @@ struct SidebarView: View {
         }
         .ignoresSafeArea(.container, edges: .top)
         .background {
-            SidebarBackgroundView()
+            NamuColors.sidebarBackground
                 .ignoresSafeArea(.container, edges: .top)
         }
         .accessibilityElement(children: .contain)
@@ -251,23 +258,27 @@ struct SidebarView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 11))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                     Text(String(localized: "sidebar.search.placeholder", defaultValue: "Search..."))
                         .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Text("⌘K")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundStyle(.quaternary)
+                        .foregroundStyle(.tertiary)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
-                    isSearchHovered ? Color.primary.opacity(0.06) : Color.primary.opacity(0.03),
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.primary.opacity(isSearchHovered ? 0.08 : 0.05))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                        )
                 )
             }
             .buttonStyle(.plain)

@@ -55,6 +55,9 @@ final class SessionPersistence: ObservableObject {
 
     private var autosaveTimer: AnyCancellable?
     private let fileManager = FileManager.default
+    /// Fingerprint of the last successfully written snapshot data.
+    /// Used to skip redundant writes when nothing has changed.
+    private var lastSaveFingerprint: Int = 0
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -140,11 +143,18 @@ final class SessionPersistence: ObservableObject {
     }
 
     /// Snapshot and persist the current session atomically.
+    /// Skips the write if the snapshot fingerprint matches the last save.
     func save() async {
-        saveStatus = .saving
         let snapshot = buildSnapshot()
         do {
-            try writeSnapshot(snapshot)
+            let data = try encoder.encode(snapshot)
+            let fingerprint = data.hashValue
+            guard fingerprint != lastSaveFingerprint else { return }
+
+            saveStatus = .saving
+            try writeSnapshotData(data)
+            lastSaveFingerprint = fingerprint
+
             // Remove scrollback files for panels no longer in the snapshot.
             let activePanelIDs = Set(snapshot.windows.flatMap { win in
                 win.workspaces.flatMap { ws in
@@ -256,7 +266,13 @@ final class SessionPersistence: ObservableObject {
         }
 
         let workspaceSnapshots = cappedWorkspaces.map { workspace in
-            WorkspaceSnapshot(
+            // Derive workspace-level directory and git from focused panel
+            let focusedID = panelManager.focusedPanelID(in: workspace.id)
+            let focusedPanel = focusedID.flatMap { panelManager.panel(for: $0) }
+            let gitSnap: GitBranchSnapshot? = focusedPanel?.gitBranch.map {
+                GitBranchSnapshot(branch: $0, isDirty: false)
+            }
+            return WorkspaceSnapshot(
                 id: workspace.id,
                 title: workspace.title,
                 order: workspace.order,
@@ -265,7 +281,9 @@ final class SessionPersistence: ObservableObject {
                 processTitle: workspace.processTitle.isEmpty ? nil : workspace.processTitle,
                 customColor: workspace.customColor,
                 layout: buildLayoutFromBonsplit(workspaceID: workspace.id, panelManager: panelManager),
-                activePanelID: panelManager.focusedPanelID(in: workspace.id)
+                activePanelID: focusedID,
+                currentDirectory: focusedPanel?.workingDirectory,
+                gitBranch: gitSnap
             )
         }
         let frameArray: [Double]? = windowFrame.map { [Double($0.origin.x), Double($0.origin.y), Double($0.size.width), Double($0.size.height)] }
@@ -399,7 +417,7 @@ final class SessionPersistence: ObservableObject {
             let panelIDs = collectPanelIDs(from: workspaceSnap.layout)
             workspacePanelIDs[workspace.id] = panelIDs
             workspaceActivePanelIDs[workspace.id] = workspaceSnap.activePanelID
-            createPanels(from: workspaceSnap.layout, panelManager: panelManager)
+            createPanels(from: workspaceSnap.layout, workspaceID: workspace.id, panelManager: panelManager)
         }
 
         workspaceManager.workspaces = restoredWorkspaces
@@ -424,7 +442,7 @@ final class SessionPersistence: ObservableObject {
     /// Terminal panels: scrollback file path stored on the panel; shell integration reads
     /// NAMU_RESTORE_SCROLLBACK_FILE on startup to replay the scrollback content.
     /// Browser panels: URL, zoom, devtools, and nav history are applied after creation.
-    private func createPanels(from layout: WorkspaceLayoutSnapshot, panelManager: PanelManager) {
+    private func createPanels(from layout: WorkspaceLayoutSnapshot, workspaceID: UUID, panelManager: PanelManager) {
         switch layout {
         case .pane(let snap):
             if snap.panelType == .browser {
@@ -439,6 +457,7 @@ final class SessionPersistence: ObservableObject {
             } else {
                 panelManager.restoreTerminalPanel(
                     id: snap.id,
+                    workspaceID: workspaceID,
                     workingDirectory: snap.workingDirectory,
                     scrollbackFile: snap.scrollbackFile,
                     gitBranch: snap.gitBranch,
@@ -451,14 +470,19 @@ final class SessionPersistence: ObservableObject {
                 panelManager.togglePanelPin(id: snap.id)
             }
         case .split(let snap):
-            createPanels(from: snap.first, panelManager: panelManager)
-            createPanels(from: snap.second, panelManager: panelManager)
+            createPanels(from: snap.first, workspaceID: workspaceID, panelManager: panelManager)
+            createPanels(from: snap.second, workspaceID: workspaceID, panelManager: panelManager)
         }
     }
 
     // MARK: - File I/O
 
     private func writeSnapshot(_ snapshot: SessionSnapshot) throws {
+        let data = try encoder.encode(snapshot)
+        try writeSnapshotData(data)
+    }
+
+    private func writeSnapshotData(_ data: Data) throws {
         guard let fileURL = sessionFileURL() else {
             throw PersistenceError.noSaveLocation
         }
@@ -471,9 +495,8 @@ final class SessionPersistence: ObservableObject {
             rotateBackups(sessionURL: fileURL)
         }
 
-        // Atomic write: encode → temp file → rename over destination.
+        // Atomic write: temp file → rename over destination.
         let tempURL = directory.appendingPathComponent("session.tmp.\(UUID().uuidString).json")
-        let data = try encoder.encode(snapshot)
         try data.write(to: tempURL, options: .atomic)
         _ = try fileManager.replaceItemAt(fileURL, withItemAt: tempURL)
     }

@@ -347,7 +347,9 @@ struct Workspace: Identifiable, Codable, Equatable {
         let trimmed = newTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if trimmed.isEmpty {
             customTitle = nil
-            title = processTitle.isEmpty ? String(localized: "workspace.default.title", defaultValue: "New Workspace") : processTitle
+            title = processTitle.isEmpty
+                ? String(localized: "workspace.default.title", defaultValue: "New Workspace")
+                : Self.displayTitle(from: processTitle)
         } else {
             customTitle = trimmed
             title = trimmed

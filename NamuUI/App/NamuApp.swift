@@ -148,7 +148,7 @@ struct ContentView: View {
                 .ignoresSafeArea(.container, edges: .top)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(NamuColors.contentBackground)
             .animation(.easeInOut(duration: 0.2), value: isSidebarVisible)
 
             // Command palette overlay
@@ -344,7 +344,7 @@ struct ContentView: View {
             .frame(height: 38)
             .padding(.leading, isSidebarVisible && !isMinimalMode ? 12 : 86)
             .padding(.trailing, 12)
-            .background(Color.primary.opacity(0.03))
+            .background(NamuColors.headerBackground)
 
             Divider()
         }

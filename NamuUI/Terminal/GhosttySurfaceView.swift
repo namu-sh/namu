@@ -382,6 +382,15 @@ final class GhosttySurfaceView: NSView, NSTextInputClient {
         return result
     }
 
+    // MARK: - Appearance changes
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // Reload Ghostty config so theme = light:X dark:Y picks up the new scheme.
+        // synchronizeThemeIfNeeded deduplicates across multiple surfaces.
+        GhosttyApp.shared?.synchronizeThemeIfNeeded(effectiveAppearance)
+    }
+
     // MARK: - Layout / window changes
 
     override func viewDidMoveToWindow() {

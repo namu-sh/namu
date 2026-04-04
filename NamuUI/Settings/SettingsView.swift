@@ -48,13 +48,13 @@ struct SettingsView: View {
                             Text(section.localizedTitle)
                                 .font(.system(size: 13))
                         }
-                        .foregroundStyle(selectedSection == section ? .white : .secondary)
+                        .foregroundStyle(selectedSection == section ? .primary : .secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(
                             selectedSection == section
-                                ? RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.1))
+                                ? RoundedRectangle(cornerRadius: 6).fill(NamuColors.selectedBackground)
                                 : nil
                         )
                     }
@@ -68,7 +68,7 @@ struct SettingsView: View {
 
             // Separator
             Rectangle()
-                .fill(Color.white.opacity(0.08))
+                .fill(NamuColors.separator)
                 .frame(width: 1)
 
             // Content
@@ -88,7 +88,7 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(NamuColors.headerBackground)
     }
 }
 
@@ -484,7 +484,7 @@ private struct WorkspaceColorsSettingsContent: View {
             RoundedRectangle(cornerRadius: 5)
                 .fill(swatch)
                 .frame(width: 28, height: 28)
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.white.opacity(0.15), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(NamuColors.separator, lineWidth: 1))
 
             Text(name)
                 .font(.system(size: 12))

@@ -32,6 +32,8 @@ final class SurfaceCommands {
             handler: { [weak self] req in try await self?.current(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "surface.read_text", execution: .background, safety: .safe,
             handler: { [weak self] req in try await self?.readText(req) ?? .notAvailable(req) }))
+        registry.register(HandlerRegistration(method: "report_pwd", execution: .mainActor, safety: .safe,
+            handler: { [weak self] req in try await self?.reportPwd(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "report_shell_state", execution: .mainActor, safety: .safe,
             handler: { [weak self] req in try await self?.reportShellState(req) ?? .notAvailable(req) }))
         registry.register(HandlerRegistration(method: "report_tty", execution: .mainActor, safety: .safe,
@@ -329,6 +331,35 @@ final class SurfaceCommands {
             "surface_id":   .string(panelID.uuidString),
             "workspace_id": .string(workspaceID.uuidString),
             "state":        .string(stateStr)
+        ]))
+    }
+
+    // MARK: - report_pwd
+
+    /// Update the working directory for a panel.
+    /// Called by namu.zsh when the shell changes directory.
+    /// Params:
+    ///   pwd         (string, required) — current working directory path
+    ///   surface_id  (string, optional) — panel UUID; defaults to focused panel
+    private func reportPwd(_ req: JSONRPCRequest) async throws -> JSONRPCResponse {
+        let params = req.params?.object ?? [:]
+
+        guard let pwdValue = params["pwd"], case .string(let pwd) = pwdValue, !pwd.isEmpty else {
+            throw JSONRPCError(code: -32602, message: "Missing required param: pwd")
+        }
+
+        let (panelID, workspaceID) = try resolveTarget(params: params)
+
+        guard let panel = panelManager.panel(for: panelID) else {
+            throw JSONRPCError(code: -32001, message: "Surface not available")
+        }
+
+        panel.updateWorkingDirectory(pwd)
+
+        return .success(id: req.id, result: .object([
+            "surface_id":   .string(panelID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "pwd":          .string(pwd)
         ]))
     }
 

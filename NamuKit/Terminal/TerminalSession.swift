@@ -189,6 +189,7 @@ final class TerminalSession: ObservableObject, TerminalBackend {
                 self.title = newTitle
             }
         }
+
     }
 
     /// Destroy the Ghostty surface and mark the session dead.

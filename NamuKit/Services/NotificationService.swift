@@ -334,8 +334,12 @@ final class NotificationService: ObservableObject {
         panelID: UUID? = nil
     ) -> InAppNotification {
         // Suppress duplicate notifications within the deduplication window.
+        // Scoped per-panel: same message from different workspaces or panels is not a duplicate.
         let now = Date()
-        if let recent = allNotifications.last(where: { $0.title == title && $0.body == body }),
+        if let recent = allNotifications.last(where: {
+            $0.title == title && $0.body == body &&
+            $0.workspaceID == workspaceID && $0.panelID == panelID
+        }),
            now.timeIntervalSince(recent.createdAt) < Self.deduplicationInterval {
             return recent
         }
@@ -383,14 +387,19 @@ final class NotificationService: ObservableObject {
 
     /// Handle a terminal OSC desktop notification. Checks if the workspace has an
     /// active Claude session and suppresses if so (Claude hooks handle those).
+    /// - Parameter workspaceID: The resolved owning workspace (from surface pointer).
+    ///   Falls back to selectedWorkspaceID if nil.
     @discardableResult
     func handleTerminalNotification(
         title: String,
         body: String,
+        workspaceID: UUID? = nil,
+        panelID: UUID? = nil,
         workspaceManager: WorkspaceManager
     ) -> InAppNotification? {
-        // Check if the selected workspace has any active agent sessions.
-        if let wsID = workspaceManager.selectedWorkspaceID,
+        let wsID = workspaceID ?? workspaceManager.selectedWorkspaceID
+        // Check if the owning workspace has any active agent sessions.
+        if let wsID,
            let ws = workspaceManager.workspaces.first(where: { $0.id == wsID }),
            !ws.agentPIDs.isEmpty {
             return nil
@@ -399,7 +408,8 @@ final class NotificationService: ObservableObject {
         let notification = create(
             title: title.isEmpty ? "Terminal" : title,
             body: body,
-            workspaceID: workspaceManager.selectedWorkspaceID
+            workspaceID: wsID,
+            panelID: panelID
         )
         postDesktopNotification(
             title: title.isEmpty ? "Terminal" : title,
