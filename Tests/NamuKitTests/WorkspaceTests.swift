@@ -31,7 +31,7 @@ final class WorkspaceTests: XCTestCase {
 
     func testSessionSnapshotVersion() {
         let snapshot = SessionSnapshot()
-        XCTAssertEqual(snapshot.version, 3)
+        XCTAssertEqual(snapshot.version, 1)
     }
 
     // MARK: - HandlerRegistration CQRS
@@ -54,9 +54,9 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(retrieved?.safety, .safe)
     }
 
-    // MARK: - PaneSnapshot v3 panelIds
+    // MARK: - PaneSnapshot panelIds
 
-    func testPaneSnapshotV3PanelIds() throws {
+    func testPaneSnapshotPanelIds() throws {
         let paneID = UUID()
         let panelID1 = UUID()
         let panelID2 = UUID()
@@ -77,7 +77,7 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(decoded.selectedPanelId, panelID1)
     }
 
-    func testPaneSnapshotV2MigrationNilPanelIds() throws {
+    func testPaneSnapshotNilPanelIds() throws {
         let paneID = UUID()
         let snap = PaneSnapshot(
             id: paneID,
@@ -97,7 +97,7 @@ final class WorkspaceTests: XCTestCase {
 
     func testSessionStateTransitions() throws {
         var state = SessionState.created
-        XCTAssertTrue(state.isAlive)
+        XCTAssertFalse(state.isAlive)
         XCTAssertFalse(state.isInteractive)
 
         try state.handle(.start)

@@ -268,16 +268,6 @@ final class NotificationService: ObservableObject {
             if let data = UserDefaults.standard.data(forKey: "namu.notificationSound"),
                let decoded = try? JSONDecoder().decode(NotificationSound.self, from: data) {
                 resolved = decoded
-            } else if let raw = UserDefaults.standard.string(forKey: "namu.notificationSound") {
-                // Legacy migration: raw string values from old enum.
-                switch raw {
-                case "None":           resolved = .none
-                case "Glass":          resolved = .glass
-                case "Ping":           resolved = .ping
-                case "Pop":            resolved = .pop
-                case "Purr":           resolved = .purr
-                default:               resolved = .system
-                }
             } else {
                 resolved = .system
             }

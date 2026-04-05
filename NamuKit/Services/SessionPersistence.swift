@@ -185,14 +185,9 @@ final class SessionPersistence: ObservableObject {
         do {
             let data = try Data(contentsOf: fileURL)
             let snapshot = try decoder.decode(SessionSnapshot.self, from: data)
-            guard let migrated = snapshot.migrated() else {
-                logger.warning("Session snapshot v\(snapshot.version) is unrecognized, starting fresh")
-                rotateCorruptSnapshot(at: fileURL)
-                return false
-            }
-            applySnapshot(migrated)
-            let windowCount = migrated.windows.count
-            let workspaceCount = migrated.windows.reduce(0) { $0 + $1.workspaces.count }
+            applySnapshot(snapshot)
+            let windowCount = snapshot.windows.count
+            let workspaceCount = snapshot.windows.reduce(0) { $0 + $1.workspaces.count }
             logger.info("Session restored: \(windowCount) window(s), \(workspaceCount) workspace(s)")
             return true
         } catch {

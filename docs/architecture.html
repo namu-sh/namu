@@ -10,7 +10,7 @@
 <div class="page-wrapper">
     <aside class="sidebar">
         <a href="index.html" class="sidebar-logo">Namu</a>
-        <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
+        <p class="sidebar-tagline">AI native terminal app</p>
         <nav>
             <ul>
                 <li><a href="index.html">Home</a></li>
@@ -18,7 +18,7 @@
                 <li><a href="architecture.html" class="active">Architecture</a></li>
                 <li><a href="cli-reference.html">CLI Reference</a></li>
                 <li><a href="socket-api.html">Socket API</a></li>
-                <li><a href="ai-integration.html">AI Integration</a></li>
+                <li><a href="ai-integration.html">Agent Integration</a></li>
             </ul>
         </nav>
     </aside>
@@ -37,12 +37,12 @@
                 <tr>
                     <td><strong>NamuKit</strong></td>
                     <td><code>NamuKit/</code></td>
-                    <td>Core logic. Domain models, Ghostty FFI, IPC, relay, services, AI, alerting, browser. No SwiftUI imports.</td>
+                    <td>Core logic. Domain models, Ghostty FFI, IPC, relay, services, alerting, browser, remote. No SwiftUI imports.</td>
                 </tr>
                 <tr>
                     <td><strong>NamuUI</strong></td>
                     <td><code>NamuUI/</code></td>
-                    <td>SwiftUI and AppKit views. App entry point, workspace rendering, browser views, settings, AI chat, notifications, update UI.</td>
+                    <td>SwiftUI and AppKit views. App entry point, workspace rendering, browser views, settings, notifications, update UI.</td>
                 </tr>
                 <tr>
                     <td><strong>CLI</strong></td>
@@ -67,7 +67,6 @@
                 <tr><td><code>Terminal/</code></td><td>Ghostty bridge/config/keyboard wrappers, <code>TerminalSurfaceRegistry</code> (pointer safety), <code>PortalHostLease</code> system, session lifecycle, CJK IME, dictation, middle-click paste, shell integration, copy mode, image transfer (Kitty + SCP), SSH detection, and ZDOTDIR overlay.</td></tr>
                 <tr><td><code>IPC/</code></td><td><code>SocketServer</code>, <code>RelayServer</code> (TCP with HMAC-SHA256), command registry/dispatcher, access control, event bus, command namespaces, middleware, and password auth.</td></tr>
                 <tr><td><code>Services/</code></td><td>Workspace/panel managers, persistence, notifications (status/progress/log APIs), layout, appearance, analytics, <code>PortScanner</code> (batched ps+lsof), project config watcher, and app coordination.</td></tr>
-                <tr><td><code>AI/</code></td><td><code>NamuAI</code>, provider abstraction (Claude/OpenAI/Gemini/Custom), context collection, command mapping, conversation state, command safety, and alert engine.</td></tr>
                 <tr><td><code>Alerting/</code></td><td>Outbound channel delivery for Slack, Telegram, Discord, and generic webhook with rate limiting and credential security.</td></tr>
                 <tr><td><code>Browser/</code></td><td><code>BrowserProfileStore</code>, <code>BrowserHistoryStore</code>, browser models, <code>MarkdownPanel</code> with file watching, 84+ browser command handlers, network tracing, and proxy configuration.</td></tr>
                 <tr><td><code>Remote/</code></td><td><code>RemoteSessionController</code>, <code>DaemonRPCClient</code>, <code>RemoteProxyBroker</code>, <code>RemoteProxyTunnel</code>, and CLI relay server for SSH remote workspaces.</td></tr>
@@ -86,7 +85,6 @@
   |       +---> Terminal (Ghostty C FFI)
   |       +---> IPC (socket + relay + command dispatch)
   |       +---> Services (workspace, panel, notifications, config watcher)
-  |       +---> AI (NamuAI + providers + safety)
   |       +---> Alerting
   |       +---> Browser (84+ commands, network tracing)
   |       +---> Remote (SSH orchestration, proxy broker)
@@ -127,18 +125,6 @@ daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre
           --> proxy.socks5 / proxy.http_connect (browser traffic)
   --> CLIRelayServer (HMAC-SHA256 local socket)
     --> forwarded commands via SSH tunnel to remote daemon</code></pre>
-
-        <h3>AI Command Flow</h3>
-        <pre><code>User message
-  --> NamuAI
-    --> ContextCollector + ConversationManager
-      --> LLM provider
-        --> tool_use response
-          --> CommandMapper
-            --> CommandSafety
-              --> CommandRegistry
-                --> JSON-RPC handler
-                  --> result summarized back to user</code></pre>
 
         <h3>Alert Flow</h3>
         <pre><code>EventBus event (process.exit | output.match | port.change | shell.idle)

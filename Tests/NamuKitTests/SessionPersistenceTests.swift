@@ -111,14 +111,6 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decodedPane.workingDirectory, "/home/user")
     }
 
-    // MARK: - Migrated
-
-    func testCurrentVersionMigratesSuccessfully() {
-        let snapshot = SessionSnapshot()
-        let migrated = snapshot.migrated()
-        XCTAssertNotNil(migrated)
-    }
-
     // MARK: - Workspace Codable
 
     func testWorkspaceCodablePreservesCustomTitle() throws {

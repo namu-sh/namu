@@ -10,7 +10,7 @@
 <div class="page-wrapper">
     <aside class="sidebar">
         <a href="index.html" class="sidebar-logo">Namu</a>
-        <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
+        <p class="sidebar-tagline">AI native terminal app</p>
         <nav>
             <ul>
                 <li><a href="index.html">Home</a></li>
@@ -18,7 +18,7 @@
                 <li><a href="architecture.html">Architecture</a></li>
                 <li><a href="cli-reference.html">CLI Reference</a></li>
                 <li><a href="socket-api.html">Socket API</a></li>
-                <li><a href="ai-integration.html">AI Integration</a></li>
+                <li><a href="ai-integration.html">Agent Integration</a></li>
             </ul>
         </nav>
     </aside>
@@ -59,7 +59,7 @@ xcodebuild -scheme Namu -configuration Debug \
 
         <h2>Repository Layout</h2>
         <pre><code>namu/
-  NamuKit/         Core logic: domain, terminal, IPC, AI, alerting, services, browser
+  NamuKit/         Core logic: domain, terminal, IPC, alerting, services, browser, remote
   NamuUI/          SwiftUI + AppKit app and views
   CLI/             `namu` CLI, hooks (Claude, Codex), tmux compat
   daemon/remote/   Go daemon for remote session and proxy RPC
@@ -105,7 +105,6 @@ namu codex install-hooks   # install Codex hooks</code></pre>
             <li>The CLI accepts short ref IDs everywhere (<code>workspace:1</code>, <code>pane:2</code>) in addition to full UUIDs.</li>
             <li>Use <code>--no-focus</code> to prevent focus stealing when creating workspaces or breaking panes from scripts.</li>
             <li>Alert delivery (Slack, Telegram, Discord, webhook) requires credentials configured in Settings → Alerts.</li>
-            <li>AI commands require an API key configured in Settings → AI for the desired provider.</li>
         </ul>
     </main>
 </div>

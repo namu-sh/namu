@@ -3,14 +3,14 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI Integration — Namu</title>
+    <title>Agent Integration — Namu</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="page-wrapper">
     <aside class="sidebar">
         <a href="index.html" class="sidebar-logo">Namu</a>
-        <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
+        <p class="sidebar-tagline">AI native terminal app</p>
         <nav>
             <ul>
                 <li><a href="index.html">Home</a></li>
@@ -18,76 +18,26 @@
                 <li><a href="architecture.html">Architecture</a></li>
                 <li><a href="cli-reference.html">CLI Reference</a></li>
                 <li><a href="socket-api.html">Socket API</a></li>
-                <li><a href="ai-integration.html" class="active">AI Integration</a></li>
+                <li><a href="ai-integration.html" class="active">Agent Integration</a></li>
             </ul>
         </nav>
     </aside>
 
     <main class="content">
-        <h1>AI Integration</h1>
+        <h1>Agent Integration</h1>
 
         <p>
-            <strong>NamuAI</strong> is a natural-language control plane. It is not an agent
-            bridge and not an MCP wrapper. Given a request like "split the pane and run
-            npm test", NamuAI gathers context, calls an LLM provider, maps tool calls to
-            socket commands, safety-checks them, executes them, and returns a result.
-        </p>
-
-        <h2>Provider Model</h2>
-        <p>Namu supports swappable LLM providers through a common <code>LLMProvider</code> abstraction.</p>
-        <table>
-            <thead><tr><th>Provider</th><th>Implementation</th></tr></thead>
-            <tbody>
-                <tr><td>Claude</td><td><code>NamuKit/AI/Providers/ClaudeProvider.swift</code></td></tr>
-                <tr><td>OpenAI</td><td><code>NamuKit/AI/Providers/OpenAIProvider.swift</code></td></tr>
-                <tr><td>Gemini</td><td><code>NamuKit/AI/Providers/GeminiProvider.swift</code></td></tr>
-                <tr><td>Custom</td><td><code>NamuKit/AI/Providers/CustomProvider.swift</code></td></tr>
-            </tbody>
-        </table>
-        <p>
-            API keys are stored per-provider in the system Keychain. Switch providers in
-            Settings → AI.
-        </p>
-
-        <h2>Local Entry Points</h2>
-        <pre><code>namu ai message --content "create a new workspace called API"
-namu ai message --content "split the current pane and run pytest"
-namu ai status
-namu ai history --limit 10</code></pre>
-
-        <h2>Execution Model</h2>
-        <pre><code>User message
-  --> ConversationManager
-    --> ContextCollector snapshot
-      --> LLM provider.complete(...)
-        --> tool_use calls
-          --> CommandMapper
-            --> CommandSafety
-              --> JSON-RPC handler
-                --> formatted result</code></pre>
-
-        <p>
-            AI execution is async. The model can emit multiple tool calls in a loop, each
-            fed back into the conversation before the final answer is produced.
-        </p>
-
-        <h2>Command Safety</h2>
-        <p>Every AI-issued command passes through <code>CommandSafety</code>:</p>
-        <ul>
-            <li><code>safe</code> — read-only commands: list, status, screen reads</li>
-            <li><code>normal</code> — structural changes: create, split, focus, resize</li>
-            <li><code>dangerous</code> — input injection: send-keys, send-text, execute-js</li>
-        </ul>
-        <p>
-            Destructive shell patterns always require confirmation. External callers must
-            not bypass this layer.
+            Namu provides hook-based integration with AI coding agents. Rather than
+            embedding an AI chatbot, Namu exposes infrastructure that agents call into:
+            IPC hooks, agent PID tracking, session state, per-workspace port allocation,
+            and outbound alert routing.
         </p>
 
         <h2>Claude Code Hook Integration</h2>
         <p>
             Namu supports 10 Claude hook event types for deep integration with Claude Code
-            sessions. The integration uses a wrapper script that intercepts Claude Code
-            invocations and injects session tracking.
+            sessions. A wrapper script intercepts Claude Code invocations and injects
+            session tracking.
         </p>
 
         <h3>Hook Event Types</h3>
@@ -98,29 +48,37 @@ namu ai history --limit 10</code></pre>
             <li><code>Notification</code> — Triggered on Claude notification events</li>
             <li><code>Stop</code> — Triggered when generation stops</li>
             <li><code>SessionEnd</code> — Triggered when the session ends</li>
-            <li>4 additional hook types for fine-grained lifecycle events</li>
+            <li><code>PermissionRequest</code> — Triggered on permission prompts</li>
+            <li><code>SubagentStop</code> — Triggered when a subagent finishes</li>
+            <li><code>TaskCompleted</code> — Triggered on task completion</li>
+            <li><code>TeammateIdle</code> — Triggered when a teammate becomes idle</li>
         </ul>
 
         <h3>What the Hooks Do</h3>
         <ul>
             <li>Track agent PID per surface (<code>set_agent_pid claude_code &lt;pid&gt;</code>)</li>
-            <li>Update sidebar status pill for Claude Code activity</li>
+            <li>Update sidebar status for Claude Code activity</li>
             <li>Send targeted notifications to the workspace surface</li>
             <li>Store session state at <code>~/.namu/claude-hook-sessions.json</code> (7-day TTL)</li>
         </ul>
 
-        <h3>Install</h3>
-        <pre><code>namu claude-teams          # install for current session
+        <h3>Claude Code Teams</h3>
+        <pre><code>namu claude-teams          # run Claude Code in teammate mode
 namu claude-hook session-start
 namu claude-hook prompt-submit
 namu claude-hook stop</code></pre>
+        <p>
+            <code>claude-teams</code> creates a fake tmux shim, translates Claude Code's
+            tmux commands to Namu socket operations, and provides workspace context via
+            <code>system.identify</code> RPC.
+        </p>
 
         <h3>Disable</h3>
         <pre><code>export NAMU_CLAUDE_HOOKS_DISABLED=1</code></pre>
 
         <h2>Codex Hook Integration</h2>
         <p>
-            Similar hook support for OpenAI Codex with session-start, prompt-submit, and
+            Hook support for OpenAI Codex with session-start, prompt-submit, and
             stop events.
         </p>
         <pre><code>namu codex install-hooks
@@ -133,7 +91,7 @@ namu codex-hook prompt-submit</code></pre>
             Namu tracks running agent processes per surface. This powers status display,
             process monitoring, and cleanup on workspace close.
         </p>
-        <pre><code># Via socket API directly
+        <pre><code># Via socket API
 {"method":"system.set_agent_pid","params":{"agent":"claude_code","pid":12345}}
 {"method":"system.clear_agent_pid","params":{"agent":"claude_code"}}</code></pre>
 
@@ -149,8 +107,8 @@ NAMU_PORT_RANGE=3000-3099</code></pre>
 
         <h2>Alerts and Channels</h2>
         <p>
-            Namu includes a rule-based <code>AlertEngine</code> with 4 trigger types.
-            This is separate from the LLM layer and does not require AI to function.
+            Namu includes a rule-based alert engine with 4 trigger types.
+            Alerts are independent of any AI layer.
         </p>
         <pre><code>EventBus event (process.exit | output.match | port.change | shell.idle)
   --> AlertEngine (4 trigger types)
@@ -165,7 +123,7 @@ NAMU_PORT_RANGE=3000-3099</code></pre>
             <li><strong>Webhook</strong> — Generic delivery with custom headers and payload formatting</li>
         </ul>
 
-        <p>Configure channels in Settings → Alerts. Credentials are stored in the Keychain.</p>
+        <p>Configure channels in Settings. Credentials are stored in the Keychain.</p>
     </main>
 </div>
 </body>

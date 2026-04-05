@@ -4,9 +4,9 @@
 
 # Namu
 
-**Terminal multiplexer for the agent era.**
+**AI native terminal app.**
 
-Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.org/). It organizes work into workspaces with split panes, exposes full programmatic control over a JSON-RPC socket API, ships a `namu` CLI for automation, and provides SSH remote workspace orchestration, deep agent integrations, and embedded browser automation.
+Namu is a native macOS terminal app built on [Ghostty](https://ghostty.org/). It organizes work into workspaces with split panes, exposes full programmatic control over a JSON-RPC socket API, ships a `namu` CLI for automation, and provides SSH remote workspace orchestration, deep agent integrations, and embedded browser automation.
 
 ## Features
 
@@ -25,14 +25,18 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 
 ### SSH & Remote Workspaces
 - **`namu ssh user@host`** — Full remote workspace command with SSH relay bootstrap
+- **SSH session detection** — Detects active SSH connections via KERN_PROCARGS2 with full `~/.ssh/config` parsing
 - **Remote daemon provisioning** — Automatic cross-platform binary download with SHA256 verification
 - **SOCKS5 and HTTP CONNECT proxy tunnel** — Routes browser panel traffic through remote workspace
 - **HMAC-SHA256 authenticated CLI relay** — Secure challenge-response for remote command forwarding
+- **File upload via SCP** — Drag files into remote sessions with full SSH option forwarding
+- **Connection pooling** — Multiple workspaces to the same host share one proxy tunnel
 - **PTY resize coordination** — "Smallest screen wins" debounced resize across all attached clients
-- **Automatic reconnection** — Exponential backoff with jitter on connection loss
+- **Automatic reconnection** — Exponential backoff with jitter on connection loss, heartbeat monitoring
 - **ControlSocket multiplexing** — SSH connection reuse enabled by default
 - **Terminfo provisioning** — xterm-ghostty sent to remote via infocmp/tic
 - **ZDOTDIR overlay** — Shell integration injected into remote zsh sessions automatically
+- **Cloud metadata SSRF blocking** — 169.254.169.254 and cloud provider metadata endpoints blocked in proxy tunnel
 
 ### Terminal Input
 - **CJK IME** — Full NSTextInputClient with keyboard layout change detection during composition

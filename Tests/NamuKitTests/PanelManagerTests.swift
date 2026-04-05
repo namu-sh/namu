@@ -38,7 +38,7 @@ final class PanelManagerTests: XCTestCase {
     func testInitialWorkspaceHasNoWelcomeTab() {
         let eng = pm.engine(for: initialWSID)
         for paneID in eng.allPaneIDs {
-            for tab in eng.controller.tabs(inPane: paneID) {
+            for tab in eng.splitController.tabs(inPane: paneID) {
                 XCTAssertNotEqual(tab.title, "Welcome")
             }
         }
@@ -58,7 +58,7 @@ final class PanelManagerTests: XCTestCase {
         let paneIDs = eng.allPaneIDs
 
         XCTAssertEqual(paneIDs.count, 1, "Should have exactly one pane")
-        let tabs = eng.controller.tabs(inPane: paneIDs[0])
+        let tabs = eng.splitController.tabs(inPane: paneIDs[0])
         XCTAssertEqual(tabs.count, 1, "Should have exactly one tab")
         XCTAssertNotNil(eng.panelID(for: tabs[0].id), "Tab should be mapped to a panel")
     }
@@ -67,7 +67,7 @@ final class PanelManagerTests: XCTestCase {
         let ws = pm.createWorkspace(title: "Test")
         let eng = pm.engine(for: ws.id)
         for paneID in eng.allPaneIDs {
-            for tab in eng.controller.tabs(inPane: paneID) {
+            for tab in eng.splitController.tabs(inPane: paneID) {
                 XCTAssertNotEqual(tab.title, "Welcome", "Welcome tab must be removed")
             }
         }
@@ -102,7 +102,7 @@ final class PanelManagerTests: XCTestCase {
         pm.bootstrapRestoredWorkspace(ws, panelIDs: [panelID], activePanelID: panelID)
 
         let eng = pm.engine(for: ws.id)
-        let allTabs = eng.allPaneIDs.flatMap { eng.controller.tabs(inPane: $0) }
+        let allTabs = eng.allPaneIDs.flatMap { eng.splitController.tabs(inPane: $0) }
         let mappedIDs = allTabs.compactMap { eng.panelID(for: $0.id) }
 
         XCTAssertTrue(mappedIDs.contains(panelID), "Restored panel should be mapped to a tab")

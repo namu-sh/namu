@@ -10,7 +10,7 @@
 <div class="page-wrapper">
     <aside class="sidebar">
         <a href="index.html" class="sidebar-logo">Namu</a>
-        <p class="sidebar-tagline">Terminal multiplexer for the agent era</p>
+        <p class="sidebar-tagline">AI native terminal app</p>
         <nav>
             <ul>
                 <li><a href="index.html">Home</a></li>
@@ -18,7 +18,7 @@
                 <li><a href="architecture.html">Architecture</a></li>
                 <li><a href="cli-reference.html" class="active">CLI Reference</a></li>
                 <li><a href="socket-api.html">Socket API</a></li>
-                <li><a href="ai-integration.html">AI Integration</a></li>
+                <li><a href="ai-integration.html">Agent Integration</a></li>
             </ul>
         </nav>
     </aside>
@@ -161,22 +161,11 @@ namu system capabilities --json</code></pre>
         <pre><code>namu debug layout
 namu debug window screenshot --path /tmp/window.png
 namu debug panel snapshot --surface_id surface:1
-namu debug bonsplit_underflow count
-namu debug bonsplit_underflow reset
+namu debug underflow count
+namu debug underflow reset
 namu debug flash count --surface_id surface:1
 namu debug flash reset
 namu debug render_stats --surface_id surface:1</code></pre>
-
-        <h2>ai.*</h2>
-        <p>
-            AI commands talk to <code>NamuAI</code>, which interprets natural language,
-            maps it onto structured commands, and runs those commands through
-            <code>CommandSafety</code> before execution.
-        </p>
-        <pre><code>namu ai message --content "split pane and run npm test"
-namu ai message --content "show me all workspaces"
-namu ai status
-namu ai history --limit 20</code></pre>
 
         <hr>
 
@@ -248,10 +237,6 @@ npm test && \
         <pre><code>namu pane send_keys "npm start\n"
 namu pane read_screen --json</code></pre>
 
-        <h3>Use natural language control</h3>
-        <pre><code>namu ai message --content "split the pane horizontally and run pytest"
-namu ai message --content "how many workspaces do I have?"
-namu ai message --content "what is the output in the right pane?"</code></pre>
     </main>
 </div>
 </body>

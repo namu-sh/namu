@@ -4,7 +4,7 @@ This file is for AI coding agents (Claude, Codex, Copilot, etc.) working on the 
 
 ## Project Overview
 
-Namu is a native macOS terminal multiplexer built on Ghostty (GPU-accelerated terminal via C FFI). It provides workspaces with tabbed split panes, a JSON-RPC socket API, a CLI tool, outbound alert channels, and an authenticated TCP relay for remote access.
+Namu is an AI native terminal app for macOS built on Ghostty (GPU-accelerated terminal via C FFI). It provides workspaces with tabbed split panes, a JSON-RPC socket API, a CLI tool, outbound alert channels, and an authenticated TCP relay for remote access.
 
 ## Directory Structure
 
@@ -13,9 +13,11 @@ namu/
   NamuKit/              Core logic -- NO UI imports (except AppKit for FFI)
     Alerting/             Outbound alert channels: Slack, Telegram, Discord, webhook (credential security)
     Browser/              BrowserPanel, BrowserProfileStore, BrowserHistoryStore, MarkdownPanel (file watching),
-                          BrowserControlling, 84+ browser automation commands
+                          BrowserControlling, 84+ browser automation commands, network tracing, proxy configuration
     Config/               Project configuration, directory trust, command execution
     Debug/                TypingTiming (keystroke latency profiling, 34 instrumentation points, always compiled)
+    Remote/               RemoteSessionController, DaemonRPCClient, RemoteProxyBroker, RemoteProxyTunnel,
+                          RemoteCLIRelayServer for SSH remote workspaces
     Domain/               Value types: Workspace (workspace placement), Panel, SessionSnapshot,
                           SidebarMetadata, PullRequestDisplay
     Extensions/           Small utilities (e.g. Comparable+Clamped)
