@@ -112,13 +112,8 @@ final class WorkspaceManager: ObservableObject {
     /// Set or clear the custom accent color for a workspace.
     /// Pass nil to remove the color.
     func setWorkspaceColor(id: UUID, color: String?) {
-        guard let idx = workspaces.firstIndex(where: { $0.id == id }) else {
-            print("[WorkspaceManager] setWorkspaceColor: workspace \(id) not found")
-            return
-        }
-        print("[WorkspaceManager] setWorkspaceColor: workspace=\(workspaces[idx].title) color=\(color ?? "nil") idx=\(idx)")
+        guard let idx = workspaces.firstIndex(where: { $0.id == id }) else { return }
         workspaces[idx].customColor = color
-        print("[WorkspaceManager] after set: customColor=\(workspaces[idx].customColor ?? "nil")")
     }
 
     // MARK: - Auto-reorder

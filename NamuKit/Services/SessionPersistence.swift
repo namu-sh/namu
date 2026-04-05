@@ -121,23 +121,14 @@ final class SessionPersistence: ObservableObject {
     /// returns immediately — async Tasks won't complete before the process exits).
     func saveSync() {
         let snapshot = buildSnapshot()
-        // Debug: log workspace colors in snapshot
-        for win in snapshot.windows {
-            for ws in win.workspaces {
-                print("[SessionPersistence.saveSync] workspace=\(ws.title) customColor=\(ws.customColor ?? "nil")")
-            }
-        }
         do {
             try writeSnapshot(snapshot)
             let activePanelIDs = Set(snapshot.windows.flatMap { win in
                 win.workspaces.flatMap { ws in collectPanelIDs(from: ws.layout) }
             })
             cleanStaleScrollbackFiles(keepingPanelIDs: activePanelIDs)
-            let windowCount = snapshot.windows.count
-            let workspaceCount = snapshot.windows.reduce(0) { $0 + $1.workspaces.count }
-            print("[SessionPersistence.saveSync] SAVED \(windowCount) window(s), \(workspaceCount) workspace(s)")
         } catch {
-            print("[SessionPersistence.saveSync] FAILED: \(error.localizedDescription)")
+            logger.error("Session saveSync failed: \(error.localizedDescription)")
         }
     }
 
@@ -409,7 +400,6 @@ final class SessionPersistence: ObservableObject {
             workspace.customTitle = workspaceSnap.customTitle
             workspace.processTitle = workspaceSnap.processTitle ?? ""
             workspace.customColor = workspaceSnap.customColor
-            print("[SessionPersistence.restore] workspace=\(restoredTitle) customColor=\(workspaceSnap.customColor ?? "nil")")
             restoredWorkspaces.append(workspace)
 
             // Create panels in PanelManager's registry

@@ -51,13 +51,9 @@ final class LayoutTreeController {
 
     // MARK: - Callbacks
 
-    @ObservationIgnored var onFileDrop: ((_ urls: [URL], _ paneId: PaneID) -> Bool)?
     @ObservationIgnored var onExternalTabDrop: ((ExternalTabDropRequest) -> Bool)?
     @ObservationIgnored var onCreateAdditionalDragPayload: ((_ tabId: TabID) -> [(typeIdentifier: String, data: Data)])?
     @ObservationIgnored var onTabCloseRequest: ((_ tabId: TabID, _ paneId: PaneID) -> Void)?
-
-    /// Keyboard shortcuts to display in tab context menus
-    var contextMenuShortcuts: [TabContextAction: KeyboardShortcut] = [:]
 
     // MARK: - Initialization
 
@@ -281,28 +277,6 @@ final class LayoutTreeController {
         return true
     }
 
-    /// Move to previous tab in focused pane
-    func selectPreviousTab() {
-        guard let pane = focusedPane,
-              let selectedTabId = pane.selectedTabId,
-              let currentIndex = pane.tabs.firstIndex(where: { $0.id == selectedTabId }),
-              !pane.tabs.isEmpty else { return }
-        let newIndex = currentIndex > 0 ? currentIndex - 1 : pane.tabs.count - 1
-        pane.selectTab(pane.tabs[newIndex].id)
-        notifyTabSelection()
-    }
-
-    /// Move to next tab in focused pane
-    func selectNextTab() {
-        guard let pane = focusedPane,
-              let selectedTabId = pane.selectedTabId,
-              let currentIndex = pane.tabs.firstIndex(where: { $0.id == selectedTabId }),
-              !pane.tabs.isEmpty else { return }
-        let newIndex = currentIndex < pane.tabs.count - 1 ? currentIndex + 1 : 0
-        pane.selectTab(pane.tabs[newIndex].id)
-        notifyTabSelection()
-    }
-
     // MARK: - Split Operations
 
     /// Split the focused pane (or specified pane)
@@ -465,10 +439,6 @@ final class LayoutTreeController {
 
     // MARK: - Split Zoom
 
-    var isSplitZoomed: Bool {
-        zoomedPaneId != nil
-    }
-
     @discardableResult
     func clearPaneZoom() -> Bool {
         guard zoomedPaneId != nil else { return false }
@@ -508,11 +478,6 @@ final class LayoutTreeController {
     var focusedPane: PaneState? {
         guard let focusedPaneId else { return nil }
         return rootNode.findPane(focusedPaneId)
-    }
-
-    var zoomedNode: SplitNode? {
-        guard let zoomedPaneId else { return nil }
-        return rootNode.findNode(containing: zoomedPaneId)
     }
 
     func tab(_ tabId: TabID) -> Tab? {
@@ -564,10 +529,6 @@ final class LayoutTreeController {
         buildExternalTree(from: rootNode, containerFrame: containerFrame)
     }
 
-    func findSplit(_ splitId: UUID) -> Bool {
-        findSplitState(splitId) != nil
-    }
-
     @discardableResult
     func setDividerPosition(_ position: CGFloat, forSplit splitId: UUID, fromExternal: Bool = false) -> Bool {
         guard let split = findSplitState(splitId) else { return false }
@@ -586,10 +547,6 @@ final class LayoutTreeController {
         }
 
         return true
-    }
-
-    func setContainerFrame(_ frame: CGRect) {
-        containerFrame = frame
     }
 
     // MARK: - Private Helpers

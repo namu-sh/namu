@@ -18,7 +18,6 @@ enum NamuTabBarMetrics {
     static let closeIconSize: CGFloat = 9
     static let dirtyIndicatorSize: CGFloat = 7
     static let notificationBadgeSize: CGFloat = 7
-    static let activeIndicatorHeight: CGFloat = 2
     static let hoverDuration: CGFloat = 0.12
     static let splitButtonSize: CGFloat = 28
 }

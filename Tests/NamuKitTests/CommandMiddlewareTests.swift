@@ -91,51 +91,6 @@ final class CommandMiddlewareTests: XCTestCase {
         }
     }
 
-    // MARK: - Rate limiter
-
-    func testRateLimiterAllowsUnderLimit() async throws {
-        let limiter = RateLimiter(limit: 20, window: .seconds(60))
-        let middleware = makeRateLimitMiddleware(limiter: limiter)
-        let chain = chainMiddleware([middleware], handler: okHandler)
-
-        for _ in 0..<20 {
-            let response = try await chain(makeRequest(method: "ping"), makeContext(source: .gateway))
-            XCTAssertNil(response.error)
-        }
-    }
-
-    func testRateLimiterBlocksOverLimit() async throws {
-        let limiter = RateLimiter(limit: 20, window: .seconds(60))
-        let middleware = makeRateLimitMiddleware(limiter: limiter)
-        let chain = chainMiddleware([middleware], handler: okHandler)
-        let ctx = makeContext(source: .gateway)
-
-        for _ in 0..<20 {
-            _ = try await chain(makeRequest(method: "ping"), ctx)
-        }
-
-        do {
-            _ = try await chain(makeRequest(method: "ping"), ctx)
-            XCTFail("Expected rate limit error on 21st call")
-        } catch let error as JSONRPCError {
-            XCTAssertEqual(error.code, -32000)
-        }
-    }
-
-    func testRateLimiterLocalBypass() async throws {
-        let limiter = RateLimiter(limit: 20, window: .seconds(60))
-        let middleware = makeRateLimitMiddleware(limiter: limiter)
-        let chain = chainMiddleware([middleware], handler: okHandler)
-        let ctx = makeContext(source: .local)
-
-        // 25 calls from local should all succeed (limit only applies to gateway/ai)
-        for _ in 0..<25 {
-            let response = try await chain(makeRequest(method: "ping"), ctx)
-            XCTAssertNil(response.error)
-        }
-    }
-
-
     // MARK: - CommandContext fields
 
     func testCommandContextFields() {
@@ -143,12 +98,12 @@ final class CommandMiddlewareTests: XCTestCase {
         let ctx = CommandContext(
             clientID: clientID,
             accessMode: .allowAll,
-            source: .ai,
+            source: .local,
             metadata: ["key": "value"]
         )
         XCTAssertEqual(ctx.clientID, clientID)
         XCTAssertEqual(ctx.accessMode, .allowAll)
-        XCTAssertEqual(ctx.source, .ai)
+        XCTAssertEqual(ctx.source, .local)
         XCTAssertEqual(ctx.metadata["key"], "value")
     }
 }

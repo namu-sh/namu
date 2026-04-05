@@ -3,10 +3,6 @@ import Foundation
 // MARK: - Event Types
 
 enum NamuEvent: String, CaseIterable, Sendable {
-    case processExit      = "process.exit"
-    case outputMatch      = "output.match"
-    case portChange       = "port.change"
-    case shellIdle        = "shell.idle"
     case workspaceChange  = "workspace.change"
 }
 
@@ -76,9 +72,4 @@ final class EventBus: @unchecked Sendable {
         ))
     }
 
-    // MARK: - Introspection
-
-    var subscriberCount: Int {
-        lock.withLock { subscriptions.count }
-    }
 }

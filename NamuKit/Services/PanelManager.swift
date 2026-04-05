@@ -607,26 +607,7 @@ final class PanelManager: ObservableObject {
     func activateDirection(_ direction: NavigationDirection) {
         guard let wsID = workspaceManager.selectedWorkspaceID else { return }
         let eng = engine(for: wsID)
-
-        // Capture current panel's focus intent before navigating away.
-        let previousIntent: PanelFocusIntent? = {
-            guard let fid = focusedPanelID(in: wsID) else { return nil }
-            if panels[fid] != nil { return .terminal(.surface) }
-            if browserPanels[fid] != nil { return .browser(.webView) }
-            if markdownPanels[fid] != nil { return .markdown }
-            return nil
-        }()
-        _ = previousIntent  // retained for future capture/restore logic
-
-        let navDir: NavigationDirection
-        switch direction {
-        case .left: navDir = .left
-        case .right: navDir = .right
-        case .up: navDir = .up
-        case .down: navDir = .down
-        }
-
-        eng.navigateFocus(navDir)
+        eng.navigateFocus(direction)
         applyFocusState(in: wsID)
         reconcileFirstResponder(in: wsID)
         objectWillChange.send()

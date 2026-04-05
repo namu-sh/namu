@@ -18,36 +18,6 @@ final class ReviewFixTests: XCTestCase {
         XCTAssertEqual(state, .destroyed)
     }
 
-    // MARK: - Test 2: RateLimiter blocks over-limit for external sources
-
-    func testRateLimiterBlocksOverLimit() {
-        let limiter = RateLimiter(limit: 3, window: .seconds(60))
-        XCTAssertTrue(limiter.tryConsume(), "1st call should succeed")
-        XCTAssertTrue(limiter.tryConsume(), "2nd call should succeed")
-        XCTAssertTrue(limiter.tryConsume(), "3rd call should succeed")
-        XCTAssertFalse(limiter.tryConsume(), "4th call should be blocked (over limit)")
-    }
-
-    // MARK: - Test 3: RateLimiter middleware bypasses limit for local sources
-
-    func testRateLimitMiddlewareBypassesLocalSource() async throws {
-        let limiter = RateLimiter(limit: 1, window: .seconds(60))
-        let middleware = makeRateLimitMiddleware(limiter: limiter)
-        let chain = chainMiddleware([middleware]) { req, _ in
-            JSONRPCResponse.success(id: req.id)
-        }
-
-        let req = JSONRPCRequest(id: .string("1"), method: "test", params: nil)
-        let ctx = CommandContext(clientID: UUID(), accessMode: .allowAll, source: .local)
-
-        // Local source should bypass rate limit entirely.
-        // Even with limit=1, 5 calls from .local should all succeed.
-        for i in 0..<5 {
-            let resp = try await chain(req, ctx)
-            XCTAssertNil(resp.error, "Local call \(i+1) should not be rate-limited")
-        }
-    }
-
     // MARK: - Test 5: Middleware chain actually executes in CommandDispatcher
 
     func testMiddlewareChainExecutesInDispatcher() async throws {
@@ -243,31 +213,6 @@ final class ReviewFixTests: XCTestCase {
 
         XCTAssertEqual(pm.allPanelIDs(in: wsID).count, 2,
                        "splitActivePanel should add a new pane")
-    }
-
-    // MARK: - Additional coverage: RateLimiter blocks gateway over limit via middleware
-
-    func testRateLimiterMiddlewareBlocksGatewayOverLimit() async throws {
-        let limiter = RateLimiter(limit: 2, window: .seconds(60))
-        let middleware = makeRateLimitMiddleware(limiter: limiter)
-        let chain = chainMiddleware([middleware]) { req, _ in
-            JSONRPCResponse.success(id: req.id)
-        }
-
-        let req = JSONRPCRequest(id: .string("1"), method: "test", params: nil)
-        let ctx = CommandContext(clientID: UUID(), accessMode: .allowAll, source: .gateway)
-
-        // First 2 should succeed
-        _ = try await chain(req, ctx)
-        _ = try await chain(req, ctx)
-
-        // 3rd should throw rate limit error
-        do {
-            _ = try await chain(req, ctx)
-            XCTFail("Expected rate limit error on 3rd gateway call with limit=2")
-        } catch let error as JSONRPCError {
-            XCTAssertEqual(error.code, -32000, "Rate limit error code should be -32000")
-        }
     }
 
     // MARK: - Additional coverage: Dispatcher without middleware still routes correctly
