@@ -6,14 +6,15 @@
 
 **Terminal multiplexer for the agent era.**
 
-Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.org/). It organizes work into workspaces with split panes, exposes full programmatic control over a JSON-RPC socket API, ships a `namu` CLI for automation, and includes a built-in natural-language control plane (NamuAI). It also provides SSH remote workspace orchestration, deep agent integrations, embedded browser automation, and outbound alert routing.
+Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.org/). It organizes work into workspaces with split panes, exposes full programmatic control over a JSON-RPC socket API, ships a `namu` CLI for automation, and provides SSH remote workspace orchestration, deep agent integrations, and embedded browser automation.
 
 ## Features
 
 ### Core Terminal & Layout
 - **GPU-accelerated terminal** — Ghostty-powered Metal rendering with low-latency typing
-- **Workspaces and splits** — Tabbed workspaces with arbitrary horizontal and vertical nesting via [Bonsplit](vendor/bonsplit)
-- **Split inherits CWD** — New split panes start in the parent shell's working directory via IPC
+- **Workspaces and splits** — Tabbed workspaces with arbitrary horizontal and vertical nesting via NamuSplit
+- **Tabbed panes** — Multiple tabs per pane with drag-and-drop reordering and cross-pane moves
+- **Split inherits CWD** — New split panes and tabs start in the parent shell's working directory
 - **Configurable workspace placement** — Position new workspaces at top, after current, or at end
 - **Equalize splits** — Proportional leaf-count weighted split distribution (Cmd+Shift+=)
 - **Tab-level pinning** — Pin tabs with session persistence across relaunches
@@ -115,21 +116,11 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 - **Per-workspace port allocation** — `NAMU_PORT` / `NAMU_PORT_END` / `NAMU_PORT_RANGE` env vars
 - **Claude hooks disabled toggle** — `NAMU_CLAUDE_HOOKS_DISABLED` env var
 
-### AI & Intelligence
-- **NamuAI** — Natural-language control plane mapped onto structured socket commands
-- **LLM-swappable** — Claude, OpenAI, Gemini, or custom provider backends
-- **Command safety** — Structured safe/normal/dangerous classification with destructive-pattern detection
-- **Persistent conversations** — Session history, context collection, and command mapping
-
-### Alerting & Monitoring
-- **Alert engine** — Rule-based alerts with 4 trigger types (process exit, output match, port change, shell idle)
-- **Slack, Telegram, Discord, Webhook** — Outbound delivery with rate limiting and credential security
-
 ### Telemetry & Observability
 - **OpenTelemetry-compatible metrics** — Zero-dependency OTLP HTTP JSON exporter
 - **Sentry integration** — Direct OTLP export via DSN auto-configuration ([docs](https://docs.sentry.io/concepts/otlp/direct/))
 - **Multi-target export** — Send to Sentry + any OTel collector simultaneously
-- **20+ predefined metrics** — IPC latency/errors, socket health, browser navigations, notification counts, AI commands, SSH events, session persistence timing
+- **Predefined metrics** — IPC latency/errors, socket health, browser navigations, notification counts
 - **Structured logs** — Severity-leveled log records exported alongside metrics
 - **Opt-in activation** — `NAMU_SENTRY_DSN` or `NAMU_OTEL_ENDPOINT` env vars; zero overhead when disabled
 
@@ -171,10 +162,10 @@ Build and run the `Namu` scheme in Xcode.
 
 ## Architecture
 
-Namu is organized around four main code areas:
+Namu is organized around three main code areas:
 
 ```text
-NamuKit/       Core logic: terminal, domain, IPC, services, AI, alerting
+NamuKit/       Core logic: terminal, domain, IPC, services, alerting
 NamuUI/        SwiftUI + AppKit app and views
 CLI/           `namu` command-line interface and tmux-compat tooling
 daemon/remote/ Remote relay helper for forwarded command access
@@ -184,15 +175,15 @@ daemon/remote/ Remote relay helper for forwarded command access
 
 | Area | Directory | Purpose |
 |------|-----------|---------|
-| **Domain** | `NamuKit/Domain/` | Value types: `Workspace`, `Panel`, `PaneTree`, `SessionSnapshot`, `WorkspaceRemoteConfiguration` |
+| **Domain** | `NamuKit/Domain/` | Value types: `Workspace`, `Panel`, `SessionSnapshot`, `WorkspaceRemoteConfiguration` |
 | **Terminal** | `NamuKit/Terminal/` | Ghostty FFI, `TerminalSession`, keyboard/input, IME, shell integration, image transfer, SSH detection |
 | **IPC** | `NamuKit/IPC/` | `SocketServer`, `RelayServer`, registry, dispatcher, middleware, access control, event bus |
-| **Services** | `NamuKit/Services/` | `WorkspaceManager`, `PanelManager`, persistence, notifications, layout, port scanner, analytics |
+| **Services** | `NamuKit/Services/` | `WorkspaceManager`, `PanelManager`, persistence, notifications, layout, port scanner |
+| **NamuSplit** | `NamuKit/NamuSplit/` | Split-pane layout engine: tree model, controller, tabs, drag-and-drop, zoom |
 | **Telemetry** | `NamuKit/Telemetry/` | `NamuTelemetry` OTLP exporter, `NamuMetrics` predefined metric definitions |
-| **AI** | `NamuKit/AI/` | `NamuAI`, provider abstraction, safety, conversations, context collection, tool mapping |
 | **Alerting** | `NamuKit/Alerting/` | Channel abstractions and outbound Slack/Telegram/Discord/webhook delivery |
 | **Browser** | `NamuKit/Browser/` | Profile/history stores, 84+ command handlers, network tracing, proxy configuration |
-| **UI** | `NamuUI/` | App entry, sidebar, workspace, browser, settings, AI chat, notifications, update UI |
+| **UI** | `NamuUI/` | App entry, sidebar, workspace, browser, settings, notifications, update UI |
 | **CLI** | `CLI/` | JSON-RPC client, hooks for Claude/Codex, tmux compat, ref ID resolution |
 | **Remote Helper** | `daemon/remote/` | Go daemon for remote session/proxy RPC; 12 RPC methods |
 
@@ -204,10 +195,6 @@ SwiftUI Views --> @MainActor managers --> domain models --> Ghostty FFI
 CLI / local clients --> SocketServer --> CommandRegistry --> handlers
                          |
 Remote clients --> RelayServer (HMAC-SHA256) --> CommandDispatcher --> handlers
-                         |
-NamuAI --> provider --> CommandSafety --> CommandRegistry
-                         |
-AlertEngine --> AlertRouter --> Slack / Telegram / Discord / Webhook
                          |
 SSH sessions --> RemoteSessionController --> daemon RPC --> proxy broker
 ```
@@ -278,11 +265,6 @@ namu system ping
 namu system identify
 namu system relay_status
 namu system capabilities
-
-# AI
-namu ai message --content "split pane and run npm test"
-namu ai status
-namu ai history --limit 20
 
 # SSH remote workspace
 namu ssh user@host
