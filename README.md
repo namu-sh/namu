@@ -9,10 +9,11 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 ### Core Terminal & Layout
 - **GPU-accelerated terminal** — Ghostty-powered Metal rendering with low-latency typing
 - **Workspaces and splits** — Tabbed workspaces with arbitrary horizontal and vertical nesting via [Bonsplit](vendor/bonsplit)
+- **Split inherits CWD** — New split panes start in the parent shell's working directory via IPC
 - **Configurable workspace placement** — Position new workspaces at top, after current, or at end
 - **Equalize splits** — Proportional leaf-count weighted split distribution (Cmd+Shift+=)
 - **Tab-level pinning** — Pin tabs with session persistence across relaunches
-- **Session persistence** — Restores layout, splits, scrollback, and window state across relaunches
+- **Session persistence** — Restores layout, splits, scrollback, working directory, git branch, and window state across relaunches with fingerprint-based save skipping
 - **Scrollback persistence** — ANSI-safe truncation with configurable buffer limits
 - **Config hot-reload** — Cmd+Shift+, reloads Ghostty config without restarting
 - **Project config file watching** — Live reload of `namu.json` on save with debounce
@@ -35,7 +36,15 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 - **Middle-click paste** — X11-style paste from mouse button 2
 - **Focus-follows-mouse** — Drag guards prevent focus thrashing during drag operations
 
-### Workspace & Pane Operations
+### Sidebar & Workspace
+- **Compact fixed-height rows** — 2-line workspace items: title + context (branch, path, ports, running command)
+- **Shell state indicator** — Colored dot shows prompt/running/idle/error state
+- **Pin icon** — Vertical pin replaces dot for pinned workspaces, colored by custom or accent color
+- **Inline exit code** — Non-zero exit codes shown in red with the failed command
+- **Running command display** — Active command shown in the context line
+- **Hover close** — X button crossfades with badges on hover, no layout shift
+
+### Pane Operations
 - **`surface.reorder`** — Reorder tabs within a pane
 - **`surface.drag_to_split`** — Drag existing tab into split position
 - **`surface.move`** — Move surface across panes, workspaces, and windows
@@ -45,6 +54,9 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 - **Per-panel PR status** — `panelPullRequests` dictionary with command palette "Open All PRs"
 
 ### Notification System
+- **Per-workspace unread tracking** — Derived from NotificationService; auto-cleared when selecting workspace
+- **Per-panel deduplication** — Same notification from different workspaces/tabs not suppressed
+- **Correct workspace attribution** — Notifications attributed to owning workspace via surface pointer, not selected workspace
 - **Status tracking API** — `sidebar.set_status` / `clear_status` / `list_status` with icon, color, priority pills
 - **Structured logging API** — `sidebar.log` / `clear_log` / `list_log` with 5 severity levels (info, progress, success, warning, error)
 - **Progress tracking API** — `sidebar.set_progress` / `clear_progress` with label
@@ -76,6 +88,10 @@ Namu is a native macOS terminal multiplexer built on [Ghostty](https://ghostty.o
 - **37 tmux-compat commands** — Full tmux command coverage via CLI bridge
 
 ### Configuration & Theming
+- **Centralized theme system** — `NamuColors` semantic colors that adapt to light/dark mode and fullscreen
+- **Appearance-aware terminal** — Terminal colors auto-switch between Apple System Colors light/dark themes
+- **Per-app Ghostty config** — `~/Library/Application Support/Namu/config.ghostty` overrides global Ghostty config
+- **Auto-generated defaults** — Config and themes created on first launch; user-editable
 - **Sidebar tint light/dark separation** — Separate colors for light and dark mode
 - **Menu bar visibility toggle** — Show or hide the menu bar from settings
 - **Telemetry opt-out** — No telemetry by default; opt-in only if crash reporting is configured
