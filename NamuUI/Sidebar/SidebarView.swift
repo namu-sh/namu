@@ -148,27 +148,34 @@ struct SidebarView: View {
 
                         // Settings tab — appears in the list only when active
                         if viewModel.selection == .settings {
-                            HStack(spacing: 8) {
+                            HStack(spacing: 0) {
                                 Image(systemName: "gearshape.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.primary)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 16)
+                                    .padding(.trailing, 4)
+
                                 Text(String(localized: "settings.title", defaultValue: "Settings"))
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: 12, weight: .medium))
                                     .foregroundStyle(.primary)
-                                Spacer()
+
+                                Spacer(minLength: 4)
+
                                 Button(action: {
                                     viewModel.selectWorkspace(id: viewModel.lastWorkspaceID)
                                 }) {
                                     Image(systemName: "xmark")
-                                        .font(.system(size: 9, weight: .semibold))
+                                        .font(.system(size: 8, weight: .semibold))
                                         .foregroundStyle(.tertiary)
-                                        .frame(width: 18, height: 18)
+                                        .frame(width: 16, height: 16)
                                         .background(.quaternary, in: Circle())
                                 }
                                 .buttonStyle(.plain)
+                                .frame(width: 28, alignment: .trailing)
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 4)
+                            .padding(.leading, 4)
+                            .padding(.trailing, 6)
                             .background(
                                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                                     .fill(NamuColors.selectedBackground)

@@ -224,7 +224,7 @@ struct CommandPaletteView: View {
         .background {
             if index == selection.index {
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(.selection)
+                    .fill(NamuColors.selectedBackground)
                     .padding(.horizontal, 4)
             }
         }
@@ -238,7 +238,7 @@ struct CommandPaletteView: View {
     // MARK: - Palette background (blur)
 
     private var paletteBackground: some View {
-        PaletteBlurView()
+        NamuColors.headerBackground
     }
 
     // MARK: - Actions

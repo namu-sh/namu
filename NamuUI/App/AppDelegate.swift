@@ -78,6 +78,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
 
+        // Set custom app icon. Try bundle first, fall back to source tree for dev builds.
+        if let icon = NSImage(named: "AppIcon") ?? Bundle.main.image(forResource: "AppIcon") {
+            NSApp.applicationIconImage = icon
+        } else {
+            // Dev fallback: load from source tree
+            let devPath = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("Resources/AppIcon.icns")
+            if let icon = NSImage(contentsOf: devPath) {
+                NSApp.applicationIconImage = icon
+            }
+        }
+
         // 0. Clean inherited env vars and set Namu identity for child shells.
         unsetenv("CLAUDECODE")
         unsetenv("CLAUDE_CODE")

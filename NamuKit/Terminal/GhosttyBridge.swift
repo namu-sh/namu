@@ -190,22 +190,22 @@ final class GhosttyApp {
     private var lastColorScheme: String?
 
     /// Reload Ghostty config if the system color scheme changed.
-    /// Called from GhosttySurfaceView.viewDidChangeEffectiveAppearance —
-    /// deduplicates across multiple surfaces so config reloads once per change.
+    /// Rewrites the Namu config file with the appropriate colors before reloading,
+    /// since Ghostty's theme name resolution isn't available in library mode.
     func synchronizeThemeIfNeeded(_ appearance: NSAppearance) {
         let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let scheme = isDark ? "dark" : "light"
         guard scheme != lastColorScheme else { return }
         lastColorScheme = scheme
+        Self.writeAppSupportConfig(isDark: isDark)
         reloadConfig()
     }
 
     // MARK: - App Support config
 
     /// Load Namu-specific Ghostty config from ~/Library/Application Support/Namu/config.ghostty.
-    /// Loaded after user's default Ghostty config so it can override per-app settings
-    /// (e.g. theme for light/dark mode) without touching the global Ghostty config.
-    /// Creates a default config on first launch with appearance-aware theme.
+    /// Loaded after user's default Ghostty config so it can override per-app settings.
+    /// Creates a default config on first launch with colors matching system appearance.
     static func loadAppSupportConfig(into config: ghostty_config_t) {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -215,20 +215,86 @@ final class GhosttyApp {
         let namuDir = appSupport.appendingPathComponent("Namu", isDirectory: true)
         let configFile = namuDir.appendingPathComponent("config.ghostty")
 
-        // Create default config on first launch.
-        if !FileManager.default.fileExists(atPath: configFile.path) {
-            let defaults = """
-            # Namu terminal config — overrides ~/.config/ghostty/config for this app.
-            # Uses Ghostty's built-in light/dark themes to follow system appearance.
-            theme = light:GhosttyLight dark:GhosttyDark
+        try? FileManager.default.createDirectory(at: namuDir, withIntermediateDirectories: true)
 
-            """
-            try? FileManager.default.createDirectory(at: namuDir, withIntermediateDirectories: true)
-            try? defaults.write(to: configFile, atomically: true, encoding: .utf8)
+        // Create default config on first launch with current appearance colors.
+        if !FileManager.default.fileExists(atPath: configFile.path) {
+            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            writeAppSupportConfig(isDark: isDark)
         }
 
         configFile.path.withCString { ghostty_config_load_file(config, $0) }
     }
+
+    /// Write the Namu config file with the appropriate light/dark colors.
+    /// Called on first launch and whenever the system appearance changes.
+    static func writeAppSupportConfig(isDark: Bool) {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else { return }
+
+        let configFile = appSupport
+            .appendingPathComponent("Namu", isDirectory: true)
+            .appendingPathComponent("config.ghostty")
+
+        let colors = isDark ? namuDarkColors : namuLightColors
+        try? colors.write(to: configFile, atomically: true, encoding: .utf8)
+    }
+
+    // Apple System Colors — Light
+    private static let namuLightColors = """
+    # Namu terminal config (auto-generated, follows system appearance)
+    background = #feffff
+    foreground = #000000
+    cursor-color = #98989d
+    cursor-text = #ffffff
+    selection-background = #abd8ff
+    selection-foreground = #000000
+    palette = 0=#1a1a1a
+    palette = 1=#cc372e
+    palette = 2=#26a439
+    palette = 3=#cdac08
+    palette = 4=#0869cb
+    palette = 5=#9647bf
+    palette = 6=#479ec2
+    palette = 7=#98989d
+    palette = 8=#464646
+    palette = 9=#ff453a
+    palette = 10=#32d74b
+    palette = 11=#e5bc00
+    palette = 12=#0a84ff
+    palette = 13=#bf5af2
+    palette = 14=#69c9f2
+    palette = 15=#ffffff
+    """
+
+    // Apple System Colors — Dark
+    private static let namuDarkColors = """
+    # Namu terminal config (auto-generated, follows system appearance)
+    background = #1e1e1e
+    foreground = #ffffff
+    cursor-color = #98989d
+    cursor-text = #ffffff
+    selection-background = #3f638b
+    selection-foreground = #ffffff
+    palette = 0=#1a1a1a
+    palette = 1=#cc372e
+    palette = 2=#26a439
+    palette = 3=#cdac08
+    palette = 4=#0869cb
+    palette = 5=#9647bf
+    palette = 6=#479ec2
+    palette = 7=#98989d
+    palette = 8=#464646
+    palette = 9=#ff453a
+    palette = 10=#32d74b
+    palette = 11=#ffd60a
+    palette = 12=#0a84ff
+    palette = 13=#bf5af2
+    palette = 14=#76d6ff
+    palette = 15=#ffffff
+    """
 
     /// Ring the bell according to current config bell-features.
     func ringBell() {
