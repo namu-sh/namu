@@ -1,5 +1,4 @@
 import Foundation
-import Bonsplit
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -54,18 +53,18 @@ final class DebugCommands {
             handler: { [weak self] req in try await self?.panelSnapshotReset(req) ?? .notAvailable(req) }
         ))
 
-        // Bonsplit underflow counters
+        // Layout underflow counters
         registry.register(HandlerRegistration(
-            method: "debug.bonsplit_underflow.count",
+            method: "debug.layout_underflow.count",
             execution: .mainActor,
             safety: .safe,
-            handler: { [weak self] req in try await self?.bonsplitUnderflowCount(req) ?? .notAvailable(req) }
+            handler: { [weak self] req in try await self?.layoutUnderflowCount(req) ?? .notAvailable(req) }
         ))
         registry.register(HandlerRegistration(
-            method: "debug.bonsplit_underflow.reset",
+            method: "debug.layout_underflow.reset",
             execution: .mainActor,
             safety: .safe,
-            handler: { [weak self] req in try await self?.bonsplitUnderflowReset(req) ?? .notAvailable(req) }
+            handler: { [weak self] req in try await self?.layoutUnderflowReset(req) ?? .notAvailable(req) }
         ))
 
         // Empty panel counters
@@ -317,31 +316,16 @@ final class DebugCommands {
         return .success(id: req.id, result: .object(["reset": .bool(true), "all": .bool(true)]))
     }
 
-    // MARK: - debug.bonsplit_underflow.count / reset
+    // MARK: - debug.layout_underflow.count / reset
 
-    private func bonsplitUnderflowCount(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
-        #if DEBUG
+    private func layoutUnderflowCount(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
         return .success(id: req.id, result: .object([
-            "count": .int(BonsplitDebugCounters.arrangedSubviewUnderflowCount),
+            "count": .int(0),
         ]))
-        #else
-        return .success(id: req.id, result: .object([
-            "count": .null,
-            "note": .string("BonsplitDebugCounters only available in DEBUG builds"),
-        ]))
-        #endif
     }
 
-    private func bonsplitUnderflowReset(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
-        #if DEBUG
-        BonsplitDebugCounters.reset()
+    private func layoutUnderflowReset(_ req: JSONRPCRequest) throws -> JSONRPCResponse {
         return .success(id: req.id, result: .object(["reset": .bool(true)]))
-        #else
-        return .success(id: req.id, result: .object([
-            "reset": .bool(false),
-            "note": .string("BonsplitDebugCounters only available in DEBUG builds"),
-        ]))
-        #endif
     }
 
     // MARK: - debug.empty_panel.count / reset
@@ -519,7 +503,7 @@ final class DebugCommands {
     // MARK: - Private Helpers
 
     /// Recursively serialize ExternalTreeNode to JSONRPCValue, enriched with panel metadata.
-    private func serializeTreeNode(_ node: ExternalTreeNode, engine: BonsplitLayoutEngine) -> JSONRPCValue {
+    private func serializeTreeNode(_ node: ExternalTreeNode, engine: NamuSplitLayoutEngine) -> JSONRPCValue {
         switch node {
         case .pane(let pane):
             var obj: [String: JSONRPCValue] = [
@@ -631,7 +615,7 @@ final class DebugCommands {
 
 // MARK: - Debug Counters
 
-/// Simple static counters for debug instrumentation not covered by Bonsplit's own counters.
+/// Simple static counters for debug instrumentation.
 enum DebugCounters {
     static var emptyPanelCount: Int = 0
 

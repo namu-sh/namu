@@ -1,5 +1,4 @@
 import Foundation
-import Bonsplit
 
 /// Handlers for the surface.* command namespace.
 /// Surfaces map to panels in Namu's domain model.
@@ -540,9 +539,9 @@ final class SurfaceCommands {
         }
 
         // Optional: pane_id (split container UUID), workspace_id, window_id, index, focus
-        let targetPaneID: Bonsplit.PaneID?
+        let targetPaneID: PaneID?
         if let pValue = params["pane_id"], case .string(let pStr) = pValue, let uuid = UUID(uuidString: pStr) {
-            targetPaneID = Bonsplit.PaneID(id: uuid)
+            targetPaneID = PaneID(id: uuid)
         } else {
             targetPaneID = nil
         }

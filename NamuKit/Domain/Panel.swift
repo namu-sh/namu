@@ -98,6 +98,10 @@ final class TerminalPanel: Panel, ObservableObject {
         shellState = state
     }
 
+    // MARK: - Observers
+
+    private var pwdObserver: Any?
+
     // MARK: - Session
 
     let session: TerminalSession
@@ -144,6 +148,22 @@ final class TerminalPanel: Panel, ObservableObject {
             .map { $0.isEmpty ? "Terminal" : $0 }
             .receive(on: DispatchQueue.main)
             .assign(to: &$title)
+
+        // Observe Ghostty PWD changes for this surface.
+        pwdObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyPwdDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, let mySurface = self.session.surface else { return }
+            if let notifSurface = notification.userInfo?["surface"] as? UnsafeMutableRawPointer,
+               notifSurface != mySurface {
+                return
+            }
+            if let pwd = notification.userInfo?["pwd"] as? String, !pwd.isEmpty {
+                self.updateWorkingDirectory(pwd)
+            }
+        }
     }
 
     // MARK: - Shell integration updates
@@ -189,7 +209,7 @@ struct DetachedSurfaceTransfer {
     let customTitle: String?
     let workingDirectory: String?
 
-    /// The tab kind string used when re-creating the tab in Bonsplit (e.g. "terminal", "browser", "markdown").
+    /// The tab kind string used when re-creating the tab (e.g. "terminal", "browser", "markdown").
     let tabKind: String
 
     /// The actual panel object. Stored as `AnyObject` because it can be

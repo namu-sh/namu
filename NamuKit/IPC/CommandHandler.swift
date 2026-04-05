@@ -10,6 +10,19 @@ enum ExecutionContext: Sendable {
     case mainActor
 }
 
+// MARK: - Safety Level
+
+/// Classification of how sensitive a command is.
+/// Used by the middleware pipeline and rate-limiter to gate access.
+enum SafetyLevel: Sendable {
+    /// Read-only, no side effects.
+    case safe
+    /// State-mutating but non-destructive.
+    case normal
+    /// Potentially destructive or high-impact.
+    case dangerous
+}
+
 // MARK: - Handler Registration
 
 /// Metadata registered alongside each command handler.

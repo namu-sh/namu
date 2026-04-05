@@ -1,5 +1,4 @@
 import XCTest
-import Bonsplit
 @testable import Namu
 
 final class NamuLayoutSnapshotTests: XCTestCase {

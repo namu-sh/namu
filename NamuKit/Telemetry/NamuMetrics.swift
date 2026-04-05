@@ -107,18 +107,6 @@ enum NamuMetrics {
         t.gauge("namu.system.uptime", value: seconds, unit: "s")
     }
 
-    // MARK: - AI
-
-    /// Increment NamuAI command executions.
-    static func aiCommandExecuted(provider: String, safe: Bool) {
-        t.increment("namu.ai.commands", attributes: ["provider": provider, "safe": String(safe)])
-    }
-
-    /// Record NamuAI response latency.
-    static func aiResponseDuration(provider: String, ms: Double) {
-        t.record("namu.ai.response.duration", value: ms, unit: "ms", attributes: ["provider": provider])
-    }
-
     // MARK: - Alerts
 
     /// Increment when an alert fires.

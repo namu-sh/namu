@@ -28,7 +28,6 @@ struct CommandContext: Sendable {
 // MARK: - Command Source (Middleware)
 
 /// Source classification for middleware pipeline decisions.
-/// Separate from CommandSafety.CommandSource to avoid coupling.
 enum MiddlewareCommandSource: Sendable {
     case local
     case automation
@@ -115,13 +114,3 @@ func makeRateLimitMiddleware(limiter: RateLimiter = RateLimiter()) -> CommandMid
     }
 }
 
-/// Safety middleware factory: blocks dangerous commands from non-local sources.
-func makeSafetyMiddleware(safety: CommandSafety) -> CommandMiddleware {
-    return { req, ctx, next in
-        let level = safety.safetyLevel(for: req.method)
-        if level == .dangerous && ctx.source != .local {
-            throw JSONRPCError(code: -32003, message: "Dangerous command requires local access")
-        }
-        return try await next(req, ctx)
-    }
-}

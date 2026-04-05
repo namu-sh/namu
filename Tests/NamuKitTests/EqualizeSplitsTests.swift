@@ -114,7 +114,7 @@ final class EqualizeSplitsTests: XCTestCase {
     //   ratio = 3 / (3 + 1) = 0.75
     //
     // We build this tree via the public API and verify equalizeSplits fires
-    // without crashing (the ratio assertion requires Bonsplit access).
+    // without crashing (the ratio assertion requires layout engine access).
 
     @MainActor
     func test_equalizeSplits_doesNotCrashWithMultiplePanes() {

@@ -364,7 +364,6 @@ private final class KeyCaptureView: NSView {
 
 extension Notification.Name {
     static let toggleSidebar = Notification.Name("namu.toggleSidebar")
-    static let toggleAIChat = Notification.Name("namu.toggleAIChat")
     static let openSettings = Notification.Name("namu.openSettings")
     static let selectWorkspace = Notification.Name("namu.selectWorkspace")
     static let toggleFindOverlay = Notification.Name("namu.toggleFindOverlay")

@@ -22,7 +22,6 @@ struct KeyboardHintOverlay: View {
         Hint(keys: "⌘T",         description: String(localized: "hint.newWorkspace", defaultValue: "New Workspace")),
         Hint(keys: "⌘⇧M",       description: String(localized: "hint.toggleMinimalMode", defaultValue: "Toggle Minimal Mode")),
         Hint(keys: "⌘⇧F",       description: String(localized: "hint.toggleFind", defaultValue: "Toggle Find")),
-        Hint(keys: "⌘I",         description: String(localized: "hint.toggleAIChat", defaultValue: "Toggle AI Chat")),
         Hint(keys: "⌘⇧S",       description: String(localized: "hint.toggleSidebar", defaultValue: "Toggle Sidebar")),
         Hint(keys: "⌘Z",         description: String(localized: "hint.zoomFocusedPane", defaultValue: "Zoom Focused Pane")),
     ]

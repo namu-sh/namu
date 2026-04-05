@@ -1,10 +1,9 @@
 import Foundation
-import Bonsplit
 
 // MARK: - Namu Layout Snapshot
 
 /// Codable snapshot of a layout tree for persistence and restore.
-/// Distinct from Bonsplit.LayoutSnapshot which represents pixel geometry.
+/// Distinct from LayoutSnapshot which represents pixel geometry.
 /// This captures the tree structure for session save/restore.
 /// Uses a class (reference type) because the tree is recursive.
 final class NamuLayoutSnapshot: Codable, @unchecked Sendable {
@@ -20,7 +19,7 @@ final class NamuLayoutSnapshot: Codable, @unchecked Sendable {
     let panelType: String?
 
     // Split properties (present when type == .split)
-    let orientation: Bonsplit.SplitOrientation?
+    let orientation: SplitOrientation?
     let ratio: Double?
     let first: NamuLayoutSnapshot?
     let second: NamuLayoutSnapshot?
@@ -28,7 +27,7 @@ final class NamuLayoutSnapshot: Codable, @unchecked Sendable {
     private init(
         type: NodeType, id: UUID,
         panelType: String?,
-        orientation: Bonsplit.SplitOrientation?, ratio: Double?,
+        orientation: SplitOrientation?, ratio: Double?,
         first: NamuLayoutSnapshot?, second: NamuLayoutSnapshot?
     ) {
         self.type = type
@@ -52,7 +51,7 @@ final class NamuLayoutSnapshot: Codable, @unchecked Sendable {
     /// Create a split node.
     static func split(
         id: UUID,
-        orientation: Bonsplit.SplitOrientation,
+        orientation: SplitOrientation,
         ratio: Double,
         first: NamuLayoutSnapshot,
         second: NamuLayoutSnapshot
@@ -69,43 +68,43 @@ final class NamuLayoutSnapshot: Codable, @unchecked Sendable {
 // MARK: - LayoutEngine Protocol
 
 /// Abstraction over split-pane layout management.
-/// Production: BonsplitLayoutEngine (Phase 0). Test: MockLayoutEngine.
+/// Production: NamuSplitLayoutEngine. Test: MockLayoutEngine.
 @MainActor
 protocol LayoutEngine: AnyObject {
-    /// The underlying BonsplitController (for view rendering).
-    var controller: BonsplitController { get }
+    /// The underlying LayoutTreeController (for view rendering).
+    var splitController: LayoutTreeController { get }
 
     /// The currently focused pane, if any.
-    var focusedPaneID: Bonsplit.PaneID? { get }
+    var focusedPaneID: PaneID? { get }
 
     /// All pane IDs in the layout, in document order.
-    var allPaneIDs: [Bonsplit.PaneID] { get }
+    var allPaneIDs: [PaneID] { get }
 
     /// Create a new tab in a pane. Returns the TabID of the created tab.
     @discardableResult
-    func createTab(title: String, kind: String?, inPane: Bonsplit.PaneID?) -> Bonsplit.TabID?
+    func createTab(title: String, kind: String?, inPane: PaneID?) -> TabID?
 
     /// Split an existing pane, returning the new pane's ID.
     @discardableResult
-    func splitPane(_ paneID: Bonsplit.PaneID?, orientation: Bonsplit.SplitOrientation) -> Bonsplit.PaneID?
+    func splitPane(_ paneID: PaneID?, orientation: SplitOrientation) -> PaneID?
 
     /// Close a pane, collapsing the tree if needed.
     @discardableResult
-    func closePane(_ paneID: Bonsplit.PaneID) -> Bool
+    func closePane(_ paneID: PaneID) -> Bool
 
     /// Close a tab by ID.
     @discardableResult
-    func closeTab(_ tabID: Bonsplit.TabID) -> Bool
+    func closeTab(_ tabID: TabID) -> Bool
 
     /// Set focus to a specific pane.
-    func focusPane(_ paneID: Bonsplit.PaneID)
+    func focusPane(_ paneID: PaneID)
 
     /// Navigate focus in the given direction.
-    func navigateFocus(_ direction: Bonsplit.NavigationDirection)
+    func navigateFocus(_ direction: NavigationDirection)
 
     /// Toggle zoom on a pane.
     @discardableResult
-    func toggleZoom(_ paneID: Bonsplit.PaneID?) -> Bool
+    func toggleZoom(_ paneID: PaneID?) -> Bool
 
     /// Set the divider position for a split.
     @discardableResult
@@ -115,5 +114,5 @@ protocol LayoutEngine: AnyObject {
     func treeSnapshot() -> ExternalTreeNode
 
     /// Get the pixel-geometry layout snapshot.
-    func layoutSnapshot() -> Bonsplit.LayoutSnapshot
+    func layoutSnapshot() -> LayoutSnapshot
 }

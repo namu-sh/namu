@@ -7,7 +7,7 @@ public enum SplitDirection: String, Codable {
 }
 
 /// Cardinal navigation direction for spatial focus movement.
-enum NavigationDirection {
+enum NavigationDirection: Sendable {
     case left, right, up, down
 }
 

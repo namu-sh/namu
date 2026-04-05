@@ -1,7 +1,6 @@
 import SwiftUI
-import Bonsplit
 
-/// Renders a workspace using BonsplitView — the single source of truth for
+/// Renders a workspace using NamuSplitView — the single source of truth for
 /// split layout, tabs, focus, and zoom. Replaces the old PaneTreeView approach.
 struct WorkspaceView: View {
     let workspaceID: UUID
@@ -22,10 +21,10 @@ struct WorkspaceView: View {
         let engine = panelManager.engine(for: workspaceID)
 
         // Wrap in SafeAreaFreeView to zero the titlebar safe area inset.
-        // Without this, BonsplitView's GeometryReader receives a frame
+        // Without this, NamuSplitView's GeometryReader receives a frame
         // offset by ~28pt from the top (the hidden titlebar height).
         SafeAreaFreeView {
-            BonsplitView(controller: controller) { tab, paneId in
+            NamuSplitView(controller: controller) { tab, paneId in
                 if let panelID = engine.panelID(for: tab.id) {
                     if tab.kind == "browser" {
                         BrowserPanelView(paneID: panelID)
@@ -55,7 +54,16 @@ struct WorkspaceView: View {
                 Color.clear
                     .onAppear {
                         let eng = panelManager.engine(for: workspaceID)
-                        let panel = panelManager.createTerminalPanel(workspaceID: workspaceID)
+                        // Only create a panel if this pane doesn't already have one
+                        // (splitPane in PanelManager creates its own panel+tab immediately after splitting)
+                        let hasMappedPanel = eng.splitController.tabs(inPane: paneId).contains { tab in
+                            eng.panelID(for: tab.id) != nil
+                        }
+                        guard !hasMappedPanel else { return }
+
+                        // Inherit working directory from the focused terminal
+                        let cwd = panelManager.focusedPanelID(in: workspaceID).flatMap { panelManager.panel(for: $0)?.workingDirectory }
+                        let panel = panelManager.createTerminalPanel(workspaceID: workspaceID, workingDirectory: cwd)
                         if let tabID = eng.createTab(title: String(localized: "workspace.defaultTab.terminal", defaultValue: "Terminal"), kind: "terminal", inPane: paneId) {
                             eng.registerMapping(tabID: tabID, panelID: panel.id)
                         }

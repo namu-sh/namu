@@ -135,37 +135,6 @@ final class CommandMiddlewareTests: XCTestCase {
         }
     }
 
-    // MARK: - Safety middleware
-
-    func testSafetyMiddlewareBlocksDangerous() async throws {
-        let safety = CommandSafety()
-        let middleware = makeSafetyMiddleware(safety: safety)
-        let chain = chainMiddleware([middleware], handler: okHandler)
-
-        // "send_keys" is dangerous; gateway source should throw
-        do {
-            _ = try await chain(
-                makeRequest(method: "send_keys"),
-                makeContext(source: .gateway)
-            )
-            XCTFail("Expected dangerous command to throw for gateway source")
-        } catch let error as JSONRPCError {
-            XCTAssertEqual(error.code, -32003)
-        }
-    }
-
-    func testSafetyMiddlewareAllowsLocal() async throws {
-        let safety = CommandSafety()
-        let middleware = makeSafetyMiddleware(safety: safety)
-        let chain = chainMiddleware([middleware], handler: okHandler)
-
-        // "send_keys" is dangerous but local source should pass through
-        let response = try await chain(
-            makeRequest(method: "send_keys"),
-            makeContext(source: .local)
-        )
-        XCTAssertNil(response.error)
-    }
 
     // MARK: - CommandContext fields
 

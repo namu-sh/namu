@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import Bonsplit
 
 // MARK: - PanelFocusIntent
 
@@ -15,7 +14,7 @@ enum PanelFocusIntent {
 }
 
 /// Manages panel lifecycle and layout for all workspaces.
-/// BonsplitLayoutEngine is the single source of truth for splits/tabs/focus.
+/// NamuSplitLayoutEngine is the single source of truth for splits/tabs/focus.
 @MainActor
 final class PanelManager: ObservableObject {
 
@@ -33,7 +32,7 @@ final class PanelManager: ObservableObject {
 
     // MARK: - Layout engines (one per workspace)
 
-    private(set) var engines: [UUID: BonsplitLayoutEngine] = [:]
+    private(set) var engines: [UUID: NamuSplitLayoutEngine] = [:]
 
     // MARK: - Panel registry
 
@@ -77,12 +76,14 @@ final class PanelManager: ObservableObject {
     // MARK: - Engine access
 
     /// Get the layout engine for a workspace. Creates one if missing.
-    func engine(for workspaceID: UUID) -> BonsplitLayoutEngine {
+    func engine(for workspaceID: UUID) -> NamuSplitLayoutEngine {
         if let existing = engines[workspaceID] { return existing }
-        let engine = BonsplitLayoutEngine(workspaceID: workspaceID)
+        let engine = NamuSplitLayoutEngine(workspaceID: workspaceID)
         engine.onNewTabRequested = { [weak self] kind, paneID in
             guard let self else { return }
-            let panel = self.createTerminalPanel(workspaceID: workspaceID)
+            // Inherit the working directory from the focused terminal in this pane
+            let cwd = self.focusedPanelID(in: workspaceID).flatMap { self.panels[$0]?.workingDirectory }
+            let panel = self.createTerminalPanel(workspaceID: workspaceID, workingDirectory: cwd)
             if let tabID = engine.createTab(title: "Terminal", kind: kind, inPane: paneID) {
                 engine.registerMapping(tabID: tabID, panelID: panel.id)
             }
@@ -91,9 +92,9 @@ final class PanelManager: ObservableObject {
         return engine
     }
 
-    /// Get the BonsplitController for a workspace (for BonsplitView rendering).
-    func controller(for workspaceID: UUID) -> BonsplitController {
-        engine(for: workspaceID).controller
+    /// Get the LayoutTreeController for a workspace (for NamuSplitView rendering).
+    func controller(for workspaceID: UUID) -> LayoutTreeController {
+        engine(for: workspaceID).splitController
     }
 
     // MARK: - Bootstrap
@@ -104,14 +105,14 @@ final class PanelManager: ObservableObject {
 
         // Check if any pane already has tabs with mapped panels.
         let hasContent = eng.allPaneIDs.contains { paneID in
-            eng.controller.tabs(inPane: paneID).contains { tab in
+            eng.splitController.tabs(inPane: paneID).contains { tab in
                 eng.panelID(for: tab.id) != nil
             }
         }
 
         if !hasContent {
-            // Capture Bonsplit's default Welcome tab IDs before creating ours
-            let welcomeTabIds = eng.controller.allTabIds
+            // Capture NamuSplit's default Welcome tab IDs before creating ours
+            let welcomeTabIds = eng.splitController.allTabIds
             let targetPane = eng.allPaneIDs.first
 
             // Create our terminal tab first
@@ -120,7 +121,7 @@ final class PanelManager: ObservableObject {
                 eng.registerMapping(tabID: tabID, panelID: panel.id)
 
                 // Now close the Welcome tab(s) — must happen AFTER creating our tab
-                // so Bonsplit never has zero tabs (which would recreate Welcome)
+                // so NamuSplit never has zero tabs (which would recreate Welcome)
                 for welcomeTabId in welcomeTabIds {
                     eng.closeTab(welcomeTabId)
                 }
@@ -129,7 +130,7 @@ final class PanelManager: ObservableObject {
                 if let paneID = targetPane {
                     eng.focusPane(paneID)
                 }
-                eng.controller.selectTab(tabID)
+                eng.splitController.selectTab(tabID)
             }
         }
     }
@@ -137,14 +138,14 @@ final class PanelManager: ObservableObject {
     // MARK: - Workspace bootstrap
 
     /// Bootstrap a restored workspace — maps existing panels (already in self.panels)
-    /// to Bonsplit tabs. Called by SessionPersistence after restoring panels.
+    /// to NamuSplit tabs. Called by SessionPersistence after restoring panels.
     /// - Parameters:
     ///   - workspace: The workspace metadata (id, title, etc.)
     ///   - panelIDs: Panel IDs to create tabs for (from the persisted layout)
     ///   - activePanelID: The panel that should be focused after restore
     func bootstrapRestoredWorkspace(_ workspace: Workspace, panelIDs: [UUID], activePanelID: UUID?) {
         let eng = engine(for: workspace.id)
-        let welcomeTabIds = eng.controller.allTabIds
+        let welcomeTabIds = eng.splitController.allTabIds
 
         for panelID in panelIDs {
             if let panel = panels[panelID] {
@@ -167,7 +168,7 @@ final class PanelManager: ObservableObject {
             if let paneID = eng.allPaneIDs.first {
                 eng.focusPane(paneID)
             }
-            eng.controller.selectTab(tabID)
+            eng.splitController.selectTab(tabID)
         }
     }
 
@@ -175,7 +176,7 @@ final class PanelManager: ObservableObject {
 
     /// Create a new workspace with a bootstrapped terminal and select it.
     /// All workspace creation MUST go through this method to ensure the
-    /// BonsplitLayoutEngine is set up with an initial terminal tab.
+    /// NamuSplitLayoutEngine is set up with an initial terminal tab.
     @discardableResult
     func createWorkspace(title: String = String(localized: "workspace.default.title", defaultValue: "New Workspace")) -> Workspace {
         let ws = workspaceManager.createWorkspace(title: title)
@@ -282,12 +283,12 @@ final class PanelManager: ObservableObject {
     /// Split the focused pane in the given workspace, creating a new terminal.
     func splitPane(
         in workspaceID: UUID,
-        paneID: Bonsplit.PaneID? = nil,
+        paneID: PaneID? = nil,
         direction: SplitDirection,
         workingDirectory: String? = nil
     ) {
         let eng = engine(for: workspaceID)
-        let orientation: Bonsplit.SplitOrientation = direction == .horizontal ? .horizontal : .vertical
+        let orientation: SplitOrientation = direction == .horizontal ? .horizontal : .vertical
         let targetPane = paneID ?? eng.focusedPaneID
 
         // Capture the focused session's runtime font size before splitting so the
@@ -320,7 +321,8 @@ final class PanelManager: ObservableObject {
         guard let focusedPane = eng.focusedPaneID else { return }
         switch type {
         case .terminal:
-            let panel = createTerminalPanel(workspaceID: wsID)
+            let cwd = focusedPanelID(in: wsID).flatMap { panels[$0]?.workingDirectory }
+            let panel = createTerminalPanel(workspaceID: wsID, workingDirectory: cwd)
             if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: focusedPane) {
                 eng.registerMapping(tabID: tabID, panelID: panel.id)
             }
@@ -392,7 +394,7 @@ final class PanelManager: ObservableObject {
         guard let wsID = workspaceIDForPanel(id) else { return }
         let eng = engine(for: wsID)
 
-        // Find and close the tab in bonsplit
+        // Find and close the tab in the layout engine
         if let tabID = eng.tabID(for: id) {
             eng.removeMapping(panelID: id)
             eng.closeTab(tabID)
@@ -413,7 +415,7 @@ final class PanelManager: ObservableObject {
     // MARK: - Detach / Attach (surface move infrastructure)
 
     /// Detach a panel from its current workspace for moving to another location.
-    /// Removes the panel from the Bonsplit engine and panel registries but does NOT
+    /// Removes the panel from the NamuSplit engine and panel registries but does NOT
     /// destroy the panel object. Returns a transfer object, or nil if the panel doesn't exist.
     func detachPanel(id panelID: UUID) -> DetachedSurfaceTransfer? {
         guard let workspaceID = workspaceIDForPanel(panelID) else { return nil }
@@ -452,7 +454,7 @@ final class PanelManager: ObservableObject {
             return nil
         }
 
-        // Remove mapping and close the Bonsplit tab (without destroying the panel object).
+        // Remove mapping and close the NamuSplit tab (without destroying the panel object).
         if let tabID = eng.tabID(for: panelID) {
             eng.removeMapping(panelID: panelID)
             eng.closeTab(tabID)
@@ -479,13 +481,13 @@ final class PanelManager: ObservableObject {
     }
 
     /// Attach a previously detached panel to a workspace.
-    /// Re-registers the panel in the typed registry and adds it to the Bonsplit engine.
+    /// Re-registers the panel in the typed registry and adds it to the NamuSplit engine.
     /// Returns the panel ID on success, nil on failure.
     @discardableResult
     func attachPanel(
         _ transfer: DetachedSurfaceTransfer,
         inWorkspace workspaceID: UUID,
-        paneID: Bonsplit.PaneID? = nil,
+        paneID: PaneID? = nil,
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
@@ -510,10 +512,10 @@ final class PanelManager: ObservableObject {
             pinnedPanelIDs.insert(transfer.panelID)
         }
 
-        // Add to the Bonsplit engine. createTab always allocates a new TabID, so we
+        // Add to the NamuSplit engine. createTab always allocates a new TabID, so we
         // create a new tab and register the mapping from that TabID → panel UUID.
         let targetPane = paneID ?? eng.focusedPaneID
-        guard let tabID = eng.controller.createTab(
+        guard let tabID = eng.splitController.createTab(
             title: transfer.title,
             hasCustomTitle: transfer.customTitle != nil,
             kind: transfer.tabKind,
@@ -524,7 +526,7 @@ final class PanelManager: ObservableObject {
         eng.registerMapping(tabID: tabID, panelID: transfer.panelID)
 
         if focus {
-            eng.controller.selectTab(tabID)
+            eng.splitController.selectTab(tabID)
         }
 
         objectWillChange.send()
@@ -536,7 +538,7 @@ final class PanelManager: ObservableObject {
     @discardableResult
     func moveSurface(
         panelID: UUID,
-        toPaneID: Bonsplit.PaneID,
+        toPaneID: PaneID,
         inWorkspace workspaceID: UUID,
         atIndex: Int? = nil,
         focus: Bool = true
@@ -545,7 +547,7 @@ final class PanelManager: ObservableObject {
         guard let tabID = eng.tabID(for: panelID) else { return false }
         guard eng.moveTab(tabID, toPane: toPaneID, atIndex: atIndex) else { return false }
         if focus {
-            eng.controller.selectTab(tabID)
+            eng.splitController.selectTab(tabID)
         }
         objectWillChange.send()
         return true
@@ -567,7 +569,7 @@ final class PanelManager: ObservableObject {
         guard let wsID = workspaceManager.selectedWorkspaceID else { return }
         let eng = engine(for: wsID)
         guard let focusedPane = eng.focusedPaneID,
-              let selectedTab = eng.controller.selectedTab(inPane: focusedPane),
+              let selectedTab = eng.splitController.selectedTab(inPane: focusedPane),
               let panelID = eng.panelID(for: selectedTab.id) else { return }
         closePanel(id: panelID)
     }
@@ -587,7 +589,7 @@ final class PanelManager: ObservableObject {
         // Find the pane containing this panel's tab and focus it
         if let tabID = eng.tabID(for: id) {
             for paneID in eng.allPaneIDs {
-                let tabs = eng.controller.tabs(inPane: paneID)
+                let tabs = eng.splitController.tabs(inPane: paneID)
                 if tabs.contains(where: { $0.id == tabID }) {
                     eng.focusPane(paneID)
                     break
@@ -616,15 +618,15 @@ final class PanelManager: ObservableObject {
         }()
         _ = previousIntent  // retained for future capture/restore logic
 
-        let bonsplitDir: Bonsplit.NavigationDirection
+        let navDir: NavigationDirection
         switch direction {
-        case .left: bonsplitDir = .left
-        case .right: bonsplitDir = .right
-        case .up: bonsplitDir = .up
-        case .down: bonsplitDir = .down
+        case .left: navDir = .left
+        case .right: navDir = .right
+        case .up: navDir = .up
+        case .down: navDir = .down
         }
 
-        eng.navigateFocus(bonsplitDir)
+        eng.navigateFocus(navDir)
         applyFocusState(in: wsID)
         reconcileFirstResponder(in: wsID)
         objectWillChange.send()
@@ -668,19 +670,19 @@ final class PanelManager: ObservableObject {
     // MARK: - Zoom
 
     @discardableResult
-    func toggleZoom(in workspaceID: UUID, paneID: Bonsplit.PaneID? = nil) -> Bool {
+    func toggleZoom(in workspaceID: UUID, paneID: PaneID? = nil) -> Bool {
         let eng = engine(for: workspaceID)
         let target = paneID ?? eng.focusedPaneID
         let didZoom = eng.toggleZoom(target)
 
         // Determine which pane is currently zoomed (nil = no zoom active).
-        let zoomedPaneID = eng.controller.zoomedPaneId
+        let zoomedPaneID = eng.splitController.zoomedPaneId
 
         // Enumerate all panels in the workspace and reconcile portal visibility
         // based on the post-zoom layout state.
         for paneID in eng.allPaneIDs {
             let isVisible = zoomedPaneID == nil || paneID == zoomedPaneID
-            let panelIDsInPane: [UUID] = eng.controller.tabs(inPane: paneID).compactMap {
+            let panelIDsInPane: [UUID] = eng.splitController.tabs(inPane: paneID).compactMap {
                 eng.panelID(for: $0.id)
             }
             for panelID in panelIDsInPane {
@@ -829,7 +831,7 @@ final class PanelManager: ObservableObject {
     func focusedPanelID(in workspaceID: UUID) -> UUID? {
         let eng = engine(for: workspaceID)
         guard let focusedPane = eng.focusedPaneID,
-              let selectedTab = eng.controller.selectedTab(inPane: focusedPane) else { return nil }
+              let selectedTab = eng.splitController.selectedTab(inPane: focusedPane) else { return nil }
         return eng.panelID(for: selectedTab.id)
     }
 
@@ -853,7 +855,7 @@ final class PanelManager: ObservableObject {
         let eng = engine(for: workspaceID)
         var result: [UUID] = []
         for paneID in eng.allPaneIDs {
-            for tab in eng.controller.tabs(inPane: paneID) {
+            for tab in eng.splitController.tabs(inPane: paneID) {
                 if let panelID = eng.panelID(for: tab.id) {
                     result.append(panelID)
                 }
@@ -887,11 +889,11 @@ final class PanelManager: ObservableObject {
     }
 
     /// Find which pane (within a workspace) contains a given panel.
-    func paneIDForPanel(_ panelID: UUID, inWorkspace workspaceID: UUID) -> Bonsplit.PaneID? {
+    func paneIDForPanel(_ panelID: UUID, inWorkspace workspaceID: UUID) -> PaneID? {
         let eng = engine(for: workspaceID)
         guard let tabID = eng.tabID(for: panelID) else { return nil }
         for paneID in eng.allPaneIDs {
-            let tabs = eng.controller.tabs(inPane: paneID)
+            let tabs = eng.splitController.tabs(inPane: paneID)
             if tabs.contains(where: { $0.id == tabID }) {
                 return paneID
             }
@@ -923,7 +925,7 @@ final class PanelManager: ObservableObject {
         var sourcePlaceholderID: UUID?
         var targetPlaceholderID: UUID?
 
-        if eng.controller.tabs(inPane: sourcePaneID).count <= 1 {
+        if eng.splitController.tabs(inPane: sourcePaneID).count <= 1 {
             let placeholder = createTerminalPanel(workspaceID: workspaceID)
             if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: sourcePaneID) {
                 eng.registerMapping(tabID: tabID, panelID: placeholder.id)
@@ -931,7 +933,7 @@ final class PanelManager: ObservableObject {
             }
         }
 
-        if eng.controller.tabs(inPane: targetPaneID).count <= 1 {
+        if eng.splitController.tabs(inPane: targetPaneID).count <= 1 {
             let placeholder = createTerminalPanel(workspaceID: workspaceID)
             if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: targetPaneID) {
                 eng.registerMapping(tabID: tabID, panelID: placeholder.id)
@@ -980,7 +982,7 @@ final class PanelManager: ObservableObject {
         // Collect panel IDs belonging to this workspace, then transfer them
         var panelIDsToMove: [UUID] = []
         for paneID in eng.allPaneIDs {
-            for tab in eng.controller.tabs(inPane: paneID) {
+            for tab in eng.splitController.tabs(inPane: paneID) {
                 if let panelID = eng.panelID(for: tab.id) {
                     panelIDsToMove.append(panelID)
                 }
@@ -1018,7 +1020,7 @@ final class PanelManager: ObservableObject {
         if let eng = engines.removeValue(forKey: workspaceID) {
             // Close all panels in this workspace
             for paneID in eng.allPaneIDs {
-                for tab in eng.controller.tabs(inPane: paneID) {
+                for tab in eng.splitController.tabs(inPane: paneID) {
                     if let panelID = eng.panelID(for: tab.id) {
                         if let panel = panels.removeValue(forKey: panelID) {
                             panel.close()
@@ -1113,7 +1115,7 @@ final class PanelManager: ObservableObject {
         for (workspaceID, engine) in engines {
             let endpoint = endpoints[workspaceID]
             for paneID in engine.allPaneIDs {
-                for tab in engine.controller.tabs(inPane: paneID) {
+                for tab in engine.splitController.tabs(inPane: paneID) {
                     if let panelID = engine.panelID(for: tab.id),
                        let panel = browserPanels[panelID] {
                         panel.proxyEndpoint = endpoint
@@ -1123,7 +1125,7 @@ final class PanelManager: ObservableObject {
         }
     }
 
-    /// Forward terminal title changes to workspace sidebar and Bonsplit tab bar.
+    /// Forward terminal title changes to workspace sidebar and NamuSplit tab bar.
     private func observePanelTitle(_ panel: TerminalPanel, workspaceID: UUID) {
         guard !observedPanelIDs.contains(panel.id) else { return }
         observedPanelIDs.insert(panel.id)
@@ -1134,10 +1136,10 @@ final class PanelManager: ObservableObject {
             .sink { [weak self] newTitle in
                 guard let self else { return }
 
-                // Update Bonsplit tab title
+                // Update NamuSplit tab title
                 if let eng = self.engines[workspaceID],
                    let tabID = eng.tabID(for: panel.id) {
-                    eng.controller.updateTab(tabID, title: newTitle)
+                    eng.splitController.updateTab(tabID, title: newTitle)
                 }
 
                 // Update workspace sidebar title (only for focused panel)
@@ -1177,7 +1179,7 @@ final class PanelManager: ObservableObject {
     @discardableResult
     private func proportionalEqualize(
         node: ExternalTreeNode,
-        engine eng: BonsplitLayoutEngine,
+        engine eng: NamuSplitLayoutEngine,
         orientationFilter: String?
     ) -> Bool {
         guard case .split(let s) = node else { return false }

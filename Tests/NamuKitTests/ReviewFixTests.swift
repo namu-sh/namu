@@ -48,42 +48,6 @@ final class ReviewFixTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 4: Safety middleware blocks dangerous commands from gateway
-
-    func testSafetyMiddlewareBlocksDangerousFromGateway() async throws {
-        let safety = CommandSafety()
-        let middleware = makeSafetyMiddleware(safety: safety)
-        let chain = chainMiddleware([middleware]) { req, _ in
-            JSONRPCResponse.success(id: req.id)
-        }
-
-        // "send_keys" is classified as .dangerous by CommandSafety
-        let req = JSONRPCRequest(id: .string("1"), method: "send_keys", params: nil)
-        let ctx = CommandContext(clientID: UUID(), accessMode: .allowAll, source: .gateway)
-
-        do {
-            _ = try await chain(req, ctx)
-            XCTFail("Expected dangerous command from gateway to throw")
-        } catch let error as JSONRPCError {
-            XCTAssertEqual(error.code, -32003, "Should return access denied code -32003")
-        }
-    }
-
-    func testSafetyMiddlewareAllowsDangerousFromLocal() async throws {
-        let safety = CommandSafety()
-        let middleware = makeSafetyMiddleware(safety: safety)
-        let chain = chainMiddleware([middleware]) { req, _ in
-            JSONRPCResponse.success(id: req.id)
-        }
-
-        // "send_keys" is dangerous but local source should pass through
-        let req = JSONRPCRequest(id: .string("1"), method: "send_keys", params: nil)
-        let ctx = CommandContext(clientID: UUID(), accessMode: .allowAll, source: .local)
-
-        let response = try await chain(req, ctx)
-        XCTAssertNil(response.error, "Dangerous command from local should be allowed")
-    }
-
     // MARK: - Test 5: Middleware chain actually executes in CommandDispatcher
 
     func testMiddlewareChainExecutesInDispatcher() async throws {

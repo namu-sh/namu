@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 
 // MARK: - Notifications
 
@@ -421,11 +420,21 @@ final class GhosttyApp {
         case GHOSTTY_ACTION_PWD:
             if let ptr = action.action.pwd.pwd {
                 let pwd = String(cString: ptr)
+                let surfacePtr: ghostty_surface_t? = {
+                    if target.tag == GHOSTTY_TARGET_SURFACE {
+                        return target.target.surface
+                    }
+                    return nil
+                }()
                 DispatchQueue.main.async {
+                    var info: [String: Any] = ["pwd": pwd]
+                    if let s = surfacePtr {
+                        info["surface"] = s
+                    }
                     NotificationCenter.default.post(
                         name: .ghosttyPwdDidChange,
                         object: nil,
-                        userInfo: ["pwd": pwd]
+                        userInfo: info
                     )
                 }
             }

@@ -33,16 +33,8 @@ final class ServiceContainer {
     // MARK: - Notifications & Alerts
 
     let notificationService: NotificationService
-    let alertEngine: AlertEngine
     let channelCredentialStore: ChannelCredentialStore
     let alertRouter: AlertRouter
-
-    // MARK: - AI
-
-    let conversationManager: ConversationManager
-    let commandSafety: CommandSafety
-    let contextCollector: ContextCollector
-    let namuAI: NamuAI
 
     // MARK: - Command handlers (retained to keep weak-self closures alive)
 
@@ -52,7 +44,6 @@ final class ServiceContainer {
     private var notificationCommands: NotificationCommands?
     private var browserCommands: BrowserCommands?
     private var systemCommands: SystemCommands?
-    private var aiCommands: AICommands?
     private var sidebarCommands: SidebarCommands?
     private var windowCommands: WindowCommands?
     private var debugCommands: DebugCommands?
@@ -99,38 +90,7 @@ final class ServiceContainer {
         // Alerts + multi-channel routing
         channelCredentialStore = ChannelCredentialStore()
         alertRouter = AlertRouter(credentialStore: channelCredentialStore)
-        alertEngine = AlertEngine(eventBus: eventBus)
-        alertEngine.setAlertRouter(alertRouter)
 
-        // AI
-        conversationManager = ConversationManager()
-        commandSafety = CommandSafety()
-        contextCollector = ContextCollector(
-            workspaceManager: workspaceManager,
-            panelManager: panelManager,
-            eventBus: eventBus
-        )
-        // Auto-configure LLM provider from environment variables
-        let llmProvider: (any LLMProvider)? = {
-            if let key = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"], !key.isEmpty {
-                return ClaudeProvider(apiKey: key)
-            }
-            if let key = ProcessInfo.processInfo.environment["OPENAI_API_KEY"], !key.isEmpty {
-                return OpenAIProvider(apiKey: key)
-            }
-            if let key = ProcessInfo.processInfo.environment["GOOGLE_API_KEY"], !key.isEmpty {
-                return GeminiProvider(apiKey: key)
-            }
-            return nil
-        }()
-
-        namuAI = NamuAI(
-            provider: llmProvider,
-            commandRegistry: commandRegistry,
-            commandSafety: commandSafety,
-            conversationManager: conversationManager,
-            contextCollector: contextCollector
-        )
     }
 
     // MARK: - Lifecycle
@@ -169,9 +129,7 @@ final class ServiceContainer {
             }
         }
 
-        // Alert engine + channel routing
-        alertEngine.loadRules()
-        alertEngine.start()
+        // Alert channel routing
         Task { await alertRouter.reloadChannels() }
 
         // Wire focused-panel provider for precise desktop-notification suppression.
@@ -307,7 +265,6 @@ final class ServiceContainer {
         sessionPersistence.saveSync()
 
         socketServer?.stop()
-        alertEngine.stop()
 
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -391,15 +348,6 @@ final class ServiceContainer {
             }
             return .success(id: req.id, result: .object(["ok": .bool(true)]))
         }
-
-        let ai = AICommands(
-            workspaceManager: workspaceManager,
-            eventBus: eventBus,
-            namuAI: namuAI,
-            conversationManager: conversationManager
-        )
-        ai.register(in: commandRegistry)
-        aiCommands = ai
 
         if let svm = sidebarViewModelForCommands {
             let sidebar = SidebarCommands(workspaceManager: workspaceManager, sidebarViewModel: svm)

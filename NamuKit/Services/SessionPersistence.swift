@@ -1,5 +1,4 @@
 import Foundation
-import Bonsplit
 import Combine
 import CoreGraphics
 import os.log
@@ -280,7 +279,7 @@ final class SessionPersistence: ObservableObject {
                 customTitle: workspace.customTitle,
                 processTitle: workspace.processTitle.isEmpty ? nil : workspace.processTitle,
                 customColor: workspace.customColor,
-                layout: buildLayoutFromBonsplit(workspaceID: workspace.id, panelManager: panelManager),
+                layout: buildLayoutFromController(workspaceID: workspace.id, panelManager: panelManager),
                 activePanelID: focusedID,
                 currentDirectory: focusedPanel?.workingDirectory,
                 gitBranch: gitSnap
@@ -297,21 +296,21 @@ final class SessionPersistence: ObservableObject {
         )
     }
 
-    /// Build layout snapshot directly from BonsplitController's tree — single source of truth.
-    private func buildLayoutFromBonsplit(workspaceID: UUID, panelManager: PanelManager) -> WorkspaceLayoutSnapshot {
+    /// Build layout snapshot directly from LayoutTreeController's tree — single source of truth.
+    private func buildLayoutFromController(workspaceID: UUID, panelManager: PanelManager) -> WorkspaceLayoutSnapshot {
         let eng = panelManager.engine(for: workspaceID)
         let treeNode = eng.treeSnapshot()
         return externalNodeToLayout(treeNode, engine: eng, panelManager: panelManager)
     }
 
-    private func externalNodeToLayout(_ node: ExternalTreeNode, engine eng: BonsplitLayoutEngine, panelManager: PanelManager) -> WorkspaceLayoutSnapshot {
+    private func externalNodeToLayout(_ node: ExternalTreeNode, engine eng: NamuSplitLayoutEngine, panelManager: PanelManager) -> WorkspaceLayoutSnapshot {
         switch node {
         case .pane(let paneNode):
             // Find the first mapped panel in this pane's tabs
             var panelID: UUID?
             for tab in paneNode.tabs {
                 if let tabUUID = UUID(uuidString: tab.id),
-                   let id = eng.panelID(for: Bonsplit.TabID(uuid: tabUUID)) {
+                   let id = eng.panelID(for: TabID(uuid: tabUUID)) {
                     panelID = id
                     break
                 }
@@ -428,7 +427,7 @@ final class SessionPersistence: ObservableObject {
             workspaceManager.selectedWorkspaceID = restoredWorkspaces.first?.id
         }
 
-        // Bootstrap BonsplitLayoutEngines for restored workspaces.
+        // Bootstrap NamuSplitLayoutEngines for restored workspaces.
         for workspace in restoredWorkspaces {
             let panelIDs = workspacePanelIDs[workspace.id] ?? []
             let activeID = workspaceActivePanelIDs[workspace.id] ?? nil

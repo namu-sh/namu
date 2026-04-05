@@ -1,6 +1,5 @@
 import XCTest
 @testable import Namu
-import Bonsplit
 
 @MainActor
 final class PanelManagerTests: XCTestCase {

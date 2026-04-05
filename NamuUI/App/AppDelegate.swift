@@ -158,6 +158,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return event }
             return self.handleLocalKeyEvent(event)
         }
+
+        // 6. Menu command observers
+        NotificationCenter.default.addObserver(
+            forName: .namuMenuNewTab,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let pm = self?.panelManager,
+                  let wsID = pm.workspaceManager.selectedWorkspaceID else { return }
+            let eng = pm.engine(for: wsID)
+            let cwd = pm.focusedPanelID(in: wsID).flatMap { pm.panel(for: $0)?.workingDirectory }
+            let panel = pm.createTerminalPanel(workspaceID: wsID, workingDirectory: cwd)
+            if let tabID = eng.createTab(title: "Terminal", kind: "terminal", inPane: eng.focusedPaneID) {
+                eng.registerMapping(tabID: tabID, panelID: panel.id)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .openBrowser,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.panelManager?.createBrowserTabInFocusedPane()
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .openBrowserPanel,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.panelManager?.createBrowserTabInFocusedPane()
+        }
     }
 
     // MARK: - Termination
@@ -220,12 +252,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Cmd+Shift+, → Reload Configuration (not remappable)
         if mods == [.command, .shift] && event.keyCode == 43 {
             GhosttyApp.shared?.reloadConfig()
-            return nil
-        }
-
-        // Cmd+I → Toggle AI chat panel (not remappable)
-        if cmd && event.keyCode == 34 {
-            NotificationCenter.default.post(name: .toggleAIChat, object: nil)
             return nil
         }
 

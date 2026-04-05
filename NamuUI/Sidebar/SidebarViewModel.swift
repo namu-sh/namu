@@ -1,4 +1,3 @@
-import Bonsplit
 import Combine
 import Foundation
 import SwiftUI
@@ -258,7 +257,7 @@ final class SidebarViewModel: ObservableObject {
         sourceEng.closeTab(tabID)
 
         let targetEng = pm.engine(for: targetWorkspaceID)
-        let orientation: Bonsplit.SplitOrientation = direction == .horizontal ? .horizontal : .vertical
+        let orientation: SplitOrientation = direction == .horizontal ? .horizontal : .vertical
         if let newPaneID = targetEng.splitPane(targetEng.focusedPaneID, orientation: orientation),
            let newTabID = targetEng.createTab(title: tabTitle, kind: kind, inPane: newPaneID) {
             targetEng.registerMapping(tabID: newTabID, panelID: panelID)
