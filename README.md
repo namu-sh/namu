@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Resources/namu-icon.png" width="128" height="128" alt="Namu">
+</p>
+
 # Namu
 
 **Terminal multiplexer for the agent era.**
