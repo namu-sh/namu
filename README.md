@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Resources/namu-icon.png" width="128" height="128" alt="Namu">
+  <img src="Resources/namu-icon.png" width="256" height="256" alt="Namu">
 </p>
 
 # Namu
