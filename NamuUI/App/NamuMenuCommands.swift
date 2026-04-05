@@ -171,7 +171,6 @@ extension Notification.Name {
     static let namuMenuShowNotifications = Notification.Name("namu.menu.showNotifications")
     static let namuMenuJumpToUnread = Notification.Name("namu.menu.jumpToUnread")
     static let namuMenuCommandPalette = Notification.Name("namu.menu.commandPalette")
-    static let namuMenuToggleFullscreen = Notification.Name("namu.menu.toggleFullscreen")
 
     // Terminal
     static let namuMenuNewTab = Notification.Name("namu.menu.newTab")
@@ -196,6 +195,5 @@ extension Notification.Name {
     static let namuMenuSendFeedback = Notification.Name("namu.menu.sendFeedback")
 
     // Settings
-    static let namuMenuOpenSettings = Notification.Name("namu.menu.openSettings")
     static let namuMenuReloadConfig = Notification.Name("namu.menu.reloadConfig")
 }

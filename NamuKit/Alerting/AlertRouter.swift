@@ -4,7 +4,7 @@ import os.log
 private let logger = Logger(subsystem: "com.namu.app", category: "AlertRouter")
 
 /// Routes fired alerts to all enabled channels.
-/// Actor-isolated for thread safety — safe to call from AlertEngine's background thread.
+/// Actor-isolated for thread safety.
 actor AlertRouter {
 
     private var channels: [any AlertChannel] = []
