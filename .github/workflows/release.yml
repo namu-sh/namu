@@ -4,114 +4,217 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
-concurrency:
-  group: release-${{ github.ref }}
-  cancel-in-progress: false
+permissions:
+  contents: write
+  attestations: write
+  id-token: write
+
+env:
+  CREATE_DMG_VERSION: 8.0.0
 
 jobs:
-  build-app:
-    name: Build Release
+  build-sign-notarize:
     runs-on: macos-15
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app
-
-      - name: Build Release
         run: |
-          xcodebuild -scheme Namu \
-            -configuration Release \
-            -destination 'platform=macOS' \
-            -skipPackagePluginValidation \
-            -archivePath build/Namu.xcarchive \
-            archive
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
 
-      - name: Export App
+      - name: Install build deps
         run: |
-          xcodebuild -exportArchive \
-            -archivePath build/Namu.xcarchive \
-            -exportPath build/export \
-            -exportOptionsPlist ExportOptions.plist \
-            2>/dev/null || echo "Export requires signing identity — skipped in CI"
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED}"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
+          fi
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
-      - name: Upload Archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: namu-archive
-          path: build/Namu.xcarchive
-          retention-days: 30
+      - name: Build GhosttyKit
+        run: ./Scripts/setup.sh
 
-  build-daemon-and-inject-manifest:
-    name: Build Daemon (all platforms) + Inject Manifest
-    runs-on: macos-15
-    timeout-minutes: 20
-    needs: [build-app]
-    steps:
-      - uses: actions/checkout@v4
+      - name: Derive Sparkle public key
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "${SPARKLE_PRIVATE_KEY:-}" ]; then
+            echo "SPARKLE_PRIVATE_KEY not set, skipping Sparkle key injection"
+            echo "SPARKLE_PUBLIC_KEY=" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          DERIVED_PUBLIC_KEY=$(swift Scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+          echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
+          echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Set up Go
+      - name: Build app (Release)
+        run: |
+          xcodebuild -scheme Namu -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build
+
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      - name: Download app archive
-        uses: actions/download-artifact@v4
-        with:
-          name: namu-archive
-          path: build
-
-      - name: Build remote daemon (all platforms) and generate manifest
+      - name: Build remote daemon and inject manifest
         run: |
-          APP_PLIST="build/Namu.xcarchive/Products/Applications/Namu.app/Contents/Info.plist"
+          set -euo pipefail
+          APP_PLIST="build/Build/Products/Release/Namu.app/Contents/Info.plist"
           APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
-          ./scripts/build_remote_daemon.sh "$APP_VERSION"
+          ./Scripts/build_remote_daemon.sh "$APP_VERSION"
+          if [ -f build/remote-daemon/manifest.json ]; then
+            MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",",":")))' build/remote-daemon/manifest.json)"
+            plutil -remove NamuRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
+            plutil -insert NamuRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
+          fi
 
-      - name: Inject manifest into app Info.plist
+      - name: Inject Sparkle keys into Info.plist
+        if: env.SPARKLE_PUBLIC_KEY != ''
         run: |
-          APP_PLIST="build/Namu.xcarchive/Products/Applications/Namu.app/Contents/Info.plist"
-          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), separators=(",",":")))' build/remote-daemon/manifest.json)"
-          plutil -remove NamuRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
-          plutil -insert NamuRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
+          APP_PLIST="build/Build/Products/Release/Namu.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/namu-sh/namu/releases/latest/download/appcast.xml" "$APP_PLIST"
 
-      - name: Upload daemon binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: namud-remote-binaries
-          path: build/remote-daemon/
-          if-no-files-found: error
+      - name: Import signing cert
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "${APPLE_CERTIFICATE_BASE64:-}" ]; then
+            echo "No signing certificate — skipping code signing"
+            exit 0
+          fi
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > /tmp/cert.p12
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -lut 21600 build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          security list-keychains -d user -s build.keychain
 
-      - name: Upload updated app archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: namu-archive
-          path: build/Namu.xcarchive
-          overwrite: true
-          retention-days: 30
+      - name: Codesign app
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            echo "No signing identity — skipping codesign"
+            exit 0
+          fi
+          APP_PATH="build/Build/Products/Release/Namu.app"
+          ENTITLEMENTS="Namu.entitlements"
+          CLI_PATH="$APP_PATH/Contents/Resources/bin/namu"
+          if [ -f "$CLI_PATH" ]; then
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
+          fi
+          /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [build-app, build-daemon-and-inject-manifest]
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
+      - name: Notarize app and create DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          APP_PATH="build/Build/Products/Release/Namu.app"
+          DMG_RELEASE="namu-macos.dmg"
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "No notarization secrets — creating unsigned DMG"
+            create-dmg "$APP_PATH" ./ || true
+            mv ./Namu*.dmg "$DMG_RELEASE" 2>/dev/null || create-dmg --skip-jenkins "$APP_PATH" "$DMG_RELEASE" 2>/dev/null || true
+            exit 0
+          fi
 
-      - name: Create Release
+          # Notarize app
+          ZIP_SUBMIT="namu-notary.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
+          APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          APP_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$APP_SUBMIT_JSON")"
+          if [ "$APP_STATUS" != "Accepted" ]; then
+            echo "App notarization failed: $APP_STATUS" >&2
+            exit 1
+          fi
+          xcrun stapler staple "$APP_PATH"
+          rm -f "$ZIP_SUBMIT"
+
+          # Create and notarize DMG
+          create-dmg --identity="$APPLE_SIGNING_IDENTITY" "$APP_PATH" ./
+          mv ./Namu*.dmg "$DMG_RELEASE"
+          DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
+          DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
+          if [ "$DMG_STATUS" != "Accepted" ]; then
+            echo "DMG notarization failed: $DMG_STATUS" >&2
+            exit 1
+          fi
+          xcrun stapler staple "$DMG_RELEASE"
+
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "${SPARKLE_PRIVATE_KEY:-}" ]; then
+            echo "No Sparkle key — skipping appcast generation"
+            exit 0
+          fi
+          ./Scripts/sparkle_generate_appcast.sh namu-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+
+      - name: Upload release assets
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
           files: |
-            artifacts/namu-archive/**
-            artifacts/namud-remote-binaries/**
-          draft: true
+            namu-macos.dmg
+            appcast.xml
+            build/remote-daemon/namud-remote-*
+          generate_release_notes: true
+
+      - name: Upload artifacts (dry-run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: namu-release-dry-run
+          path: |
+            namu-macos.dmg
+            appcast.xml
+          if-no-files-found: warn
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain build.keychain >/dev/null 2>&1 || true
+          rm -f /tmp/cert.p12

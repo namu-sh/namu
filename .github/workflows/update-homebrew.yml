@@ -1,0 +1,139 @@
+name: Update Homebrew Cask
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., 0.1.0 or v0.1.0)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  update-cask:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.event.workflow_run.head_branch }}"
+          fi
+          VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "Could not determine version" >&2
+            exit 1
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              echo "Invalid version: ${VERSION}" >&2
+              exit 1
+            fi
+            echo "Skipping homebrew update for non-release ref: ${VERSION}"
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download DMG and get SHA256
+        id: sha
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          URL="https://github.com/namu-sh/namu/releases/download/v${VERSION}/namu-macos.dmg"
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            HTTP_CODE=$(curl -sL -w '%{http_code}' "$URL" -o namu.dmg)
+            FILE_SIZE=$(stat --printf="%s" namu.dmg 2>/dev/null || stat -f%z namu.dmg)
+            if [ "$HTTP_CODE" = "200" ] && [ "$FILE_SIZE" -gt 1000000 ]; then
+              echo "Download OK: HTTP $HTTP_CODE, size $FILE_SIZE bytes"
+              break
+            fi
+            echo "Attempt $i/$MAX_RETRIES: HTTP $HTTP_CODE, size ${FILE_SIZE:-0} bytes"
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download DMG after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          SHA256=$(shasum -a 256 namu.dmg | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+
+      - name: Checkout homebrew-namu
+        if: steps.version.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: namu-sh/homebrew-namu
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-namu
+
+      - name: Update cask formula
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+        run: |
+          cat > homebrew-namu/Casks/namu.rb << CASKEOF
+          cask "namu" do
+            version "${VERSION}"
+            sha256 "${SHA256}"
+
+            url "https://github.com/namu-sh/namu/releases/download/v#{version}/namu-macos.dmg"
+            name "Namu"
+            desc "Native macOS terminal multiplexer for the agent era"
+            homepage "https://namu-sh.github.io/namu/"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            depends_on macos: ">= :sonoma"
+
+            app "Namu.app"
+            binary "#{appdir}/Namu.app/Contents/Resources/bin/namu"
+
+            zap trash: [
+              "~/Library/Application Support/Namu",
+              "~/Library/Caches/Namu",
+              "~/Library/Preferences/xyz.omlabs.namu.plist",
+            ]
+          end
+          CASKEOF
+          sed -i 's/^          //' homebrew-namu/Casks/namu.rb
+
+      - name: Verify SHA
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          CASK_SHA=$(grep 'sha256' homebrew-namu/Casks/namu.rb | sed 's/.*"\(.*\)".*/\1/')
+          ACTUAL_SHA=$(shasum -a 256 namu.dmg | cut -d' ' -f1)
+          if [ "$CASK_SHA" != "$ACTUAL_SHA" ]; then
+            echo "SHA mismatch! Cask: $CASK_SHA, Actual: $ACTUAL_SHA" >&2
+            exit 1
+          fi
+
+      - name: Commit and push
+        if: steps.version.outputs.skip != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd homebrew-namu
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/namu.rb
+          if git diff --staged --quiet; then
+            echo "No changes - cask already up to date"
+          else
+            git commit -m "Update namu to ${VERSION}"
+            git push
+          fi
