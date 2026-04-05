@@ -173,10 +173,10 @@ daemon/remote ---> TCP relay ---> RelayServer ---> CommandDispatcher</code></pre
 
         <h2>Key Design Decisions</h2>
 
-        <h3>Clean Rewrite</h3>
+        <h3>Clean Architecture</h3>
         <p>
-            Namu references proven ideas from established projects — Ghostty embedding, socket namespaces,
-            layout persistence, portal-style UI coordination — but is a fresh codebase.
+            Namu uses proven patterns — Ghostty embedding, socket namespaces,
+            layout persistence, portal-style UI coordination — with a modular codebase.
             The main architectural goal is to avoid god objects and keep responsibilities
             narrow and testable.
         </p>
