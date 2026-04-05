@@ -334,7 +334,7 @@ final class GhosttyConfig {
     }
 
     /// Candidate directories where Ghostty theme files may live.
-    /// Mirrors the 6-path search order used by Namu/Ghostty config resolution.
+    /// Mirrors the 6-path search order used by Ghostty config resolution.
     func themeSearchPaths() -> [URL] {
         var paths: [URL] = []
 

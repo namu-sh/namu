@@ -102,7 +102,7 @@ python3 Tests/test_v5_commands.py
 
 ## Key Architectural Decisions
 
-1. **Clean rewrite, not a fork.** Namu references Namu patterns (FFI, socket namespaces, portal, persistence) but shares no code. Namu had god objects (15K+ line files) and flat directory structure.
+1. **Clean architecture.** Namu uses established patterns (FFI, socket namespaces, portal, persistence) with modular design and clear separation of concerns.
 
 2. **Single target, folder-based modules.** NamuKit is a folder group within the Xcode project, not a separate Swift package. Same compile unit but organized by domain. SPM extraction planned for pre-v2.
 

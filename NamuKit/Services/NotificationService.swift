@@ -38,7 +38,7 @@ struct InAppNotification: Identifiable, Sendable {
 
 /// In-app notification ring system.
 ///
-/// Ring hierarchy (matching Namu patterns):
+/// Ring hierarchy:
 ///   global   → updates unread count for the whole app (dock badge)
 ///   workspace → sidebar badge on the relevant workspace tab
 ///   pane      → ring indicator on the pane that triggered the notification
