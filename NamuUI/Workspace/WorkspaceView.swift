@@ -36,14 +36,15 @@ struct WorkspaceView: View {
                         TerminalView(
                             panel: panel,
                             onActivate: {
+                                // Focus handled in GhosttySurfaceView.mouseDown via onActivate.
+                                // No .onTapGesture — it intercepts mouse events and breaks
+                                // click-and-drag text selection in the terminal.
                                 panelManager.activatePanel(id: panelID)
+                                controller.focusPane(paneId)
                             },
                             isActive: isActive,
                             isKeyPane: isFocused
                         )
-                        .onTapGesture {
-                            controller.focusPane(paneId)
-                        }
                     } else {
                         Color.clear
                     }
