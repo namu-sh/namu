@@ -271,9 +271,9 @@ final class NamuTelemetry: @unchecked Sendable {
                 "histogram": [
                     "dataPoints": [[
                         "count": String(h.count),
-                        "sum": h.sum,
-                        "min": h.min,
-                        "max": h.max,
+                        "sum": h.sum.finiteOrZero,
+                        "min": h.min.finiteOrZero,
+                        "max": h.max.finiteOrZero,
                         "attributes": h.attributes.map { ["key": $0.key, "value": ["stringValue": $0.value]] },
                         "timeUnixNano": nowNano,
                     ]],
@@ -288,7 +288,7 @@ final class NamuTelemetry: @unchecked Sendable {
                 "unit": g.unit,
                 "gauge": [
                     "dataPoints": [[
-                        "asDouble": g.value,
+                        "asDouble": g.value.finiteOrZero,
                         "attributes": g.attributes.map { ["key": $0.key, "value": ["stringValue": $0.value]] },
                         "timeUnixNano": nowNano,
                     ]],
@@ -389,6 +389,13 @@ private struct LogRecord {
     let severityText: String
     let body: String
     let attributes: [String: String]
+}
+
+// MARK: - JSON-safe Double
+
+private extension Double {
+    /// Returns 0 for infinite/NaN values to prevent JSON serialization crashes.
+    var finiteOrZero: Double { isFinite ? self : 0 }
 }
 
 // MARK: - Log Severity
