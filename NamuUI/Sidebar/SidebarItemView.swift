@@ -230,20 +230,20 @@ struct SidebarItemView: View, Equatable {
     private var trailingArea: some View {
         ZStack {
             // Badges — hidden on hover
-            HStack(spacing: 3) {
+            HStack(spacing: 5) {
                 if panelCount > 1 {
                     Text("\(panelCount)")
                         .font(.system(size: 9, weight: .medium, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
                 if unreadCount > 0 {
                     Text(unreadCount < 100 ? "\(unreadCount)" : "99+")
-                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
                         .background(.red, in: Capsule())
                 }
             }

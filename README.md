@@ -6,6 +6,10 @@
 
 **AI native terminal app.**
 
+<p align="center">
+  <img src="Resources/namu-screenshot.png" width="720" alt="Namu Screenshot">
+</p>
+
 Namu is a native macOS terminal app built on [Ghostty](https://ghostty.org/). It organizes work into workspaces with split panes, exposes full programmatic control over a JSON-RPC socket API, ships a `namu` CLI for automation, and provides SSH remote workspace orchestration, deep agent integrations, and embedded browser automation.
 
 ## Features
