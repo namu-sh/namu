@@ -306,4 +306,4 @@ Please read `AGENTS.md` for architecture and workflow conventions before editing
 
 ## License
 
-See `LICENSE`.
+MIT License. See [LICENSE](LICENSE).
