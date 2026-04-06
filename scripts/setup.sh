@@ -55,10 +55,11 @@ else
     if [ -d "$LOCAL_XCFRAMEWORK" ] && [ "$LOCAL_SHA" = "$GHOSTTY_SHA" ]; then
         echo "==> Seeding cache from existing local GhosttyKit.xcframework (SHA matches)"
     else
-        echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+        XC_TARGET="${NAMU_GHOSTTYKIT_TARGET:-universal}"
+        echo "==> Building GhosttyKit.xcframework (target=$XC_TARGET, this may take a few minutes)..."
         (
             cd ghostty
-            zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+            zig build -Demit-xcframework=true -Dxcframework-target="$XC_TARGET" -Doptimize=ReleaseFast
         )
         # Stamp the build output with the SHA it was built from
         echo "$GHOSTTY_SHA" > "$LOCAL_SHA_STAMP"
