@@ -106,9 +106,11 @@ struct NamuPaneContainerView<Content: View, EmptyContent: View>: View {
     @ViewBuilder
     private func dropZonesLayer(size: CGSize) -> some View {
         ZStack {
+            // Focus-on-tap overlay: only active during tab drags so it doesn't
+            // intercept normal mouse events (click-and-drag text selection, etc.).
             Color.clear
                 .onTapGesture { controller.focusPane(pane.id) }
-                .allowsHitTesting(!isTabDragActive)
+                .allowsHitTesting(isTabDragActive)
 
             Color.clear
                 .contentShape(Rectangle())
@@ -117,6 +119,7 @@ struct NamuPaneContainerView<Content: View, EmptyContent: View>: View {
                     activeDropZone: $activeDropZone, dropLifecycle: $dropLifecycle
                 ))
         }
+        .allowsHitTesting(isTabDragActive)
     }
 }
 
