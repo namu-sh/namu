@@ -111,6 +111,7 @@ struct NamuPaneContainerView<Content: View, EmptyContent: View>: View {
                 .allowsHitTesting(!isTabDragActive)
 
             Color.clear
+                .contentShape(Rectangle())
                 .onDrop(of: [.namuTabTransfer], delegate: NamuUnifiedPaneDropDelegate(
                     size: size, pane: pane, controller: controller,
                     activeDropZone: $activeDropZone, dropLifecycle: $dropLifecycle

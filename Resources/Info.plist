@@ -26,9 +26,29 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>com.splittabbar.tabtransfer</string>
+			<string>com.namu.tabtransfer</string>
 			<key>UTTypeDescription</key>
-			<string>Bonsplit Tab Transfer</string>
+			<string>Namu Tab Transfer</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.namu.tabitem</string>
+			<key>UTTypeDescription</key>
+			<string>Namu Tab Item</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>xyz.omlabs.namu.panetab</string>
+			<key>UTTypeDescription</key>
+			<string>Namu Pane Tab</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
