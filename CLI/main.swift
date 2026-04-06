@@ -2,14 +2,6 @@ import Foundation
 import Darwin
 import Security
 
-// MARK: - ID Format
-
-enum CLIIDFormat: String {
-    case refs
-    case uuids
-    case both
-}
-
 // MARK: - Errors
 
 struct CLIError: Error, CustomStringConvertible {
@@ -21,7 +13,7 @@ struct CLIError: Error, CustomStringConvertible {
 
 final class SocketClient {
     private let path: String
-    var socketFD: Int32 = -1
+    private var socketFD: Int32 = -1
 
     init(path: String) {
         self.path = path
@@ -176,58 +168,6 @@ final class SocketClient {
     }
 }
 
-// MARK: - Socket Path Resolution
-
-func readPasswordFromFile() -> String? {
-    let path = NSHomeDirectory() + "/.namu/socket-password"
-    guard let data = FileManager.default.contents(atPath: path),
-          let str = String(data: data, encoding: .utf8) else { return nil }
-    return str.trimmingCharacters(in: .whitespacesAndNewlines)
-}
-
-func resolveSocketPath(explicit: String?) -> String {
-    // 1. Explicit --socket flag
-    if let explicit = explicit, !explicit.isEmpty { return explicit }
-
-    // 2. NAMU_SOCKET env var
-    if let envPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"], !envPath.isEmpty {
-        return envPath
-    }
-
-    // 3. Stable path in Application Support
-    let stablePath = NSHomeDirectory() + "/.local/share/namu/namu.sock"
-    if FileManager.default.fileExists(atPath: stablePath) {
-        return stablePath
-    }
-
-    // 4. Last-socket-path file (saved by previous session)
-    let lastSocketFile = NSHomeDirectory() + "/.local/share/namu/last-socket-path"
-    if let lastPath = try? String(contentsOfFile: lastSocketFile, encoding: .utf8)
-        .trimmingCharacters(in: .whitespacesAndNewlines),
-       !lastPath.isEmpty,
-       FileManager.default.fileExists(atPath: lastPath) {
-        return lastPath
-    }
-
-    // 5. User-scoped tmp path
-    let uid = getuid()
-    let userPath = "/tmp/namu-\(uid).sock"
-    if FileManager.default.fileExists(atPath: userPath) {
-        return userPath
-    }
-
-    // 6. Tagged socket (for debug builds)
-    if let tag = ProcessInfo.processInfo.environment["NAMU_TAG"], !tag.isEmpty {
-        let taggedPath = "/tmp/namu-\(tag).sock"
-        if FileManager.default.fileExists(atPath: taggedPath) {
-            return taggedPath
-        }
-    }
-
-    // 7. Default fallback
-    return "/tmp/namu.sock"
-}
-
 // MARK: - Argument Parsing
 
 struct ParsedArgs {
@@ -235,20 +175,16 @@ struct ParsedArgs {
     let command: String
     let params: [String: Any]
     let socketPath: String
-    let password: String?
     let jsonOutput: Bool
     let timeout: TimeInterval
-    let idFormat: CLIIDFormat
 }
 
 func parseArguments(_ args: [String]) throws -> ParsedArgs {
     let remaining = Array(args.dropFirst()) // drop executable name
 
-    var explicitSocketPath: String? = nil
-    var explicitPassword: String? = nil
+    var socketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
     var jsonOutput = false
     var timeout: TimeInterval = 5.0
-    var idFormat: CLIIDFormat = .refs
 
     // Extract flags before namespace/command
     var i = 0
@@ -262,29 +198,9 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
             guard i < remaining.count else {
                 throw CLIError(message: "--socket requires a path argument")
             }
-            explicitSocketPath = remaining[i]
-        } else if arg == "--password" {
-            i += 1
-            guard i < remaining.count else {
-                throw CLIError(message: "--password requires a value argument")
-            }
-            explicitPassword = remaining[i]
+            socketPath = remaining[i]
         } else if arg == "--json" {
             jsonOutput = true
-        } else if arg == "--no-focus" {
-            paramMap["focus"] = false
-        } else if arg == "--id-format" {
-            i += 1
-            guard i < remaining.count else {
-                throw CLIError(message: "--id-format requires a value: refs, uuids, or both")
-            }
-            switch remaining[i].lowercased() {
-            case "refs":  idFormat = .refs
-            case "uuids": idFormat = .uuids
-            case "both":  idFormat = .both
-            default:
-                throw CLIError(message: "--id-format must be refs, uuids, or both")
-            }
         } else if arg == "--timeout" {
             i += 1
             guard i < remaining.count, let t = TimeInterval(remaining[i]) else {
@@ -332,46 +248,92 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
     }
 
     // Validate namespace
-    let validNamespaces = ["workspace", "pane", "surface", "notification", "browser", "system", "ai", "window", "debug"]
+    let validNamespaces = ["workspace", "pane", "surface", "notification", "browser", "system", "ai", "window", "debug", "fullscreen"]
     guard validNamespaces.contains(namespace) else {
         throw CLIError(message: "Unknown namespace '\(namespace)'. Valid namespaces: \(validNamespaces.joined(separator: ", "))")
     }
 
-    // Map window.* → workspace.* for user convenience
+    // Map window.* → IPC window.* commands (real multi-window management)
+    // Legacy aliases: "new" → workspace.create for backward compat
     if namespace == "window" {
-        let windowCommandMap: [String: (String, String)] = [
-            "new":   ("workspace", "create"),
-            "list":  ("workspace", "list"),
-            "focus": ("workspace", "select"),
-            "close": ("workspace", "delete")
-        ]
-        if let (mappedNS, mappedCmd) = windowCommandMap[command] {
+        let windowDirectMap = Set(["list", "current", "focus", "create", "close"])
+        if windowDirectMap.contains(command) {
             return ParsedArgs(
-                namespace: mappedNS,
-                command: mappedCmd,
+                namespace: "window",
+                command: command,
                 params: paramMap,
-                socketPath: resolveSocketPath(explicit: explicitSocketPath),
-                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
+                socketPath: socketPath,
                 jsonOutput: jsonOutput,
-                timeout: timeout,
-                idFormat: idFormat
+                timeout: timeout
             )
         }
-        throw CLIError(message: "Unknown window command '\(command)'. Valid commands: new, list, focus, close")
+        // Legacy alias: "new" → workspace.create
+        if command == "new" {
+            return ParsedArgs(
+                namespace: "workspace",
+                command: "create",
+                params: paramMap,
+                socketPath: socketPath,
+                jsonOutput: jsonOutput,
+                timeout: timeout
+            )
+        }
+        throw CLIError(message: "Unknown window command '\(command)'. Valid commands: list, current, focus, create, close, new")
     }
 
-    // Map debug.* → system.* + internal debug commands
+    // Map fullscreen.* → IPC fullscreen.* commands
+    if namespace == "fullscreen" {
+        let fsCommands = Set(["toggle", "status"])
+        if fsCommands.contains(command) {
+            return ParsedArgs(
+                namespace: "fullscreen",
+                command: command,
+                params: paramMap,
+                socketPath: socketPath,
+                jsonOutput: jsonOutput,
+                timeout: timeout
+            )
+        }
+        throw CLIError(message: "Unknown fullscreen command '\(command)'. Valid commands: toggle, status")
+    }
+
+    // Map debug.* → IPC debug.* commands
     if namespace == "debug" {
+        // Direct passthrough for all debug IPC commands
+        let debugDirectMap: [String: String] = [
+            "layout":           "layout",
+            "screenshot":       "window.screenshot",
+            "snapshot":         "panel_snapshot",
+            "snapshot_reset":   "panel_snapshot.reset",
+            "flash":            "flash.count",
+            "flash_reset":      "flash.reset",
+            "render_stats":     "render_stats",
+            "focus_override":   "app_focus.override",
+            "simulate_active":  "app_focus.simulate_active",
+            "palette_toggle":   "command_palette.toggle",
+            "palette_visible":  "command_palette.visible",
+            "palette_results":  "command_palette.results",
+            "palette_selection":"command_palette.selection",
+        ]
+        if let mappedCmd = debugDirectMap[command] {
+            return ParsedArgs(
+                namespace: "debug",
+                command: mappedCmd,
+                params: paramMap,
+                socketPath: socketPath,
+                jsonOutput: jsonOutput,
+                timeout: timeout
+            )
+        }
+        // Legacy aliases
         if command == "stats" {
             return ParsedArgs(
                 namespace: "system",
                 command: "status",
                 params: paramMap,
-                socketPath: resolveSocketPath(explicit: explicitSocketPath),
-                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
+                socketPath: socketPath,
                 jsonOutput: jsonOutput,
-                timeout: timeout,
-                idFormat: idFormat
+                timeout: timeout
             )
         }
         if command == "capabilities" || command == "caps" {
@@ -379,14 +341,12 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
                 namespace: "system",
                 command: "capabilities",
                 params: paramMap,
-                socketPath: resolveSocketPath(explicit: explicitSocketPath),
-                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
+                socketPath: socketPath,
                 jsonOutput: jsonOutput,
-                timeout: timeout,
-                idFormat: idFormat
+                timeout: timeout
             )
         }
-        throw CLIError(message: "Unknown debug command '\(command)'. Valid commands: stats, capabilities")
+        throw CLIError(message: "Unknown debug command '\(command)'. Valid commands: layout, screenshot, snapshot, snapshot_reset, render_stats, flash, flash_reset, focus_override, simulate_active, palette_toggle, palette_visible, palette_results, palette_selection, stats, capabilities")
     }
 
     // browser subcommand aliases
@@ -421,11 +381,9 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
                 namespace: namespace,
                 command: resolvedCommand,
                 params: paramMap,
-                socketPath: resolveSocketPath(explicit: explicitSocketPath),
-                password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
+                socketPath: socketPath,
                 jsonOutput: jsonOutput,
-                timeout: timeout,
-                idFormat: idFormat
+                timeout: timeout
             )
         }
 
@@ -433,11 +391,9 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
             namespace: namespace,
             command: resolvedCommand,
             params: paramMap,
-            socketPath: resolveSocketPath(explicit: explicitSocketPath),
-            password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
+            socketPath: socketPath,
             jsonOutput: jsonOutput,
-            timeout: timeout,
-            idFormat: idFormat
+            timeout: timeout
         )
     }
 
@@ -451,11 +407,9 @@ func parseArguments(_ args: [String]) throws -> ParsedArgs {
         namespace: namespace,
         command: command,
         params: paramMap,
-        socketPath: resolveSocketPath(explicit: explicitSocketPath),
-        password: explicitPassword ?? ProcessInfo.processInfo.environment["NAMU_SOCKET_PASSWORD"] ?? readPasswordFromFile(),
+        socketPath: socketPath,
         jsonOutput: jsonOutput,
-        timeout: timeout,
-        idFormat: idFormat
+        timeout: timeout
     )
 }
 
@@ -522,12 +476,9 @@ func usageString() -> String {
       namu notification create --title "Build done" --body "Success"
 
     Flags:
-      --socket <path>    Custom socket path (default: $NAMU_SOCKET or auto-discovered)
-      --password <pw>    Auth password (default: $NAMU_SOCKET_PASSWORD or ~/.namu/socket-password)
+      --socket <path>    Custom socket path (default: $NAMU_SOCKET or /tmp/namu.sock)
       --json             Output raw JSON response
       --timeout <secs>   Request timeout in seconds (default: 5, 30 for long-running commands)
-      --id-format <mode> Output ID format: refs (default), uuids, or both
-      --no-focus         Don't focus the created/selected item
     """
 }
 
@@ -570,140 +521,6 @@ func jsonString(_ object: Any) -> String {
     return str
 }
 
-func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
-    let ref = item["ref"] as? String
-    let id  = item["id"] as? String
-    switch idFormat {
-    case .refs:  return ref ?? id ?? "?"
-    case .uuids: return id ?? ref ?? "?"
-    case .both:  return [ref, id].compactMap { $0 }.joined(separator: " ")
-    }
-}
-
-/// Print a workspace list in text mode.
-private func printWorkspaceList(_ workspaces: [Any], idFormat: CLIIDFormat) {
-    for item in workspaces {
-        guard let ws = item as? [String: Any] else { continue }
-        let handle   = textHandle(ws, idFormat: idFormat)
-        let title    = ws["title"] as? String ?? ""
-        let selected = (ws["selected"] as? Bool) == true
-        let suffix   = selected ? "  (selected)" : ""
-        print("\(handle)  \"\(title)\"\(suffix)")
-    }
-}
-
-/// Print a surface list in text mode.
-private func printSurfaceList(_ surfaces: [Any], idFormat: CLIIDFormat) {
-    for item in surfaces {
-        guard let surf = item as? [String: Any] else { continue }
-        let handle  = textHandle(surf, idFormat: idFormat)
-        let title   = surf["title"] as? String ?? ""
-        let focused = (surf["focused"] as? Bool) == true
-        let suffix  = focused ? "  (focused)" : ""
-        print("\(handle)  \"\(title)\"\(suffix)")
-    }
-}
-
-// MARK: - Auth
-
-func authenticateIfNeeded(client: SocketClient, password: String?) throws {
-    guard let pw = password, !pw.isEmpty else { return }
-    let authRequest: [String: Any] = [
-        "id": 0,
-        "method": "auth",
-        "params": ["password": pw]
-    ]
-    guard let data = try? JSONSerialization.data(withJSONObject: authRequest),
-          let line = String(data: data, encoding: .utf8) else {
-        throw CLIError(message: "Failed to encode auth request")
-    }
-    let message = line + "\n"
-    try message.withCString { ptr in
-        let sent = Darwin.write(client.socketFD, ptr, strlen(ptr))
-        if sent < 0 {
-            throw CLIError(message: "Failed to send auth request")
-        }
-    }
-    // Read auth response (best effort)
-    var buffer = [UInt8](repeating: 0, count: 4096)
-    let n = Darwin.read(client.socketFD, &buffer, buffer.count)
-    if n > 0 {
-        if let responseStr = String(bytes: buffer[..<n], encoding: .utf8),
-           responseStr.contains("\"error\"") {
-            fputs("namu: Authentication failed\n", stderr)
-            exit(1)
-        }
-    }
-}
-
-// MARK: - Ref Resolution
-
-/// Keys in IPC params that may contain ref-style IDs (e.g., "workspace:1").
-private let refResolvableKeys: Set<String> = ["id", "workspace_id", "pane_id", "surface_id", "target_pane_id"]
-
-/// Resolve ref-style IDs (e.g., "workspace:1", "surface:0") in params to UUIDs.
-/// Queries the server's list commands to map refs/indexes to actual UUIDs.
-func resolveRefParams(_ params: [String: Any], client: SocketClient, timeout: TimeInterval) -> [String: Any] {
-    var resolved = params
-    for (key, value) in params {
-        guard refResolvableKeys.contains(key), let strValue = value as? String else { continue }
-        // Skip if already a valid UUID
-        if UUID(uuidString: strValue) != nil { continue }
-        // Try to resolve ref or bare index
-        if let uuid = resolveRefToUUID(strValue, key: key, client: client, timeout: timeout) {
-            resolved[key] = uuid
-        }
-    }
-    return resolved
-}
-
-private func resolveRefToUUID(_ ref: String, key: String, client: SocketClient, timeout: TimeInterval) -> String? {
-    // Determine which list command to call based on the key/ref prefix
-    let listMethod: String
-    let refPrefix: String
-    if key.contains("workspace") || ref.hasPrefix("workspace:") {
-        listMethod = "workspace.list"
-        refPrefix = "workspace:"
-    } else if key.contains("surface") || ref.hasPrefix("surface:") {
-        listMethod = "surface.list"
-        refPrefix = "surface:"
-    } else if key.contains("pane") || ref.hasPrefix("pane:") {
-        listMethod = "pane.list"
-        refPrefix = "pane:"
-    } else {
-        return nil
-    }
-
-    // Extract the index from "kind:N" or bare "N"
-    let indexStr: String
-    if ref.hasPrefix(refPrefix) {
-        indexStr = String(ref.dropFirst(refPrefix.count))
-    } else {
-        indexStr = ref
-    }
-    guard let targetIndex = Int(indexStr) else { return nil }
-
-    // Query the server
-    guard let response = try? client.sendRequest(method: listMethod, params: [:], timeout: timeout),
-          let result = response["result"] as? [String: Any] else { return nil }
-
-    // Find the item matching the index
-    let itemsKey = listMethod == "workspace.list" ? "workspaces" : (listMethod == "surface.list" ? "surfaces" : "panes")
-    guard let items = result[itemsKey] as? [[String: Any]] else { return nil }
-
-    for item in items {
-        if let itemIndex = item["index"] as? Int, itemIndex == targetIndex,
-           let id = item["id"] as? String {
-            return id
-        }
-        if let itemRef = item["ref"] as? String, itemRef == ref,
-           let id = item["id"] as? String {
-            return id
-        }
-    }
-    return nil
-}
-
 // MARK: - Main
 
 func run() throws {
@@ -724,14 +541,9 @@ func run() throws {
         throw error
     }
 
-    try authenticateIfNeeded(client: client, password: parsed.password)
-
-    // Resolve ref-style IDs (e.g., "workspace:1") to UUIDs before sending.
-    let resolvedParams = resolveRefParams(parsed.params, client: client, timeout: parsed.timeout)
-
     let response = try client.sendRequest(
         method: method,
-        params: resolvedParams,
+        params: parsed.params,
         timeout: parsed.timeout
     )
 
@@ -763,20 +575,12 @@ func run() throws {
         print(jsonString(response))
     } else {
         // If there's a result key, pretty-print it; otherwise print the whole response
-        if let result = response["result"] as? [String: Any] {
-            if result.isEmpty {
+        if let result = response["result"] {
+            if let dict = result as? [String: Any], dict.isEmpty {
                 print("OK")
-            } else if parsed.namespace == "workspace" && parsed.command == "list",
-                      let workspaces = result["workspaces"] as? [Any] {
-                printWorkspaceList(workspaces, idFormat: parsed.idFormat)
-            } else if (parsed.namespace == "surface" || parsed.namespace == "pane") && parsed.command == "list",
-                      let surfaces = result["surfaces"] as? [Any] {
-                printSurfaceList(surfaces, idFormat: parsed.idFormat)
             } else {
                 prettyPrint(result)
             }
-        } else if let result = response["result"] {
-            prettyPrint(result)
         } else {
             // Filter out jsonrpc/id metadata for cleaner output
             var display = response
@@ -1112,7 +916,7 @@ func handleSSH(_ args: [String]) throws {
     let relayID = randomHex(16)
     let relayToken = randomHex(32)
     let relayPort = findFreePort() ?? 0
-    let localSocketPath = resolveSocketPath(explicit: nil)
+    let localSocketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
 
     let client = SocketClient(path: localSocketPath)
     defer { client.close() }
@@ -1259,7 +1063,7 @@ func handleSSHSessionEnd(remaining: [String]) {
     if let sid = surfaceID { params["surface_id"] = sid }
 
     // Best effort — don't fail if socket unavailable.
-    let socketPath = resolveSocketPath(explicit: nil)
+    let socketPath = ProcessInfo.processInfo.environment["NAMU_SOCKET"] ?? "/tmp/namu.sock"
     let client = SocketClient(path: socketPath)
     defer { client.close() }
     if (try? client.connect()) != nil {
@@ -1273,83 +1077,18 @@ func handleSSHSessionEnd(remaining: [String]) {
     // Best-effort ControlMaster cleanup using the known ControlPath template.
     if let rp = relayPort {
         let uid = getuid()
-        let prefix = "namu-ssh-\(uid)-\(rp)-"
-        let tmpDir = "/tmp"
-        if let items = try? FileManager.default.contentsOfDirectory(atPath: tmpDir) {
-            for item in items where item.hasPrefix(prefix) {
-                let sockPath = "\(tmpDir)/\(item)"
-                var statBuf = stat()
-                guard stat(sockPath, &statBuf) == 0, (statBuf.st_mode & S_IFSOCK) != 0 else { continue }
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-                proc.arguments = ["-O", "exit", "-o", "ControlPath=\(sockPath)", "dummy"]
-                proc.standardOutput = FileHandle.nullDevice
-                proc.standardError = FileHandle.nullDevice
-                try? proc.run()
-                proc.waitUntilExit()
-            }
-        }
-    }
-}
-
-// MARK: - Claude Hook Session Store
-
-struct ClaudeHookSessionRecord: Codable {
-    var sessionId: String
-    var workspaceId: String?
-    var surfaceId: String?
-    var cwd: String?
-    var pid: String?
-    var lastSubtitle: String?
-    var lastBody: String?
-    var createdAt: Date
-    var updatedAt: Date
-}
-
-struct ClaudeHookSessionStore {
-    private static let storePath = NSHomeDirectory() + "/.namu/claude-hook-sessions.json"
-    private static let maxAgeSeconds: TimeInterval = 7 * 24 * 3600  // 7 days
-
-    static func load() -> [String: ClaudeHookSessionRecord] {
-        guard let data = FileManager.default.contents(atPath: storePath),
-              let records = try? JSONDecoder().decode([String: ClaudeHookSessionRecord].self, from: data) else {
-            return [:]
-        }
-        // Reap stale records
-        let cutoff = Date().addingTimeInterval(-maxAgeSeconds)
-        return records.filter { $0.value.updatedAt > cutoff }
-    }
-
-    static func save(_ records: [String: ClaudeHookSessionRecord]) {
-        let dir = (storePath as NSString).deletingLastPathComponent
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(records) else { return }
-        try? data.write(to: URL(fileURLWithPath: storePath), options: .atomic)
-    }
-
-    static func upsert(sessionId: String, update: (inout ClaudeHookSessionRecord) -> Void) {
-        var records = load()
-        var record = records[sessionId] ?? ClaudeHookSessionRecord(
-            sessionId: sessionId,
-            createdAt: Date(),
-            updatedAt: Date()
-        )
-        update(&record)
-        record.updatedAt = Date()
-        records[sessionId] = record
-        save(records)
-    }
-
-    static func remove(sessionId: String) {
-        var records = load()
-        records.removeValue(forKey: sessionId)
-        save(records)
-    }
-
-    static func lookup(sessionId: String) -> ClaudeHookSessionRecord? {
-        load()[sessionId]
+        let controlPathPattern = "/tmp/namu-ssh-\(uid)-\(rp)-*"
+        let cleanupProcess = Process()
+        cleanupProcess.executableURL = URL(fileURLWithPath: "/bin/sh")
+        cleanupProcess.arguments = ["-c", """
+            for sock in \(controlPathPattern); do
+                [ -S "$sock" ] && ssh -O exit -o ControlPath="$sock" dummy 2>/dev/null || true
+            done
+        """]
+        cleanupProcess.standardOutput = FileHandle.nullDevice
+        cleanupProcess.standardError = FileHandle.nullDevice
+        try? cleanupProcess.run()
+        cleanupProcess.waitUntilExit()
     }
 }
 
@@ -1398,13 +1137,6 @@ func handleClaudeHook(_ args: [String]) throws {
     case "session-start":
         if let sessionID = context["session_id"] as? String {
             params["session_id"] = sessionID
-            let cwd = context["cwd"] as? String
-            ClaudeHookSessionStore.upsert(sessionId: sessionID) { record in
-                record.workspaceId = workspaceID.isEmpty ? nil : workspaceID
-                record.surfaceId = surfaceID.isEmpty ? nil : surfaceID
-                record.pid = claudePID.isEmpty ? nil : claudePID
-                record.cwd = cwd
-            }
         }
         params["status"] = "running"
         _ = try? client.sendRequest(method: "system.claude_hook", params: params, timeout: 5)
@@ -1431,9 +1163,6 @@ func handleClaudeHook(_ args: [String]) throws {
     case "session-end":
         params["status"] = "ended"
         _ = try? client.sendRequest(method: "system.claude_hook", params: params, timeout: 1)
-        if let sessionID = context["session_id"] as? String {
-            ClaudeHookSessionStore.remove(sessionId: sessionID)
-        }
 
     case "notification":
         let notifTitle = (context["title"] as? String) ?? "Claude Code"
@@ -1445,12 +1174,6 @@ func handleClaudeHook(_ args: [String]) throws {
             "workspace_id": workspaceID,
         ]
         _ = try? client.sendRequest(method: "notification.create", params: notifParams, timeout: 5)
-        if let sessionID = context["session_id"] as? String {
-            ClaudeHookSessionStore.upsert(sessionId: sessionID) { record in
-                record.lastSubtitle = notifTitle
-                record.lastBody = notifBody
-            }
-        }
 
     case "prompt-submit":
         params["status"] = "running"
@@ -2809,20 +2532,17 @@ func handleTmuxCompat(_ args: [String]) throws {
 
     case "last-window":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
-        _ = parsed
-        _ = try client.sendV2(method: "workspace.last", params: [:])
+        _ = parsed // accept silently — no direct mapping
         return
 
     case "next-window", "next":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
         _ = parsed
-        _ = try client.sendV2(method: "workspace.next", params: [:])
         return
 
     case "previous-window", "prev":
         let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
         _ = parsed
-        _ = try client.sendV2(method: "workspace.previous", params: [:])
         return
 
     case "show-buffer", "showb":
