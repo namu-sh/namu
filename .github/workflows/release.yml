@@ -60,7 +60,7 @@ jobs:
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Build GhosttyKit
-        run: ./Scripts/setup.sh
+        run: NAMU_GHOSTTYKIT_TARGET=native ./Scripts/setup.sh
 
       - name: Derive Sparkle public key
         env:
