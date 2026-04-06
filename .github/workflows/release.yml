@@ -193,6 +193,30 @@ jobs:
           fi
           ./Scripts/sparkle_generate_appcast.sh namu-macos.dmg "$GITHUB_REF_NAME" appcast.xml
 
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          {
+            [ -f namu-macos.dmg ] && shasum -a 256 namu-macos.dmg
+            for f in build/remote-daemon/namud-remote-*; do
+              [ -f "$f" ] && shasum -a 256 "$f"
+            done
+          } > SHA256SUMS.txt
+          echo "--- SHA256SUMS.txt ---"
+          cat SHA256SUMS.txt
+
+      - name: Attest DMG provenance
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && hashFiles('namu-macos.dmg') != ''
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'namu-macos.dmg'
+
+      - name: Attest daemon binaries
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'build/remote-daemon/namud-remote-*'
+
       - name: Upload release assets
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -200,8 +224,19 @@ jobs:
           files: |
             namu-macos.dmg
             appcast.xml
+            SHA256SUMS.txt
             build/remote-daemon/namud-remote-*
           generate_release_notes: true
+          body: |
+            ## Verify
+
+            ```bash
+            # Check checksums
+            shasum -a 256 -c SHA256SUMS.txt
+
+            # Verify build provenance (requires gh CLI)
+            gh attestation verify namu-macos.dmg --owner namu-sh
+            ```
 
       - name: Upload artifacts (dry-run)
         if: github.event_name == 'workflow_dispatch'
@@ -211,6 +246,7 @@ jobs:
           path: |
             namu-macos.dmg
             appcast.xml
+            SHA256SUMS.txt
           if-no-files-found: warn
 
       - name: Cleanup keychain
